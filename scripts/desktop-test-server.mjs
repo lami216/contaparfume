@@ -25,7 +25,7 @@ async function packagedRuntime() {
   }
   const relocatedTree = join(relocatedPackageDirectory, preferred[0].name);
   await cp(tree, relocatedTree, {recursive: true, dereference: true});
-  const executable = (await readdir(relocatedTree)).find((file) => file === 'الكرنه.exe');
+  const executable = (await readdir(relocatedTree)).find((file) => file === 'الكرنة للعطور.exe');
   if (!executable) throw new Error(`Packaged Electron executable missing from ${relocatedTree}`);
   console.log(`PACKAGED relocated win-unpacked: ${relocatedTree}`);
   return {root: join(relocatedTree, 'resources', RUNTIME_DIRECTORY), electronExecutable: join(relocatedTree, executable)};
