@@ -7,1550 +7,1550 @@ TAP version 13
 # Subtest: bank summary counts external cash only and nets every party onto one debt side
 ok 1 - bank summary counts external cash only and nets every party onto one debt side
   ---
-  duration_ms: 2.740246
+  duration_ms: 5.147233
   type: 'test'
   ...
 # Subtest: party aggregates keep trade, actual cash, profit and invoice count separate
 ok 2 - party aggregates keep trade, actual cash, profit and invoice count separate
   ---
-  duration_ms: 0.357419
+  duration_ms: 0.358973
   type: 'test'
   ...
 # Subtest: operational product selectors centrally exclude archived products
 ok 3 - operational product selectors centrally exclude archived products
   ---
-  duration_ms: 0.238837
+  duration_ms: 0.24478
   type: 'test'
   ...
 # Subtest: shared asynchronous confirmation owns focus, escape, tab trapping, and single settlement
 ok 4 - shared asynchronous confirmation owns focus, escape, tab trapping, and single settlement
   ---
-  duration_ms: 6.046472
+  duration_ms: 7.341251
   type: 'test'
   ...
 # Subtest: renderer contains no blocking confirm or alert calls
 ok 5 - renderer contains no blocking confirm or alert calls
   ---
-  duration_ms: 6.398701
+  duration_ms: 4.890394
   type: 'test'
   ...
 # Subtest: native backup is versioned, complete, secret-free, and preserves BSON dates
 ok 6 - native backup is versioned, complete, secret-free, and preserves BSON dates
   ---
-  duration_ms: 9.384164
+  duration_ms: 21.535093
   type: 'test'
   ...
 # Subtest: native backup rejects invalid formats, future schemas, duplicate ids and references
 ok 7 - native backup rejects invalid formats, future schemas, duplicate ids and references
   ---
-  duration_ms: 2.057506
+  duration_ms: 2.060716
   type: 'test'
   ...
 # Subtest: SQLite detection uses magic and schema preview reads real counts
 ok 8 - SQLite detection uses magic and schema preview reads real counts
   ---
-  duration_ms: 67.026543
+  duration_ms: 57.302939
   type: 'test'
   ...
 # Subtest: sql.js runtime resolves the real WASM file without import.meta.resolve
 ok 9 - sql.js runtime resolves the real WASM file without import.meta.resolve
   ---
-  duration_ms: 2.478484
+  duration_ms: 7.184844
   type: 'test'
   ...
 # Subtest: API response reader turns an HTML 413 into a safe Arabic error
 ok 10 - API response reader turns an HTML 413 into a safe Arabic error
   ---
-  duration_ms: 31.543815
+  duration_ms: 58.8187
   type: 'test'
   ...
 # Subtest: 6MB SQLite is accepted and reassembled in ordered safe chunks
 ok 11 - 6MB SQLite is accepted and reassembled in ordered safe chunks
   ---
-  duration_ms: 194.833228
+  duration_ms: 77.965794
   type: 'test'
   ...
 # Subtest: chunk upload rejects missing, duplicate and invalid SQLite data
 ok 12 - chunk upload rejects missing, duplicate and invalid SQLite data
   ---
-  duration_ms: 8.888746
+  duration_ms: 18.713838
   type: 'test'
   ...
 # Subtest: standalone configuration traces the sql.js WASM runtime
 ok 13 - standalone configuration traces the sql.js WASM runtime
   ---
-  duration_ms: 2.79764
+  duration_ms: 1.108145
   type: 'test'
   ...
 # Subtest: chunk upload rejects totals above the 50MB application limit
 ok 14 - chunk upload rejects totals above the 50MB application limit
   ---
-  duration_ms: 2.699376
+  duration_ms: 3.773086
   type: 'test'
   ...
 # Subtest: restore preserves an empty user collection without resurrecting a default owner
 ok 15 - restore preserves an empty user collection without resurrecting a default owner
   ---
-  duration_ms: 221.664456
+  duration_ms: 107.417668
   type: 'test'
   ...
 # Subtest: restore remediates legacy parties and rebuilds document and product counters transactionally
 ok 16 - restore remediates legacy parties and rebuilds document and product counters transactionally
   ---
-  duration_ms: 25.622186
+  duration_ms: 50.22712
   type: 'test'
   ...
 # Subtest: failed restore rolls back all replaced collections and strict EJSON values survive a successful restore
 ok 17 - failed restore rolls back all replaced collections and strict EJSON values survive a successful restore
   ---
-  duration_ms: 28.169477
+  duration_ms: 38.8066
   type: 'test'
   ...
 # Subtest: visible Arabic brand spelling is authoritative across source, config, and docs
 ok 18 - visible Arabic brand spelling is authoritative across source, config, and docs
   ---
-  duration_ms: 109.061685
+  duration_ms: 79.395746
   type: 'test'
   ...
 # Subtest: sales use quantity multiplied by piece price only
 ok 19 - sales use quantity multiplied by piece price only
   ---
-  duration_ms: 1.146223
+  duration_ms: 0.956507
   type: 'test'
   ...
 # Subtest: quantity is displayed without a redundant unit suffix
 ok 20 - quantity is displayed without a redundant unit suffix
   ---
-  duration_ms: 0.439892
+  duration_ms: 0.484192
   type: 'test'
   ...
 # Subtest: invalid sale quantities total zero
 ok 21 - invalid sale quantities total zero
   ---
-  duration_ms: 0.176049
+  duration_ms: 0.149216
   type: 'test'
   ...
 # Subtest: missing and non-finite report numbers display as zero
 ok 22 - missing and non-finite report numbers display as zero
   ---
-  duration_ms: 1.067045
+  duration_ms: 1.422871
   type: 'test'
   ...
 # Subtest: application selection guard preserves editable selection
 ok 23 - application selection guard preserves editable selection
   ---
-  duration_ms: 1.277347
+  duration_ms: 1.708744
   type: 'test'
   ...
 # Subtest: all warehouse inventory has a technical sentinel and active aggregation
 ok 24 - all warehouse inventory has a technical sentinel and active aggregation
   ---
-  duration_ms: 0.245049
+  duration_ms: 0.346634
   type: 'test'
   ...
 # Subtest: shared select closes before change and pointer selection fires once
 ok 25 - shared select closes before change and pointer selection fires once
   ---
-  duration_ms: 1.121917
+  duration_ms: 2.176621
   type: 'test'
   ...
 # Subtest: opening correction changes current balance only by opening delta
 ok 26 - opening correction changes current balance only by opening delta
   ---
-  duration_ms: 0.308256
+  duration_ms: 0.520947
   type: 'test'
   ...
 # Subtest: shared table comparison is numeric, Arabic-aware, stable and null-last
 ok 27 - shared table comparison is numeric, Arabic-aware, stable and null-last
   ---
-  duration_ms: 11.540833
+  duration_ms: 15.219233
   type: 'test'
   ...
 # Subtest: only review/history tables use shared sortable headers
 ok 28 - only review/history tables use shared sortable headers
   ---
-  duration_ms: 1.340887
+  duration_ms: 1.396642
   type: 'test'
   ...
 # Subtest: master lists and active invoice editors never use shared sortable headers
 ok 29 - master lists and active invoice editors never use shared sortable headers
   ---
-  duration_ms: 0.93042
+  duration_ms: 1.003678
   type: 'test'
   ...
 # Subtest: PermissionNavItem preserves the original navigation button structure
 ok 30 - PermissionNavItem preserves the original navigation button structure
   ---
-  duration_ms: 0.210394
+  duration_ms: 0.289538
   type: 'test'
   ...
 # Subtest: YES saves before quit and cannot prompt twice
 ok 31 - YES saves before quit and cannot prompt twice
   ---
-  duration_ms: 2.329233
+  duration_ms: 1.703867
   type: 'test'
   ...
 # Subtest: NO quits without backup
 ok 32 - NO quits without backup
   ---
-  duration_ms: 0.215854
+  duration_ms: 0.163498
   type: 'test'
   ...
 # Subtest: CANCEL and save cancellation keep app open
 ok 33 - CANCEL and save cancellation keep app open
   ---
-  duration_ms: 0.261088
+  duration_ms: 0.186432
   type: 'test'
   ...
 # Subtest: backup failure reports and does not quit
 ok 34 - backup failure reports and does not quit
   ---
-  duration_ms: 0.356627
+  duration_ms: 0.249668
   type: 'test'
   ...
 # Subtest: filename and desktop route security/source use native backup
 ok 35 - filename and desktop route security/source use native backup
   ---
-  duration_ms: 12.369245
+  duration_ms: 10.517113
   type: 'test'
   ...
 # Subtest: desktop server smoke enforces the fresh-install license gate
 ok 36 - desktop server smoke enforces the fresh-install license gate
   ---
-  duration_ms: 8.055871
+  duration_ms: 10.840612
   type: 'test'
   ...
 # Subtest: desktop removes only the authentication cookie before loading the UI
 ok 37 - desktop removes only the authentication cookie before loading the UI
   ---
-  duration_ms: 0.924569
+  duration_ms: 1.304933
   type: 'test'
   ...
 # Subtest: interactive retry preserves the correct in-memory login field
 ok 38 - interactive retry preserves the correct in-memory login field
   ---
-  duration_ms: 0.273461
+  duration_ms: 0.321496
   type: 'test'
   ...
 # Subtest: shared display formatters always emit Latin digits
 ok 39 - shared display formatters always emit Latin digits
   ---
-  duration_ms: 5.536739
+  duration_ms: 7.828968
   type: 'test'
   ...
 # Subtest: quantity has no unit suffix and warehouse stock never falls back globally
 ok 40 - quantity has no unit suffix and warehouse stock never falls back globally
   ---
-  duration_ms: 0.303227
+  duration_ms: 0.355848
   type: 'test'
   ...
 # Subtest: commercial documents display their numeric sequence while technical references remain hidden
 ok 41 - commercial documents display their numeric sequence while technical references remain hidden
   ---
-  duration_ms: 0.420496
+  duration_ms: 0.543222
   type: 'test'
   ...
 # Unmapped API error خطأ جديد
 # Subtest: supported locales and default locale are explicit
 ok 42 - supported locales and default locale are explicit
   ---
-  duration_ms: 2.587887
+  duration_ms: 2.14933
   type: 'test'
   ...
 # Subtest: locale direction maps Arabic to RTL and French to LTR
 ok 43 - locale direction maps Arabic to RTL and French to LTR
   ---
-  duration_ms: 0.176109
+  duration_ms: 0.247224
   type: 'test'
   ...
 # Subtest: locale preference uses one durable cookie
 ok 44 - locale preference uses one durable cookie
   ---
-  duration_ms: 0.285334
+  duration_ms: 0.290209
   type: 'test'
   ...
 # Subtest: Arabic and French dictionaries have an exhaustive non-empty contract
 ok 45 - Arabic and French dictionaries have an exhaustive non-empty contract
   ---
-  duration_ms: 2.933354
+  duration_ms: 3.1738
   type: 'test'
   ...
 # Subtest: every statically translated application key exists in French
 ok 46 - every statically translated application key exists in French
   ---
-  duration_ms: 3.174594
+  duration_ms: 3.005003
   type: 'test'
   ...
 # Subtest: language switching is available in the shell and before authentication or activation
 ok 47 - language switching is available in the shell and before authentication or activation
   ---
-  duration_ms: 0.875606
+  duration_ms: 0.841282
   type: 'test'
   ...
 # Subtest: root language and direction are server-rendered from the Next cookie
 ok 48 - root language and direction are server-rendered from the Next cookie
   ---
-  duration_ms: 0.275926
+  duration_ms: 0.269348
   type: 'test'
   ...
 # Subtest: main page bar contains localized date and language controls
 ok 49 - main page bar contains localized date and language controls
   ---
-  duration_ms: 0.244537
+  duration_ms: 0.252161
   type: 'test'
   ...
 # Subtest: translated metric and settings labels are never translated twice
 ok 50 - translated metric and settings labels are never translated twice
   ---
-  duration_ms: 0.773586
+  duration_ms: 0.70733
   type: 'test'
   ...
 # Subtest: API errors have safe exact, dynamic and fallback French presentation
 ok 51 - API errors have safe exact, dynamic and fallback French presentation
   ---
-  duration_ms: 1.927964
+  duration_ms: 1.557124
   type: 'test'
   ...
 # Subtest: direction-aware desktop navigation and settings CSS regressions are guarded
 ok 52 - direction-aware desktop navigation and settings CSS regressions are guarded
   ---
-  duration_ms: 3.208238
+  duration_ms: 2.059855
   type: 'test'
   ...
 # Subtest: general invoice records open details before offering an explicit edit action
 ok 53 - general invoice records open details before offering an explicit edit action
   ---
-  duration_ms: 1.143478
+  duration_ms: 1.430523
   type: 'test'
   ...
 # Subtest: top-level invoice edit eligibility includes document and permission checks
 ok 54 - top-level invoice edit eligibility includes document and permission checks
   ---
-  duration_ms: 0.232004
+  duration_ms: 0.290158
   type: 'test'
   ...
 # Subtest: editInvoice routes sales and purchases to their existing editors
 ok 55 - editInvoice routes sales and purchases to their existing editors
   ---
-  duration_ms: 0.296695
+  duration_ms: 0.326614
   type: 'test'
   ...
 # Subtest: embedded POS and purchase histories still load documents directly
 ok 56 - embedded POS and purchase histories still load documents directly
   ---
-  duration_ms: 0.393435
+  duration_ms: 0.526286
   type: 'test'
   ...
 # Subtest: custom invoice shortcut and help layer is completely removed
 ok 57 - custom invoice shortcut and help layer is completely removed
   ---
-  duration_ms: 6.295378
+  duration_ms: 6.001145
   type: 'test'
   ...
 # Subtest: searchable select retains native keyboard accessibility
 ok 58 - searchable select retains native keyboard accessibility
   ---
-  duration_ms: 0.509833
+  duration_ms: 0.55534
   type: 'test'
   ...
 # Subtest: shared hover Enter helper is explicit, scoped, and prevents doubles
 ok 59 - shared hover Enter helper is explicit, scoped, and prevents doubles
   ---
-  duration_ms: 0.381093
+  duration_ms: 0.341797
   type: 'test'
   ...
 # Subtest: sale and purchase product choices use existing add callback once
 ok 60 - sale and purchase product choices use existing add callback once
   ---
-  duration_ms: 0.350325
+  duration_ms: 0.369999
   type: 'test'
   ...
 # Subtest: danger and submit actions never opt in
 ok 61 - danger and submit actions never opt in
   ---
-  duration_ms: 0.333804
+  duration_ms: 0.317019
   type: 'test'
   ...
 # Subtest: duration display omits meaningless leading zero units
 ok 62 - duration display omits meaningless leading zero units
   ---
-  duration_ms: 1.298036
+  duration_ms: 1.225704
   type: 'test'
   ...
 # Subtest: device identity is private, deterministic and human friendly
 ok 63 - device identity is private, deterministic and human friendly
   ---
-  duration_ms: 1.735915
+  duration_ms: 1.883138
   type: 'test'
   ...
 # Subtest: production public key is the exact verify-only P-256 contract
 ok 64 - production public key is the exact verify-only P-256 contract
   ---
-  duration_ms: 0.94695
+  duration_ms: 3.226609
   type: 'test'
   ...
 # Subtest: canonical payload preserves generator field order
 ok 65 - canonical payload preserves generator field order
   ---
-  duration_ms: 0.187681
+  duration_ms: 0.238721
   type: 'test'
   ...
 # Subtest: WebCrypto accepts a valid canonical signature and rejects mutation
 ok 66 - WebCrypto accepts a valid canonical signature and rejects mutation
   ---
-  duration_ms: 19.293455
+  duration_ms: 28.902244
   type: 'test'
   ...
 # Subtest: valid signature for another device gets the dedicated Arabic error
 ok 67 - valid signature for another device gets the dedicated Arabic error
   ---
-  duration_ms: 3.379147
+  duration_ms: 6.351564
   type: 'test'
   ...
 # Subtest: strict envelope and signature validation rejects invalid contracts
 ok 68 - strict envelope and signature validation rejects invalid contracts
   ---
-  duration_ms: 5.370476
+  duration_ms: 6.736256
   type: 'test'
   ...
 # Subtest: malformed verification key details never leak WebCrypto errors
 ok 69 - malformed verification key details never leak WebCrypto errors
   ---
-  duration_ms: 2.517936
+  duration_ms: 4.692706
   type: 'test'
   ...
 # Subtest: malformed and oversized JSON is rejected before processing
 ok 70 - malformed and oversized JSON is rejected before processing
   ---
-  duration_ms: 0.408483
+  duration_ms: 0.410942
   type: 'test'
   ...
-# {"time":"2026-09-04T22:19:58.831Z","level":"info","event":"license.install.success","licenseId":"fixture-001"}
+# {"time":"2026-09-04T22:21:42.198Z","level":"info","event":"license.install.success","licenseId":"fixture-001"}
 # Subtest: atomic install persists under userData config and survives database replacement
 ok 71 - atomic install persists under userData config and survives database replacement
   ---
-  duration_ms: 20.391792
+  duration_ms: 13.224387
   type: 'test'
   ...
 # Subtest: business routes enforce licensing while activation and health routes remain exempt
 ok 72 - business routes enforce licensing while activation and health routes remain exempt
   ---
-  duration_ms: 9.17992
+  duration_ms: 7.94907
   type: 'test'
   ...
 # Subtest: application source contains no private EC JWK material
 ok 73 - application source contains no private EC JWK material
   ---
-  duration_ms: 8.035871
+  duration_ms: 9.100391
   type: 'test'
   ...
 # Subtest: v2 public key and exact duration canonical contract are verify-only
 ok 74 - v2 public key and exact duration canonical contract are verify-only
   ---
-  duration_ms: 0.461533
+  duration_ms: 0.426405
   type: 'test'
   ...
 # Subtest: v2 validates duration and perpetual contracts
 ok 75 - v2 validates duration and perpetual contracts
   ---
-  duration_ms: 13.660195
+  duration_ms: 11.717789
   type: 'test'
   ...
-# {"time":"2026-09-04T22:19:58.875Z","level":"info","event":"license.install.success","licenseId":"AKL2-TEST"}
+# {"time":"2026-09-04T22:21:42.238Z","level":"info","event":"license.install.success","licenseId":"AKL2-TEST"}
 # Subtest: one-hour allowance uses monotonic runtime then closed wall time
 ok 76 - one-hour allowance uses monotonic runtime then closed wall time
   ---
-  duration_ms: 16.251248
+  duration_ms: 16.086465
   type: 'test'
   ...
-# {"time":"2026-09-04T22:19:58.889Z","level":"info","event":"license.install.success","licenseId":"AKL2-TEST"}
+# {"time":"2026-09-04T22:21:42.252Z","level":"info","event":"license.install.success","licenseId":"AKL2-TEST"}
 # Subtest: running session uses maximum, not sum, of monotonic and forward wall elapsed
 ok 77 - running session uses maximum, not sum, of monotonic and forward wall elapsed
   ---
-  duration_ms: 10.736009
+  duration_ms: 15.245673
   type: 'test'
   ...
-# {"time":"2026-09-04T22:19:58.904Z","level":"info","event":"license.install.success","licenseId":"AKL2-TEST"}
+# {"time":"2026-09-04T22:21:42.273Z","level":"info","event":"license.install.success","licenseId":"AKL2-TEST"}
 # Subtest: clock rollback locks without restarting countdown
 ok 78 - clock rollback locks without restarting countdown
   ---
-  duration_ms: 13.057899
+  duration_ms: 14.878317
   type: 'test'
   ...
-# {"time":"2026-09-04T22:19:58.914Z","level":"info","event":"license.install.success","licenseId":"AKL2-TEST"}
+# {"time":"2026-09-04T22:21:42.283Z","level":"info","event":"license.install.success","licenseId":"AKL2-TEST"}
 # Subtest: five-hour forward jump expires three-hour license and backward cannot revive it
 ok 79 - five-hour forward jump expires three-hour license and backward cannot revive it
   ---
-  duration_ms: 9.030019
+  duration_ms: 7.890601
   type: 'test'
   ...
-# {"time":"2026-09-04T22:19:58.922Z","level":"info","event":"license.install.success","licenseId":"TEST-ONE"}
+# {"time":"2026-09-04T22:21:42.291Z","level":"info","event":"license.install.success","licenseId":"TEST-ONE"}
 # Subtest: single-install receipt survives deletion of normal userData
 ok 80 - single-install receipt survives deletion of normal userData
   ---
-  duration_ms: 10.20702
+  duration_ms: 11.266446
   type: 'test'
   ...
 # Subtest: desktop navigation has nine unique destinations with perfume divisions and reports before settings
 ok 81 - desktop navigation has nine unique destinations with perfume divisions and reports before settings
   ---
-  duration_ms: 20.801794
+  duration_ms: 12.985215
   type: 'test'
   ...
 # Subtest: submenu current states require their parent view without resetting remembered selections
 ok 82 - submenu current states require their parent view without resetting remembered selections
   ---
-  duration_ms: 16.2473
+  duration_ms: 7.077311
   type: 'test'
   ...
 # Subtest: permission-aware navigation stays complete and disabled items cannot activate
 ok 83 - permission-aware navigation stays complete and disabled items cannot activate
   ---
-  duration_ms: 14.324386
+  duration_ms: 7.827446
   type: 'test'
   ...
 # Subtest: top navigation dropdowns share one visual system and render text-only rows
 ok 84 - top navigation dropdowns share one visual system and render text-only rows
   ---
-  duration_ms: 7.891923
+  duration_ms: 8.84877
   type: 'test'
   ...
 # Subtest: product and report tables use uncapped shared scroll viewports
 ok 85 - product and report tables use uncapped shared scroll viewports
   ---
-  duration_ms: 8.174811
+  duration_ms: 9.283327
   type: 'test'
   ...
 # Subtest: party ledger filters real compatible roles and transient documents overlay mounted content
 ok 86 - party ledger filters real compatible roles and transient documents overlay mounted content
   ---
-  duration_ms: 9.108487
+  duration_ms: 6.479568
   type: 'test'
   ...
 # Subtest: branding defaults and strict validation
 ok 87 - branding defaults and strict validation
   ---
-  duration_ms: 2.319405
+  duration_ms: 2.136781
   type: 'test'
   ...
 # Subtest: official presentations preserve operation language
 ok 88 - official presentations preserve operation language
   ---
-  duration_ms: 1.77596
+  duration_ms: 1.778319
   type: 'test'
   ...
 # Subtest: document print is a body portal with display isolation
 ok 89 - document print is a body portal with display isolation
   ---
-  duration_ms: 0.608287
+  duration_ms: 0.605145
   type: 'test'
   ...
 # Subtest: normalizes positive, negative, and zero party nets
 ok 90 - normalizes positive, negative, and zero party nets
   ---
-  duration_ms: 2.007032
+  duration_ms: 1.826412
   type: 'test'
   ...
 # Subtest: compatibility net uses receivable minus payable
 ok 91 - compatibility net uses receivable minus payable
   ---
-  duration_ms: 0.241671
+  duration_ms: 0.262848
   type: 'test'
   ...
 # Subtest: cash directions cross zero identically for either role
 ok 92 - cash directions cross zero identically for either role
   ---
-  duration_ms: 0.222536
+  duration_ms: 0.183357
   type: 'test'
   ...
 # Subtest: legacy party roles resolve centrally without changing valid roles
 ok 93 - legacy party roles resolve centrally without changing valid roles
   ---
-  duration_ms: 1.996902
+  duration_ms: 1.856417
   type: 'test'
   ...
 # Subtest: POS and party workspaces retain compact role-safe structure and empty rows
 ok 94 - POS and party workspaces retain compact role-safe structure and empty rows
   ---
-  duration_ms: 14.063329
+  duration_ms: 18.112208
   type: 'test'
   ...
 # Subtest: comprehensive report reuses the four-card report footer without internal detail
 ok 95 - comprehensive report reuses the four-card report footer without internal detail
   ---
-  duration_ms: 7.741952
+  duration_ms: 16.52649
   type: 'test'
   ...
 # Subtest: all visual row-order headers use the full Arabic serial label
 ok 96 - all visual row-order headers use the full Arabic serial label
   ---
-  duration_ms: 7.278693
+  duration_ms: 12.588816
   type: 'test'
   ...
 # Subtest: customer cash sale counts trade and actual cash
 ok 97 - customer cash sale counts trade and actual cash
   ---
-  duration_ms: 1.397632
+  duration_ms: 1.438275
   type: 'test'
   ...
 # Subtest: customer credit and later cash flows remain independent
 ok 98 - customer credit and later cash flows remain independent
   ---
-  duration_ms: 0.305872
+  duration_ms: 0.256758
   type: 'test'
   ...
 # Subtest: legacy return records preserve historical customer totals and represented gross profit, while voids and legacy missing profit are safe
 ok 99 - legacy return records preserve historical customer totals and represented gross profit, while voids and legacy missing profit are safe
   ---
-  duration_ms: 0.360184
+  duration_ms: 0.358502
   type: 'test'
   ...
 # Subtest: supplier cash purchase counts trade, cash out, and invoice
 ok 100 - supplier cash purchase counts trade, cash out, and invoice
   ---
-  duration_ms: 0.234659
+  duration_ms: 0.247484
   type: 'test'
   ...
 # Subtest: supplier credit, later payment, receipt, posted invoice count, and void exclusion
 ok 101 - supplier credit, later payment, receipt, posted invoice count, and void exclusion
   ---
-  duration_ms: 0.365253
+  duration_ms: 0.359193
   type: 'test'
   ...
 # Subtest: unattributed financial movements are never assigned
 ok 102 - unattributed financial movements are never assigned
   ---
-  duration_ms: 0.902978
+  duration_ms: 0.927563
   type: 'test'
   ...
 # Subtest: bootstrap exposes aggregate summaries with party view while retaining raw movement bank gate
 ok 103 - bootstrap exposes aggregate summaries with party view while retaining raw movement bank gate
   ---
-  duration_ms: 0.616983
+  duration_ms: 0.627218
   type: 'test'
   ...
 # Subtest: party list and account summaries share one four-item metric strip
 ok 104 - party list and account summaries share one four-item metric strip
   ---
-  duration_ms: 2.314827
+  duration_ms: 1.602634
   type: 'test'
   ...
 # Subtest: visible product branding uses the shared Arabic identity and logo path
 ok 105 - visible product branding uses the shared Arabic identity and logo path
   ---
-  duration_ms: 0.440814
+  duration_ms: 0.388968
   type: 'test'
   ...
 # Subtest: compatibility storage namespace remains unchanged
 ok 106 - compatibility storage namespace remains unchanged
   ---
-  duration_ms: 0.286976
+  duration_ms: 0.182085
   type: 'test'
   ...
 # Subtest: Windows same-drive child is inside
 ok 107 - Windows same-drive child is inside
   ---
-  duration_ms: 1.346978
+  duration_ms: 1.067955
   type: 'test'
   ...
 # Subtest: Windows sibling prefix is outside
 ok 108 - Windows sibling prefix is outside
   ---
-  duration_ms: 0.202889
+  duration_ms: 0.194754
   type: 'test'
   ...
 # Subtest: Windows parent is outside
 ok 109 - Windows parent is outside
   ---
-  duration_ms: 0.306193
+  duration_ms: 0.321807
   type: 'test'
   ...
 # Subtest: Windows cross-drive temporary directory is outside
 ok 110 - Windows cross-drive temporary directory is outside
   ---
-  duration_ms: 0.227015
+  duration_ms: 0.176717
   type: 'test'
   ...
 # Subtest: Windows cross-drive dependency is outside
 ok 111 - Windows cross-drive dependency is outside
   ---
-  duration_ms: 0.334625
+  duration_ms: 0.297329
   type: 'test'
   ...
 # Subtest: POSIX path containment handles children and sibling prefixes
 ok 112 - POSIX path containment handles children and sibling prefixes
   ---
-  duration_ms: 0.198801
+  duration_ms: 0.177017
   type: 'test'
   ...
 # Subtest: active payment-account selector excludes both inactive and archived accounts
 ok 113 - active payment-account selector excludes both inactive and archived accounts
   ---
-  duration_ms: 1.863964
+  duration_ms: 1.346806
   type: 'test'
   ...
 # Subtest: division liquid cost always rounds upward to the next whole MRU
 ok 114 - division liquid cost always rounds upward to the next whole MRU
   ---
-  duration_ms: 0.855599
+  duration_ms: 0.951378
   type: 'test'
   ...
 # Subtest: landed decant cost adds bottle cost after upward rounding
 ok 115 - landed decant cost adds bottle cost after upward rounding
   ---
-  duration_ms: 0.212297
+  duration_ms: 0.203117
   type: 'test'
   ...
 # Subtest: draft dates commit explicitly and filters auto-refresh the last committed scope
 ok 116 - draft dates commit explicitly and filters auto-refresh the last committed scope
   ---
-  duration_ms: 2.804513
+  duration_ms: 1.910188
   type: 'test'
   ...
 # Subtest: product movement name and sortable headers replace standalone sort selector
 ok 117 - product movement name and sortable headers replace standalone sort selector
   ---
-  duration_ms: 0.940118
+  duration_ms: 0.818007
   type: 'test'
   ...
 # Subtest: report cost resolution preloads bounded datasets without per-line queries
 ok 118 - report cost resolution preloads bounded datasets without per-line queries
   ---
-  duration_ms: 0.315149
+  duration_ms: 0.209436
   type: 'test'
   ...
 # Subtest: all-time and committed period scopes remain independent of account/type changes
 ok 119 - all-time and committed period scopes remain independent of account/type changes
   ---
-  duration_ms: 1.039303
+  duration_ms: 0.816956
   type: 'test'
   ...
 # Subtest: bank summary uses active balances, external cash movements, and net party debts
 ok 120 - bank summary uses active balances, external cash movements, and net party debts
   ---
-  duration_ms: 1.245478
+  duration_ms: 0.869645
   type: 'test'
   ...
 # Subtest: transfer filters preserve committed period and both account directions
 ok 121 - transfer filters preserve committed period and both account directions
   ---
-  duration_ms: 0.252311
+  duration_ms: 0.208466
   type: 'test'
   ...
 # Subtest: adjustment history and financial detail overlay remain explicit and mounted
 ok 122 - adjustment history and financial detail overlay remain explicit and mounted
   ---
-  duration_ms: 2.109884
+  duration_ms: 1.982738
   type: 'test'
   ...
 # Subtest: bank sections are parent navigation state rather than content tabs
 ok 123 - bank sections are parent navigation state rather than content tabs
   ---
-  duration_ms: 2.04862
+  duration_ms: 1.920434
   type: 'test'
   ...
 # Subtest: bank transfer and adjustment workspaces use explicit split regions and logical form rows
 ok 124 - bank transfer and adjustment workspaces use explicit split regions and logical form rows
   ---
-  duration_ms: 3.296232
+  duration_ms: 3.227701
   type: 'test'
   ...
 # Subtest: bank record amount tones are scoped to amount cells and derive from direction
 ok 125 - bank record amount tones are scoped to amount cells and derive from direction
   ---
-  duration_ms: 4.53814
+  duration_ms: 4.310027
   type: 'test'
   ...
 # Subtest: history date scope defaults can use today's local business day
 ok 126 - history date scope defaults can use today's local business day
   ---
-  duration_ms: 2.137506
+  duration_ms: 1.231713
   type: 'test'
   ...
 # Subtest: all-time ignores dates and a subsequent date-mode filter applies immediately
 ok 127 - all-time ignores dates and a subsequent date-mode filter applies immediately
   ---
-  duration_ms: 1.063638
+  duration_ms: 0.702422
   type: 'test'
   ...
 # Subtest: invoice history has no 100-row cap and orders numeric sequences newest-first
 ok 128 - invoice history has no 100-row cap and orders numeric sequences newest-first
   ---
-  duration_ms: 0.44979
+  duration_ms: 0.328217
   type: 'test'
   ...
 # Subtest: expense defaults and all-time controls remain explicit
 ok 129 - expense defaults and all-time controls remain explicit
   ---
-  duration_ms: 1.830181
+  duration_ms: 1.379526
   type: 'test'
   ...
 # Subtest: expense search ranks exact numbers and closer titles before loose matches
 ok 130 - expense search ranks exact numbers and closer titles before loose matches
   ---
-  duration_ms: 2.140722
+  duration_ms: 0.928815
   type: 'test'
   ...
 # Subtest: expense search, date, and all-time actions switch explicit filter modes
 ok 131 - expense search, date, and all-time actions switch explicit filter modes
   ---
-  duration_ms: 0.376113
+  duration_ms: 0.388768
   type: 'test'
   ...
 # Subtest: product picker and document overlay regression checkpoints remain mounted
 ok 132 - product picker and document overlay regression checkpoints remain mounted
   ---
-  duration_ms: 1.446384
+  duration_ms: 1.591376
   type: 'test'
   ...
 # Subtest: customer sales and authoritative gross profit aggregate without NaN
 ok 133 - customer sales and authoritative gross profit aggregate without NaN
   ---
-  duration_ms: 2.480897
+  duration_ms: 1.559679
   type: 'test'
   ...
 # Subtest: customer aggregate preserves correctly attributed legacy adjustments
 ok 134 - customer aggregate preserves correctly attributed legacy adjustments
   ---
-  duration_ms: 0.294431
+  duration_ms: 0.19847
   type: 'test'
   ...
 # Subtest: supplier aggregate is purchase total and deliberately has no profit attribution
 ok 135 - supplier aggregate is purchase total and deliberately has no profit attribution
   ---
-  duration_ms: 0.232465
+  duration_ms: 0.142035
   type: 'test'
   ...
 # Subtest: cash movement semantics still permit crossing zero
 ok 136 - cash movement semantics still permit crossing zero
   ---
-  duration_ms: 0.17624
+  duration_ms: 0.148394
   type: 'test'
   ...
 # Subtest: compact detail removes duplicate previews and keeps overlay-mounted document state
 ok 137 - compact detail removes duplicate previews and keeps overlay-mounted document state
   ---
-  duration_ms: 1.345446
+  duration_ms: 1.376662
   type: 'test'
   ...
 # Subtest: archived warehouses are excluded from active selectors
 ok 138 - archived warehouses are excluded from active selectors
   ---
-  duration_ms: 2.142475
+  duration_ms: 1.947966
   type: 'test'
   ...
 # Subtest: inventory period quantities are selected-warehouse scoped
 ok 139 - inventory period quantities are selected-warehouse scoped
   ---
-  duration_ms: 0.489946
+  duration_ms: 0.727229
   type: 'test'
   ...
 # Subtest: inventory requires an explicit scoped or all-time request and warehouse changes invalidate it
 ok 140 - inventory requires an explicit scoped or all-time request and warehouse changes invalidate it
   ---
-  duration_ms: 4.073284
+  duration_ms: 5.276488
   type: 'test'
   ...
 # Subtest: warehouse sales wording distinguishes the disabled selection from its action
 ok 141 - warehouse sales wording distinguishes the disabled selection from its action
   ---
-  duration_ms: 3.719893
+  duration_ms: 5.829264
   type: 'test'
   ...
 # Subtest: money values are stateless, immediate, and retain semantic typography
 ok 142 - money values are stateless, immediate, and retain semantic typography
   ---
-  duration_ms: 7.42533
+  duration_ms: 1.356411
   type: 'test'
   ...
 # Subtest: financial privacy runtime, setting, and capability are removed
 ok 143 - financial privacy runtime, setting, and capability are removed
   ---
-  duration_ms: 5.458464
+  duration_ms: 4.797013
   type: 'test'
   ...
 # Subtest: SearchableSelect separates selected and transient highlight
 ok 144 - SearchableSelect separates selected and transient highlight
   ---
-  duration_ms: 1.493752
+  duration_ms: 1.305244
   type: 'test'
   ...
 # Subtest: command client is in-flight single-flight and sends one idempotency identity
 ok 145 - command client is in-flight single-flight and sends one idempotency identity
   ---
-  duration_ms: 0.287658
+  duration_ms: 0.287645
   type: 'test'
   ...
 # Subtest: server receipt claim and business mutation share a transaction
 ok 146 - server receipt claim and business mutation share a transaction
   ---
-  duration_ms: 0.436306
+  duration_ms: 0.420806
   type: 'test'
   ...
 # Subtest: adjustments reject a no-op before creating ADJ
 ok 147 - adjustments reject a no-op before creating ADJ
   ---
-  duration_ms: 0.310791
+  duration_ms: 0.356609
   type: 'test'
   ...
 # Subtest: normal first-open ranges use the local business day
 ok 148 - normal first-open ranges use the local business day
   ---
-  duration_ms: 0.919739
+  duration_ms: 0.928313
   type: 'test'
   ...
 # Subtest: visible reports expose exact semantic footer keys
 ok 149 - visible reports expose exact semantic footer keys
   ---
-  duration_ms: 2.806927
+  duration_ms: 2.389513
   type: 'test'
   ...
 # Subtest: footer tones follow business meaning and meaningful zero stays visible
 ok 150 - footer tones follow business meaning and meaningful zero stays visible
   ---
-  duration_ms: 0.558203
+  duration_ms: 0.365773
   type: 'test'
   ...
 # Subtest: product purchase footer never presents invoice payment allocation
 ok 151 - product purchase footer never presents invoice payment allocation
   ---
-  duration_ms: 0.345255
+  duration_ms: 0.255045
   type: 'test'
   ...
 # Subtest: financial operating classification excludes balance administration and transfers
 ok 152 - financial operating classification excludes balance administration and transfers
   ---
-  duration_ms: 0.252311
+  duration_ms: 0.150278
   type: 'test'
   ...
 # Subtest: party ledger composite filter has stable geometry and both roles
 ok 153 - party ledger composite filter has stable geometry and both roles
   ---
-  duration_ms: 18.75556
+  duration_ms: 16.170452
   type: 'test'
   ...
 # Subtest: dated reports keep apply inside the shared compact date control
 ok 154 - dated reports keep apply inside the shared compact date control
   ---
-  duration_ms: 1.583149
+  duration_ms: 1.290262
   type: 'test'
   ...
 # Subtest: report toolbars cannot override compact date internals
 ok 155 - report toolbars cannot override compact date internals
   ---
-  duration_ms: 0.845079
+  duration_ms: 0.786269
   type: 'test'
   ...
 # Subtest: shared compact date geometry remains authoritative
 ok 156 - shared compact date geometry remains authoritative
   ---
-  duration_ms: 0.469687
+  duration_ms: 0.486655
   type: 'test'
   ...
 # Subtest: report periods and strict paging/group allowlists
 ok 157 - report periods and strict paging/group allowlists
   ---
-  duration_ms: 72.81883
+  duration_ms: 68.092213
   type: 'test'
   ...
 # Subtest: legacy sale adjustments preserve historical profit independently of current product cost
 ok 158 - legacy sale adjustments preserve historical profit independently of current product cost
   ---
-  duration_ms: 17.696834
+  duration_ms: 19.282638
   type: 'test'
   ...
 # Subtest: legacy cost uses latest purchase before sale, never a later purchase
 ok 159 - legacy cost uses latest purchase before sale, never a later purchase
   ---
-  duration_ms: 18.67193
+  duration_ms: 71.560318
   type: 'test'
   ...
 # Subtest: unknown legacy cost is calculated as zero while provenance stays unknown
 ok 160 - unknown legacy cost is calculated as zero while provenance stays unknown
   ---
-  duration_ms: 13.771232
+  duration_ms: 8.744533
   type: 'test'
   ...
 # Subtest: summary includes known and unknown cost sales without null financial values
 ok 161 - summary includes known and unknown cost sales without null financial values
   ---
-  duration_ms: 18.023341
+  duration_ms: 19.365422
   type: 'test'
   ...
 # Subtest: product filters retain legacy adjustments without exposing a returns report
 ok 162 - product filters retain legacy adjustments without exposing a returns report
   ---
-  duration_ms: 27.134041
+  duration_ms: 14.162225
   type: 'test'
   ...
 # Subtest: product profit invoiceCount is unique per document
 ok 163 - product profit invoiceCount is unique per document
   ---
-  duration_ms: 18.521011
+  duration_ms: 12.398819
   type: 'test'
   ...
 # Subtest: financial transfers are excluded from operating totals
 ok 164 - financial transfers are excluded from operating totals
   ---
-  duration_ms: 70.975488
+  duration_ms: 11.622735
   type: 'test'
   ...
 # Subtest: overview uses typed party balances and every authoritative active payment account
 ok 165 - overview uses typed party balances and every authoritative active payment account
   ---
-  duration_ms: 23.568442
+  duration_ms: 14.631515
   type: 'test'
   ...
 # Subtest: overview current position is netted, complete, finite, and independent of the selected period
 ok 166 - overview current position is netted, complete, finite, and independent of the selected period
   ---
-  duration_ms: 25.087876
+  duration_ms: 21.033185
   type: 'test'
   ...
 # Subtest: overview invoices expose accounting values and preserve business grouping
 ok 167 - overview invoices expose accounting values and preserve business grouping
   ---
-  duration_ms: 16.87229
+  duration_ms: 18.455607
   type: 'test'
   ...
 # Subtest: allTime ignores dates, keeps full summary across pages, and normal range remains bounded
 ok 168 - allTime ignores dates, keeps full summary across pages, and normal range remains bounded
   ---
-  duration_ms: 18.152462
+  duration_ms: 11.409633
   type: 'test'
   ...
 # Subtest: current product identity fills blank legacy names across product, profit, stock, and purchase reports
 ok 169 - current product identity fills blank legacy names across product, profit, stock, and purchase reports
   ---
-  duration_ms: 18.129269
+  duration_ms: 11.098282
   type: 'test'
   ...
 # Subtest: report date and all-time requests remain distinct
 ok 170 - report date and all-time requests remain distinct
   ---
-  duration_ms: 13.105749
+  duration_ms: 18.452362
   type: 'test'
   ...
 # Subtest: report summary tones follow financial meaning rather than numeric sign alone
 ok 171 - report summary tones follow financial meaning rather than numeric sign alone
   ---
-  duration_ms: 12.109079
+  duration_ms: 7.107217
   type: 'test'
   ...
 # Subtest: report table retains known headers before a result exists
 ok 172 - report table retains known headers before a result exists
   ---
-  duration_ms: 5.582394
+  duration_ms: 3.928131
   type: 'test'
   ...
 # Subtest: unpaged report returns every matching row while retaining full summary
 ok 173 - unpaged report returns every matching row while retaining full summary
   ---
-  duration_ms: 154.196631
+  duration_ms: 124.503554
   type: 'test'
   ...
 # Subtest: purchase summary exposes total paid and due and expiry loss is non-cash stock valuation
 ok 174 - purchase summary exposes total paid and due and expiry loss is non-cash stock valuation
   ---
-  duration_ms: 9.118909
+  duration_ms: 33.000591
   type: 'test'
   ...
 # Subtest: party ledger preserves historical totals for legacy sale adjustments
 ok 175 - party ledger preserves historical totals for legacy sale adjustments
   ---
-  duration_ms: 7.888868
+  duration_ms: 7.41437
   type: 'test'
   ...
 # Subtest: party ledger gives structured deltas authority and retains legacy payment fallback
 ok 176 - party ledger gives structured deltas authority and retains legacy payment fallback
   ---
-  duration_ms: 5.863416
+  duration_ms: 4.989785
   type: 'test'
   ...
 # Subtest: product movement combines period commerce with current active-warehouse stock
 ok 177 - product movement combines period commerce with current active-warehouse stock
   ---
-  duration_ms: 5.527811
+  duration_ms: 6.175969
   type: 'test'
   ...
 # Subtest: financial operating summary classifies sales and expenses but not transfers
 ok 178 - financial operating summary classifies sales and expenses but not transfers
   ---
-  duration_ms: 6.852141
+  duration_ms: 5.42299
   type: 'test'
   ...
 # Subtest: expense summary splits only materialized recurring documents
 ok 179 - expense summary splits only materialized recurring documents
   ---
-  duration_ms: 6.936767
+  duration_ms: 6.107976
   type: 'test'
   ...
 # Subtest: party ledger summary reuses row effects for debit and credit totals
 ok 180 - party ledger summary reuses row effects for debit and credit totals
   ---
-  duration_ms: 18.264226
+  duration_ms: 6.793152
   type: 'test'
   ...
 # Subtest: sale draft accepts empty and every intermediate price without onChange validation
 ok 181 - sale draft accepts empty and every intermediate price without onChange validation
   ---
-  duration_ms: 2.580604
+  duration_ms: 2.403144
   type: 'test'
   ...
 # Subtest: submit validation preserves below-cost price and over-stock quantity in the draft
 ok 182 - submit validation preserves below-cost price and over-stock quantity in the draft
   ---
-  duration_ms: 0.618676
+  duration_ms: 0.66777
   type: 'test'
   ...
 # Subtest: submit validation rejects temporarily empty quantity and price
 ok 183 - submit validation rejects temporarily empty quantity and price
   ---
-  duration_ms: 0.245669
+  duration_ms: 0.325752
   type: 'test'
   ...
 # Subtest: retail and wholesale tiers select safe editable draft defaults
 ok 184 - retail and wholesale tiers select safe editable draft defaults
   ---
-  duration_ms: 0.3795
+  duration_ms: 1.278903
   type: 'test'
   ...
 # Subtest: successful cash sale clears persisted draft before silent refresh
 ok 185 - successful cash sale clears persisted draft before silent refresh
   ---
-  duration_ms: 0.499374
+  duration_ms: 0.409168
   type: 'test'
   ...
 # Subtest: successful note sale clears persisted draft before silent refresh
 ok 186 - successful note sale clears persisted draft before silent refresh
   ---
-  duration_ms: 0.238505
+  duration_ms: 0.166902
   type: 'test'
   ...
 # Subtest: failed sale preserves the entire draft because success completion is not run
 ok 187 - failed sale preserves the entire draft because success completion is not run
   ---
-  duration_ms: 0.845931
+  duration_ms: 0.578685
   type: 'test'
   ...
 # Subtest: sale UI defaults and successful reset are retail with scanner off
 ok 188 - sale UI defaults and successful reset are retail with scanner off
   ---
-  duration_ms: 0.345024
+  duration_ms: 0.236197
   type: 'test'
   ...
 # Subtest: expiry is inclusive and frontend draft validation blocks only later dates
 ok 189 - expiry is inclusive and frontend draft validation blocks only later dates
   ---
-  duration_ms: 0.673739
+  duration_ms: 0.498874
   type: 'test'
   ...
 # Subtest: sessions are signed and expire
 ok 190 - sessions are signed and expire
   ---
-  duration_ms: 2.853735
+  duration_ms: 2.437606
   type: 'test'
   ...
 # Subtest: same-origin validation requires a matching Origin on mutations
 ok 191 - same-origin validation requires a matching Origin on mutations
   ---
-  duration_ms: 28.581451
+  duration_ms: 23.643071
   type: 'test'
   ...
 # Subtest: permission presets remain permission arrays and cover intended access
 ok 192 - permission presets remain permission arrays and cover intended access
   ---
-  duration_ms: 2.244806
+  duration_ms: 2.8238
   type: 'test'
   ...
 # Subtest: full control checks and unchecks every applicable row permission
 ok 193 - full control checks and unchecks every applicable row permission
   ---
-  duration_ms: 0.281416
+  duration_ms: 0.416299
   type: 'test'
   ...
 # Subtest: legacy branding receives empty optional business fields
 ok 194 - legacy branding receives empty optional business fields
   ---
-  duration_ms: 2.22017
+  duration_ms: 1.941385
   type: 'test'
   ...
 # Subtest: new transaction editors require explicit payment and preserve loaded edit values
 ok 195 - new transaction editors require explicit payment and preserve loaded edit values
   ---
-  duration_ms: 0.710819
+  duration_ms: 0.751947
   type: 'test'
   ...
 # Subtest: transaction account selectors use names only and independent empty state
 ok 196 - transaction account selectors use names only and independent empty state
   ---
-  duration_ms: 0.940438
+  duration_ms: 0.898739
   type: 'test'
   ...
 # Subtest: appSettings remains naturally covered by native backup
 ok 197 - appSettings remains naturally covered by native backup
   ---
-  duration_ms: 0.218568
+  duration_ms: 0.188545
   type: 'test'
   ...
 # Subtest: nested update operators, upsert and bulkWrite conform
 ok 198 - nested update operators, upsert and bulkWrite conform
   ---
-  duration_ms: 60.908635
+  duration_ms: 102.498249
   type: 'test'
   ...
 # Subtest: transactions serialize and release after rollback
 ok 199 - transactions serialize and release after rollback
   ---
-  duration_ms: 26.763682
+  duration_ms: 20.91762
   type: 'test'
   ...
 # Subtest: schema v2 unique indexes reject persisted duplicate invariants
 ok 200 - schema v2 unique indexes reject persisted duplicate invariants
   ---
-  duration_ms: 15.580754
+  duration_ms: 11.818721
   type: 'test'
   ...
 # Subtest: unsupported adapter operations fail loudly
 ok 201 - unsupported adapter operations fail loudly
   ---
-  duration_ms: 11.280552
+  duration_ms: 28.213823
   type: 'test'
   ...
 # Subtest: fresh SQLite database migrates, seeds once, persists, and uses safe pragmas
 ok 202 - fresh SQLite database migrates, seeds once, persists, and uses safe pragmas
   ---
-  duration_ms: 50.479944
+  duration_ms: 82.915118
   type: 'test'
   ...
 # Subtest: SQLite transaction rollback is atomic
 ok 203 - SQLite transaction rollback is atomic
   ---
-  duration_ms: 20.43136
+  duration_ms: 13.556198
   type: 'test'
   ...
 # Subtest: document sequence previews are kind-specific and never reserve numbers
 ok 204 - document sequence previews are kind-specific and never reserve numbers
   ---
-  duration_ms: 57.442737
+  duration_ms: 32.430629
   type: 'test'
   ...
 # Subtest: first purchase initializes missing stock, movement, and supplier payable atomically
 ok 205 - first purchase initializes missing stock, movement, and supplier payable atomically
   ---
-  duration_ms: 19.873209
+  duration_ms: 15.939042
   type: 'test'
   ...
 # Subtest: sale decreases stock and insufficient sale rolls every write back
 ok 206 - sale decreases stock and insufficient sale rolls every write back
   ---
-  duration_ms: 81.98643
+  duration_ms: 13.64976
   type: 'test'
   ...
 # Subtest: direct sale command allows below-cost pricing and records loss
 ok 207 - direct sale command allows below-cost pricing and records loss
   ---
-  duration_ms: 14.170168
+  duration_ms: 11.893204
   type: 'test'
   ...
 # Subtest: direct sale and purchase use virtual parties without creating master data or debt
 ok 208 - direct sale and purchase use virtual parties without creating master data or debt
   ---
-  duration_ms: 21.884829
+  duration_ms: 17.615587
   type: 'test'
   ...
 # Subtest: transfer and adjustment initialize missing destination fields
 ok 209 - transfer and adjustment initialize missing destination fields
   ---
-  duration_ms: 24.302401
+  duration_ms: 14.031717
   type: 'test'
   ...
 # Subtest: sale update is the only correction workflow and adjusts stock in both directions
 ok 210 - sale update is the only correction workflow and adjusts stock in both directions
   ---
-  duration_ms: 23.363205
+  duration_ms: 18.513334
   type: 'test'
   ...
 # Subtest: payments, offset, settlement, expense and invalid input preserve balance invariant
 ok 211 - payments, offset, settlement, expense and invalid input preserve balance invariant
   ---
-  duration_ms: 18.240092
+  duration_ms: 13.0021
   type: 'test'
   ...
 # Subtest: product codes are atomic, sequential, unique, and independent from barcodes
 ok 212 - product codes are atomic, sequential, unique, and independent from barcodes
   ---
-  duration_ms: 15.695962
+  duration_ms: 12.31365
   type: 'test'
   ...
 # Subtest: product deletion always archives, preserves stock and identity, and supports restore
 ok 213 - product deletion always archives, preserves stock and identity, and supports restore
   ---
-  duration_ms: 26.71789
+  duration_ms: 15.38944
   type: 'test'
   ...
 # Subtest: product opening stock is validated, auditable, and barcode is unique
 ok 214 - product opening stock is validated, auditable, and barcode is unique
   ---
-  duration_ms: 20.722285
+  duration_ms: 11.305005
   type: 'test'
   ...
 # Subtest: every outflow obeys the configured account overdraft policy
 ok 215 - every outflow obeys the configured account overdraft policy
   ---
-  duration_ms: 16.773037
+  duration_ms: 11.635084
   type: 'test'
   ...
 # Subtest: cash expense may overdraw when enabled
 ok 216 - cash expense may overdraw when enabled
   ---
-  duration_ms: 10.264421
+  duration_ms: 9.122795
   type: 'test'
   ...
 # Subtest: legacy materialized expense remains an ordinary editable expense
 ok 217 - legacy materialized expense remains an ordinary editable expense
   ---
-  duration_ms: 7.876044
+  duration_ms: 27.448986
   type: 'test'
   ...
 # Subtest: paid purchase update obeys enabled cash overdraft
 ok 218 - paid purchase update obeys enabled cash overdraft
   ---
-  duration_ms: 9.828886
+  duration_ms: 14.290339
   type: 'test'
   ...
 # Subtest: cash manual withdrawal, transfer, and party payment may overdraw
 ok 219 - cash manual withdrawal, transfer, and party payment may overdraw
   ---
-  duration_ms: 8.333639
+  duration_ms: 47.535289
   type: 'test'
   ...
 # Subtest: invoice reversal bypasses normal overdraft policy
 ok 220 - invoice reversal bypasses normal overdraft policy
   ---
-  duration_ms: 8.532893
+  duration_ms: 6.559469
   type: 'test'
   ...
 # Subtest: offset has no cash movement, payment has one, and settlement remains compatible
 ok 221 - offset has no cash movement, payment has one, and settlement remains compatible
   ---
-  duration_ms: 8.529807
+  duration_ms: 5.481408
   type: 'test'
   ...
 # Subtest: payment accounts create and update without exposing the legacy icon
 ok 222 - payment accounts create and update without exposing the legacy icon
   ---
-  duration_ms: 6.78902
+  duration_ms: 4.526895
   type: 'test'
   ...
 # Subtest: product expiry and note normalize, persist, edit, and reject invalid dates
 ok 223 - product expiry and note normalize, persist, edit, and reject invalid dates
   ---
-  duration_ms: 7.208224
+  duration_ms: 5.024587
   type: 'test'
   ...
 # Subtest: sale permits expiry day, rejects expired stock atomically, and creates no cash expiry movement
 ok 224 - sale permits expiry day, rejects expired stock atomically, and creates no cash expiry movement
   ---
-  duration_ms: 8.556547
+  duration_ms: 5.956577
   type: 'test'
   ...
 # Subtest: payment accounts use auditable opening balances and manual adjustments
 ok 225 - payment accounts use auditable opening balances and manual adjustments
   ---
-  duration_ms: 14.041504
+  duration_ms: 7.548805
   type: 'test'
   ...
 # Subtest: sale update preserves identity and historical cost while revising stock, bank and debt
 ok 226 - sale update preserves identity and historical cost while revising stock, bank and debt
   ---
-  duration_ms: 16.49145
+  duration_ms: 11.972905
   type: 'test'
   ...
 # Subtest: sale update moves a settled invoice to another customer without moving its payment
 ok 227 - sale update moves a settled invoice to another customer without moving its payment
   ---
-  duration_ms: 18.268615
+  duration_ms: 8.535367
   type: 'test'
   ...
 # Subtest: settled note sales reconcile through zero while preserving receipts and movement history
 ok 228 - settled note sales reconcile through zero while preserving receipts and movement history
   ---
-  duration_ms: 29.600544
+  duration_ms: 19.426165
   type: 'test'
   ...
 # Subtest: a settled note purchase corrected to direct retains supplier payment as an advance
 ok 229 - a settled note purchase corrected to direct retains supplier payment as an advance
   ---
-  duration_ms: 11.427657
+  duration_ms: 6.567882
   type: 'test'
   ...
 # Subtest: sale void reverses effects, preserves number and does not rewind sequence
 ok 230 - sale void reverses effects, preserves number and does not rewind sequence
   ---
-  duration_ms: 9.327691
+  duration_ms: 7.840916
   type: 'test'
   ...
 # Subtest: purchase update and void revise warehouse, payment, supplier and latest cost safely
 ok 231 - purchase update and void revise warehouse, payment, supplier and latest cost safely
   ---
-  duration_ms: 11.261056
+  duration_ms: 8.796612
   type: 'test'
   ...
 # Subtest: purchase revision blocks reversal after purchased inventory was consumed and legacy invoices are read-only
 ok 232 - purchase revision blocks reversal after purchased inventory was consumed and legacy invoices are read-only
   ---
-  duration_ms: 9.255684
+  duration_ms: 6.132884
   type: 'test'
   ...
 # Subtest: warehouse safe deletion archives history and blocks stock/default
 ok 233 - warehouse safe deletion archives history and blocks stock/default
   ---
-  duration_ms: 7.80447
+  duration_ms: 5.954884
   type: 'test'
   ...
 # Subtest: editing product may add audited opening stock but zero adds nothing
 ok 234 - editing product may add audited opening stock but zero adds nothing
   ---
-  duration_ms: 8.320054
+  duration_ms: 5.736904
   type: 'test'
   ...
 # Subtest: payment-account removal blocks balances, archives every kind of history, deletes unused, and restores identity
 ok 235 - payment-account removal blocks balances, archives every kind of history, deletes unused, and restores identity
   ---
-  duration_ms: 13.526954
+  duration_ms: 10.815425
   type: 'test'
   ...
 # Subtest: expense update preserves identity and atomically moves its financial effect
 ok 236 - expense update preserves identity and atomically moves its financial effect
   ---
-  duration_ms: 10.60578
+  duration_ms: 5.818428
   type: 'test'
   ...
 # Subtest: expense update may move payment to an overdrawn account
 ok 237 - expense update may move payment to an overdrawn account
   ---
-  duration_ms: 14.507679
+  duration_ms: 5.819119
   type: 'test'
   ...
 # Subtest: recurring commands are removed while dormant data is retained
 ok 238 - recurring commands are removed while dormant data is retained
   ---
-  duration_ms: 6.300927
+  duration_ms: 4.313743
   type: 'test'
   ...
 # Subtest: expense void restores the current payment movement exactly once and preserves audit history
 ok 239 - expense void restores the current payment movement exactly once and preserves audit history
   ---
-  duration_ms: 6.616368
+  duration_ms: 5.27096
   type: 'test'
   ...
 # Subtest: expense void after edit reverses only the current account and amount
 ok 240 - expense void after edit reverses only the current account and amount
   ---
-  duration_ms: 9.688364
+  duration_ms: 7.375723
   type: 'test'
   ...
 # Subtest: zero users enables direct local access, while creating the first user starts authenticated access
 ok 241 - zero users enables direct local access, while creating the first user starts authenticated access
   ---
-  duration_ms: 436.770543
+  duration_ms: 410.699957
   type: 'test'
   ...
 # Subtest: remaining ERP pages use framed regions without legacy title bands
 ok 242 - remaining ERP pages use framed regions without legacy title bands
   ---
-  duration_ms: 1.712784
+  duration_ms: 2.223652
   type: 'test'
   ...
 # Subtest: parties and banks use framed ERP tables
 ok 243 - parties and banks use framed ERP tables
   ---
-  duration_ms: 0.495056
+  duration_ms: 0.640919
   type: 'test'
   ...
 # Subtest: settings navigation is lifted while compact pages own their widths
 ok 244 - settings navigation is lifted while compact pages own their widths
   ---
-  duration_ms: 1.399508
+  duration_ms: 1.486528
   type: 'test'
   ...
 # Subtest: warehouse summary uses stable metrics and controlled popover overflow
 ok 245 - warehouse summary uses stable metrics and controlled popover overflow
   ---
-  duration_ms: 1.456224
+  duration_ms: 0.729803
   type: 'test'
   ...
 # Subtest: product movement details prioritize the table
 ok 246 - product movement details prioritize the table
   ---
-  duration_ms: 0.729514
+  duration_ms: 0.766699
   type: 'test'
   ...
 # Subtest: stock operations collapse idle search and edit a serial ERP draft
 ok 247 - stock operations collapse idle search and edit a serial ERP draft
   ---
-  duration_ms: 0.47049
+  duration_ms: 0.471423
   type: 'test'
   ...
 # Subtest: POS checkout, records, scoped stock, and document print retain explicit structures
 ok 248 - POS checkout, records, scoped stock, and document print retain explicit structures
   ---
-  duration_ms: 1.092513
+  duration_ms: 1.1638
   type: 'test'
   ...
 # Subtest: focused banking and transaction editor regressions stay explicit
 ok 249 - focused banking and transaction editor regressions stay explicit
   ---
-  duration_ms: 1.10659
+  duration_ms: 1.043207
   type: 'test'
   ...
 # Subtest: invoice editors expose explicit new, edit, void, history routing and authoritative print lifecycle
 ok 250 - invoice editors expose explicit new, edit, void, history routing and authoritative print lifecycle
   ---
-  duration_ms: 0.905504
+  duration_ms: 0.824077
   type: 'test'
   ...
 # Subtest: compact dates, explicit action order, and idle discovery remain structural
 ok 251 - compact dates, explicit action order, and idle discovery remain structural
   ---
-  duration_ms: 1.193332
+  duration_ms: 1.078591
   type: 'test'
   ...
 # Subtest: desktop discovery reserves a stable product-search track
 ok 252 - desktop discovery reserves a stable product-search track
   ---
-  duration_ms: 0.5721
+  duration_ms: 0.46934
   type: 'test'
   ...
 # Subtest: expenses and record filters retain the compact desktop grid
 ok 253 - expenses and record filters retain the compact desktop grid
   ---
-  duration_ms: 0.750424
+  duration_ms: 0.696914
   type: 'test'
   ...
 # Subtest: invoice history renders every filtered record and expense actions are structurally grouped
 ok 254 - invoice history renders every filtered record and expense actions are structurally grouped
   ---
-  duration_ms: 0.857865
+  duration_ms: 0.826189
   type: 'test'
   ...
 # Subtest: party history footer and framed bank workflows preserve semantic hierarchy
 ok 255 - party history footer and framed bank workflows preserve semantic hierarchy
   ---
-  duration_ms: 1.226184
+  duration_ms: 1.202288
   type: 'test'
   ...
 # Subtest: party financial summaries use explicit business-semantic tones
 ok 256 - party financial summaries use explicit business-semantic tones
   ---
-  duration_ms: 2.117725
+  duration_ms: 1.015186
   type: 'test'
   ...
 # Subtest: account overview is accounts-only, global, and uses a two-region semantic layout
 ok 257 - account overview is accounts-only, global, and uses a two-region semantic layout
   ---
-  duration_ms: 0.775901
+  duration_ms: 0.766679
   type: 'test'
   ...
 1..257
@@ -1561,13 +1561,16 @@ ok 257 - account overview is accounts-only, global, and uses a two-region semant
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 5648.494918
+# duration_ms 5411.235098
 
 === npm run lint ===
 
 > alkarna-desktop@0.1.4 lint
 > eslint . --ignore-pattern .next --ignore-pattern .next-candidate --ignore-pattern desktop-dist --ignore-pattern dist
 
+
+/home/runner/work/contaparfume/contaparfume/app/api/command/route.ts
+  388:36  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
 
 /home/runner/work/contaparfume/contaparfume/app/conta-app.tsx
    294:6    warning  React Hook useEffect has a missing dependency: 'reload'. Either include it or remove the dependency array                                                                                                                                                                                react-hooks/exhaustive-deps
@@ -1614,55 +1617,6 @@ ok 257 - account overview is accounts-only, global, and uses a two-region semant
   407:83   warning  't' is defined but never used  @typescript-eslint/no-unused-vars
   416:125  warning  't' is defined but never used  @typescript-eslint/no-unused-vars
 
-✖ 35 problems (0 errors, 35 warnings)
+✖ 36 problems (1 error, 35 warnings)
   0 errors and 1 warning potentially fixable with the `--fix` option.
 
-
-=== npm run build ===
-
-> alkarna-desktop@0.1.4 build
-> next build
-
-⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
-Attention: Next.js now collects completely anonymous telemetry regarding usage.
-This information is used to shape Next.js' roadmap and prioritize features.
-You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
-https://nextjs.org/telemetry
-
-▲ Next.js 16.2.6 (Turbopack)
-
-  Creating an optimized production build ...
-Turbopack build encountered 1 warnings:
-./next.config.ts
-Encountered unexpected file in NFT list
-A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
-- filesystem operations (like path.join, path.resolve or fs.readFile), or
-- very dynamic requires (like require('./' + foo)).
-To resolve this, you can
-- remove them if possible, or
-- only use them in development, or
-- make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
-- add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
-
-Import trace:
-  App Route:
-    ./next.config.ts
-    ./legacy/upload-store.ts
-    ./app/api/settings/legacy/upload/chunk/route.ts
-
-
-✓ Compiled successfully in 4.5s
-  Running TypeScript ...
-Failed to type check.
-
-./app/api/command/route.ts:390:51
-Type error: 'l.lineTotal' is of type 'unknown'.
-
-  [90m388 |[0m ...[36mst[0m calculated:[33mRecord[0m<string,unknown>[]=[];
-  [90m389 |[0m ...([36mconst[0m line [36mof[0m input){[36mconst[0m p=map.get(line.productId)!;[36mlet[0m unitPrice:number,total:numb...
-[31m[1m>[0m [90m390 |[0m ...[36mst[0m total = calculated.reduce((s, l) => s + l.lineTotal, [35m0[0m), cashAmount = paymentMethod...
-  [90m    |[0m                                               [31m[1m^[0m
-  [90m391 |[0m ...(partyDelta && !party) [36mthrow[0m [36mnew[0m [33mCommandError[0m(isSale ? [32m"اختر عميلاً عند وجود مبلغ مستحق.[0m..
-  [90m392 |[0m ...[36mst[0m businessDate = [36mnew[0m [33mDate[0m().toISOString().slice([35m0[0m, [35m10[0m);
-  [90m393 |[0m ...[36mst[0m dailySequence = isSale ? ([33mNumber[0m(([36mawait[0m db.collection([32m"documents"[0m).find({ kind: [32m"sa...[0m
-Next.js build worker exited with code: 1 and signal: null
