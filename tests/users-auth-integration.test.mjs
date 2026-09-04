@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';import test,{after,before} from 'node:test';import {sqliteHarness} from './sqlite-harness.mjs';
+let harness,login,usersRoute,userRoute,auth;before(async()=>{process.env.NODE_ENV='production';process.env.ALKARNA_DESKTOP='1';harness=await sqliteHarness();login=(await import('../app/api/auth/login/route.ts')).POST;usersRoute=await import('../app/api/settings/users/route.ts');userRoute=await import('../app/api/settings/users/[id]/route.ts');auth=await import('../lib/auth.ts')});after(async()=>{await harness.close()});
+const origin='http://127.0.0.1:3219',baseHeaders={Origin:origin,Host:'127.0.0.1:3219'};
+const loginRequest=(username,password)=>new Request(`${origin}/api/auth/login`,{method:'POST',headers:baseHeaders,body:new URLSearchParams({username,password})});
+const uiLoginRequest=(username,password)=>new Request(`${origin}/api/auth/login`,{method:'POST',headers:{...baseHeaders,'x-alkarna-login-ui':'1'},body:new URLSearchParams({username,password})});
+const cookie=response=>response.headers.get('set-cookie')?.split(';')[0]??'';
+const apiRequest=(path,method,token='',body)=>new Request(`${origin}${path}`,{method,headers:{...baseHeaders,Cookie:token,...(body?{'content-type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});
+const context=id=>({params:Promise.resolve({id})});
+test('zero users enables direct local access, while creating the first user starts authenticated access',async()=>{
+ assert.equal(await harness.db.collection('users').countDocuments(),0);const local=await auth.getPrincipalFromRequest(apiRequest('/','GET'));assert.equal(local.principalType,'local');assert.equal(auth.hasCapability(local,'settings.users.manage'),true);
+ let response=await usersRoute.POST(apiRequest('/api/settings/users','POST','',{username:'Test',password:'1234',permissions:['pos.view','settings.users.manage','not.real']}));assert.equal(response.status,201);const firstCookie=cookie(response),user=(await response.json()).user;assert.ok(firstCookie);assert.deepEqual(user.permissions,['pos.view','settings.users.manage']);assert.equal('passwordHash' in user,false);
+ assert.equal(await auth.getPrincipalFromRequest(apiRequest('/','GET')),null);assert.equal((await usersRoute.GET(apiRequest('/api/settings/users','GET'))).status,401);
+ assert.equal((await usersRoute.POST(apiRequest('/api/settings/users','POST',firstCookie,{username:' test ',password:'abcd'}))).status,409);
+ const regular=await login(loginRequest('test','1234'));assert.equal(regular.status,303);assert.ok(cookie(regular));const rejected=await login(loginRequest('test','wrong'));assert.equal(rejected.status,303);assert.equal(cookie(rejected),'');assert.equal(rejected.headers.get('location'),`${origin}/login?error=1`);const principal=await auth.getPrincipalFromRequest(apiRequest('/','GET',cookie(regular)));assert.deepEqual(principal.permissions,['pos.view','settings.users.manage']);
+ assert.doesNotMatch(regular.headers.get('set-cookie'),/Max-Age/i);
+ let interactive=await login(uiLoginRequest('missing','keep-in-memory'));assert.equal(interactive.status,401);assert.deepEqual(await interactive.json(),{ok:false,field:'username',error:'اسم المستخدم غير صحيح'});
+ interactive=await login(uiLoginRequest('test','wrong'));assert.equal(interactive.status,401);assert.deepEqual(await interactive.json(),{ok:false,field:'password',error:'كلمة المرور غير صحيحة'});
+ interactive=await login(uiLoginRequest('test','1234'));assert.equal(interactive.status,200);assert.equal((await interactive.json()).ok,true);assert.ok(cookie(interactive));
+ response=await userRoute.DELETE(apiRequest(`/api/settings/users/${user.id}`,'DELETE',firstCookie),context(user.id));assert.equal(response.status,200);assert.equal((await response.json()).logoutRequired,false);assert.equal((await auth.getPrincipalFromRequest(apiRequest('/','GET'))).principalType,'local');
+});

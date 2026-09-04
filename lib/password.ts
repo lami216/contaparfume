@@ -1,0 +1,3 @@
+import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+export function hashPassword(password:string){if(password.length<4)throw new Error("يجب ألا تقل كلمة المرور عن 4 أحرف");const salt=randomBytes(16).toString("hex");return `${salt}:${scryptSync(password,salt,64).toString("hex")}`}
+export function verifyPasswordHash(password:string,configured:string){const[salt,hash,extra]=configured.split(":");if(!salt||!hash||extra)return false;const actual=scryptSync(password,salt,64).toString("hex");return actual.length===hash.length&&timingSafeEqual(Buffer.from(actual),Buffer.from(hash))}

@@ -1,0 +1,4 @@
+import assert from "node:assert/strict";import test from "node:test";import {readFileSync} from "node:fs";
+const desktop=readFileSync(new URL("../desktop/main.cjs",import.meta.url),"utf8"),form=readFileSync(new URL("../app/login/login-form.tsx",import.meta.url),"utf8");
+test("desktop removes only the authentication cookie before loading the UI",()=>{const remove=desktop.indexOf("session.defaultSession.cookies.remove(url,'conta_session')"),load=desktop.indexOf("window.loadURL(url)");assert.ok(remove>0&&remove<load);assert.doesNotMatch(desktop,/cookies\.clear|clearStorageData/)});
+test("interactive retry preserves the correct in-memory login field",()=>{assert.match(form,/field==="username"\)\{setUsername\(""\)/);assert.doesNotMatch(form,/field==="username"[^}]*setPassword/s);assert.match(form,/field==="password"\)\{setPassword\(""\)/);assert.doesNotMatch(form,/localStorage|sessionStorage|URLSearchParams/)});

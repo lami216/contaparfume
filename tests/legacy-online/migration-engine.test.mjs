@@ -1,0 +1,28 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import initSqlJs from "sql.js";
+import { MongoMemoryServer } from "mongodb-memory-server";
+import { MongoClient } from "mongodb";
+import { buildDataAccImportPackage, executeLegacyImportPhase } from "../legacy/dataacc-sqlite.ts";
+import { matchCanonicalEntity } from "../migration/matching.ts";
+import { detectImportFile } from "../migration/detection.ts";
+import { buildImportPreview } from "../migration/preview.ts";
+import { createImportSafetyBackup } from "../legacy/import-run.ts";
+
+async function fixture(){const SQL=await initSqlJs(),db=new SQL.Database();db.run(`
+ CREATE TABLE itemsTB(id INTEGER,title TEXT,code TEXT,priceUnit REAL); INSERT INTO itemsTB VALUES(1,'Tea','BAR-1',10);
+ CREATE TABLE storesTB(id INTEGER,title TEXT); INSERT INTO storesTB VALUES(1,'Main');
+ CREATE TABLE stores_itemsTB(id INTEGER,store_idFK INTEGER,item_idFK INTEGER,qty REAL); INSERT INTO stores_itemsTB VALUES(1,1,1,30);
+ CREATE TABLE customerTB(id INTEGER,title TEXT,phone TEXT); INSERT INTO customerTB VALUES(1,'Client','222');
+ CREATE TABLE BankTB(id INTEGER,BankName TEXT,rasid REAL); INSERT INTO BankTB VALUES(1,'BMCI',50000);
+ CREATE TABLE tblBankDeposit(id INTEGER,Bank TEXT,Amount REAL); INSERT INTO tblBankDeposit VALUES(1,'BMCI',20);
+ `);const bytes=db.export();db.close();return bytes}
+
+test("detector and DataAcc adapter produce canonical data and review unknown finance",async()=>{const bytes=await fixture(),detected=await detectImportFile(bytes),pkg=await buildDataAccImportPackage(bytes,"data.db");assert.equal(detected.sourceType,"dataacc-sqlite");assert.equal(pkg.entities.products.length,1);assert.equal(pkg.entities.paymentAccounts[0].balance,50000);assert.equal(pkg.unknownGroups[0].key,"tblBankDeposit");assert.equal(pkg.unknownGroups[0].manualMappingSupported,true);assert.match(pkg.source.fingerprint,/^[a-f0-9]{64}$/)});
+
+test("matching is deterministic, unique and conservative",()=>{assert.equal(matchCanonicalEntity("products",{sourceKey:"x",barcode:"123",name:"Other"},[{id:"p",barcode:"123",name:"Tea"}]).reason,"barcode");assert.equal(matchCanonicalEntity("parties",{sourceKey:"x",phone:"22",role:"customer"},[{id:"a",phone:"22",partyType:"customer"}]).targetId,"a");assert.equal(matchCanonicalEntity("paymentAccounts",{sourceKey:"x",name:"BMCI",normalizedName:"bmci"},[{id:"a",name:"BMCI"}]).matchType,"exact");assert.equal(matchCanonicalEntity("products",{sourceKey:"x",name:"Tea",normalizedName:"tea"},[{id:"a",name:"Tea"},{id:"b",name:"Tea"}]).matchType,"conflict")});
+test("a failed safety backup rejects before an import run can be written",async()=>{const db={collection(name){return name==="products"?{find(){throw new Error("backup unavailable")}}:{find(){return{toArray:async()=>[]}},insertOne:async()=>{throw new Error("must not insert")}}}};await assert.rejects(createImportSafetyBackup(db,"run"),/backup unavailable/)});
+
+test("safe merge creates auditable opening balance, matches existing values, and never adds balances or stock",{timeout:120000},async()=>{const server=await MongoMemoryServer.create(),client=new MongoClient(server.getUri());await client.connect();const db=client.db("migration");try{const bytes=await fixture();await db.collection("warehouses").insertOne({_id:"wh",name:"Main",isSalesDefault:true});await executeLegacyImportPhase(db,bytes,"warehouses");await executeLegacyImportPhase(db,bytes,"parties");await executeLegacyImportPhase(db,bytes,"accounts");await executeLegacyImportPhase(db,bytes,"products");await executeLegacyImportPhase(db,bytes,"stocks","current");assert.equal((await db.collection("paymentAccounts").findOne({name:"BMCI"})).balance,50000);assert.equal(await db.collection("financialMovements").countDocuments({type:"legacy-opening-balance"}),1);const product=await db.collection("products").findOne({barcode:"BAR-1"});assert.equal(Object.values(product.stocks)[0],30);for(const phase of ["accounts","products","parties","stocks"])await executeLegacyImportPhase(db,bytes,phase,"current");assert.equal(await db.collection("paymentAccounts").countDocuments({name:"BMCI"}),1);assert.equal(await db.collection("financialMovements").countDocuments({type:"legacy-opening-balance"}),1);assert.equal(Object.values((await db.collection("products").findOne({barcode:"BAR-1"})).stocks)[0],30);
+ await db.collection("paymentAccounts").updateOne({name:"BMCI"},{$set:{balance:80000}});await executeLegacyImportPhase(db,bytes,"accounts","current","keep-current");assert.equal((await db.collection("paymentAccounts").findOne({name:"BMCI"})).balance,80000);assert.equal(await db.collection("financialMovements").countDocuments({type:"legacy-balance-adjustment"}),0);await executeLegacyImportPhase(db,bytes,"accounts","current","adjustment");assert.equal((await db.collection("paymentAccounts").findOne({name:"BMCI"})).balance,50000);assert.equal((await db.collection("financialMovements").findOne({type:"legacy-balance-adjustment"})).amount,30000);
+ await db.collection("products").updateOne({barcode:"BAR-1"},{$set:{"stocks.wh":20}});await executeLegacyImportPhase(db,bytes,"stocks","current");assert.equal((await db.collection("products").findOne({barcode:"BAR-1"})).stocks.wh,20);await executeLegacyImportPhase(db,bytes,"stocks","imported");assert.equal((await db.collection("products").findOne({barcode:"BAR-1"})).stocks.wh,30);const preview=await buildImportPreview(db,await buildDataAccImportPackage(bytes));assert.equal(preview.groups.find(x=>x.key==="products").matched,1);assert.equal(preview.unknownGroups.length,1)}finally{await client.close();await server.stop()}});

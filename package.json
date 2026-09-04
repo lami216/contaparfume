@@ -1,0 +1,94 @@
+{
+  "name": "alkarna-desktop",
+  "version": "0.1.4",
+  "private": true,
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "node scripts/start.mjs",
+    "test": "node scripts/test.mjs",
+    "test:production-legacy": "node tests/production-legacy-smoke.mjs",
+    "lint": "eslint . --ignore-pattern .next --ignore-pattern .next-candidate --ignore-pattern desktop-dist --ignore-pattern dist",
+    "hash-password": "node scripts/hash-password.mjs",
+    "desktop:dev": "electron .",
+    "desktop:prepare": "node scripts/generate-icon.mjs && node scripts/desktop-prepare.mjs",
+    "desktop:rebuild-native": "node scripts/prepare-electron-native.mjs",
+    "desktop:test-native": "node scripts/test-electron-sqlite.cjs",
+    "desktop:build": "npm run build && npm run desktop:prepare",
+    "desktop:dist": "npm run desktop:build && npm run desktop:rebuild-native && npm run desktop:test-native && electron-builder --publish never",
+    "desktop:dist:win": "electron-builder --win --x64 --publish never",
+    "desktop:test-server": "node scripts/desktop-test-server.mjs",
+    "desktop:test-packaged": "node scripts/desktop-test-server.mjs --packaged"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "bson": "^6.10.4",
+    "lucide-react": "^0.468.0",
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "sql.js": "^1.13.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.0",
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@types/sql.js": "^1.4.9",
+    "concurrently": "^9.2.0",
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "png-to-ico": "^3.0.1",
+    "tailwindcss": "4.2.1",
+    "tsx": "^4.23.12",
+    "typescript": "5.9.3",
+    "wait-on": "^8.0.4"
+  },
+  "type": "module",
+  "displayName": "الكرنه",
+  "main": "desktop/main.cjs",
+  "build": {
+    "afterPack": "scripts/electron-after-pack.cjs",
+    "appId": "mr.alkarna.desktop",
+    "productName": "الكرنه",
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "files": [
+      "desktop/main.cjs",
+      "desktop/close-flow.cjs"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "icon": "build/alkarna.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "الكرنه",
+      "artifactName": "AlKarna-Setup-x64.exe"
+    },
+    "npmRebuild": false
+  }
+}

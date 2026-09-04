@@ -1,0 +1,2 @@
+import {mkdtemp,rm} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';
+export async function sqliteHarness(){const directory=await mkdtemp(join(tmpdir(),'alkarna-sqlite-test-'));process.env.ALKARNA_DATABASE_PATH=join(directory,'alkarna.sqlite');const sqlite=await import('../lib/sqlite.ts');sqlite.closeDatabase();let db=sqlite.initializeDatabase();return{directory,get db(){return db},async reset(){await db.dropDatabase()},async close(){sqlite.closeDatabase();await rm(directory,{recursive:true,force:true})}}}

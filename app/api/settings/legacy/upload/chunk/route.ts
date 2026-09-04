@@ -1,0 +1,5 @@
+import { requireValidLicense } from "../../../../../../lib/license.ts";
+import { requireCapability, validSameOrigin } from "../../../../../../lib/auth.ts";
+import { appendLegacyChunk, LEGACY_CHUNK_BYTES } from "../../../../../../legacy/upload-store.ts";
+export const runtime = "nodejs";
+export async function POST(request: Request) {const licenseDenied=await requireValidLicense();if(licenseDenied)return licenseDenied; const denied=await requireCapability(request,"settings.legacy.import");if(denied)return denied;if(!validSameOrigin(request))return Response.json({error:"طلب غير صالح"},{status:403});try{const url=new URL(request.url),length=Number(request.headers.get("content-length")??0);if(length>LEGACY_CHUNK_BYTES)return Response.json({error:"حجم الجزء أكبر من الحد المسموح"},{status:413});return Response.json(await appendLegacyChunk(url.searchParams.get("uploadId")??"",Number(url.searchParams.get("index")),new Uint8Array(await request.arrayBuffer())));}catch(e){return Response.json({error:e instanceof Error?e.message:"تعذر رفع الجزء"},{status:400});} }
