@@ -9,7 +9,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     env:
-      VALIDATION_REVISION: "3"
+      VALIDATION_REVISION: "4"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -48,7 +48,8 @@ jobs:
           from pathlib import Path
           p=Path('app/api/command/route.ts')
           text=p.read_text()
-          text=text.replace('const calculated:Record<string,unknown>[]=[];', 'const calculated:Record<string,any>[]=[];', 1)
+          strict='const calculated:Array<{id:string;productId:string;description:string;quantity:number;unitPrice:number;lineTotal:number;costAtSale?:number|null;grossProfit?:number|null;perfumeAllocations?:PerfumeAllocation[]}>=[];'
+          text=text.replace('const calculated:Record<string,unknown>[]=[];', strict, 1)
           p.write_text(text)
           PY
       - run: npm ci
