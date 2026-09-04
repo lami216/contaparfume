@@ -52,12 +52,12 @@
     "wait-on": "^8.0.4"
   },
   "type": "module",
-  "displayName": "الكرنه",
+  "displayName": "الكرنة للعطور",
   "main": "desktop/main.cjs",
   "build": {
     "afterPack": "scripts/electron-after-pack.cjs",
-    "appId": "mr.alkarna.desktop",
-    "productName": "الكرنه",
+    "appId": "mr.alkarna.perfume.desktop",
+    "productName": "الكرنة للعطور",
     "asar": true,
     "asarUnpack": [
       "**/*.node"
@@ -86,8 +86,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "الكرنه",
-      "artifactName": "AlKarna-Setup-x64.exe"
+      "shortcutName": "الكرنة للعطور",
+      "artifactName": "AlKarna-Perfume-Setup-x64.exe"
     },
     "npmRebuild": false
   }
