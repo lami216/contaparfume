@@ -2,7 +2,7 @@ name: Build Windows desktop
 on:
   workflow_dispatch:
   push:
-    branches: [main, perfume-app-identity]
+    branches: [main]
 jobs:
   build:
     # Native better-sqlite3 Electron rebuild currently requires the VS2022 toolchain.
