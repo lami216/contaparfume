@@ -27,7 +27,20 @@ jobs:
           end=workflow.index("\n          PY\n",start)
           Path('/tmp/apply-perfume.py').write_text(textwrap.dedent(workflow[start:end]))
           PY
-          python /tmp/apply-perfume.py
+          set +e
+          python /tmp/apply-perfume.py > /tmp/perfume-patch.log 2>&1
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            git reset --hard HEAD
+            cp /tmp/perfume-patch.log PERFUME_PATCH_ERROR.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add PERFUME_PATCH_ERROR.txt
+            git commit -m "Record perfume divisions patch error"
+            git push origin HEAD:perfume-divisions-v1
+            exit "$status"
+          fi
       - run: npm ci
       - run: npm test
       - run: npm run lint
@@ -35,6 +48,7 @@ jobs:
       - name: Commit validated branch
         shell: bash
         run: |
+          rm -f PERFUME_PATCH_ERROR.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
