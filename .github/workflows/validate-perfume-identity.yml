@@ -8,6 +8,8 @@ permissions:
 jobs:
   validate:
     runs-on: windows-2022
+    env:
+      VALIDATION_REVISION: "2"
     steps:
       - uses: actions/checkout@v7
         with:
