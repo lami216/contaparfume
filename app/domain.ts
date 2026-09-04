@@ -1,3 +1,5 @@
+import type { PerfumeAllocation, PerfumeForm, PerfumeLot } from "./perfume-logic";
+
 export type PaymentMethod = string;
 export type DocumentKind =
   | "purchase"
@@ -47,6 +49,13 @@ export interface Product {
   /** Optional business expiry date. The product is sellable through this day. */
   expiryDate?: string | null;
   note?: string | null;
+  perfumeForm?: PerfumeForm | null;
+  parentProductId?: string | null;
+  decantSizeMl?: number | null;
+  decantBottleCost?: number | null;
+  partialRemainingParts?: number | null;
+  partialOriginalParts?: number | null;
+  perfumeLots?: PerfumeLot[];
   stocks: Record<string, number>;
   isArchived?: boolean;
   archivedAt?: string | null;
@@ -71,6 +80,7 @@ export interface DocumentLine {
   lineTotal: number;
   costAtSale?: number | null;
   grossProfit?: number | null;
+  perfumeAllocations?: PerfumeAllocation[];
 }
 export interface DocumentRecord {
   id: string;
@@ -249,7 +259,11 @@ export function displayDocumentNumber(document: Pick<DocumentRecord, "number" | 
   return ["sale", "purchase", "expense"].includes(document.kind) && Number.isSafeInteger(Number(document.sequence)) && Number(document.sequence) > 0 ? String(document.sequence) : document.number;
 }
 /** Presentation-only inventory valuation; it does not change accounting cost policy. */
-export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "pieceCost">) {
+export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "pieceCost" | "perfumeForm" | "perfumeLots">) {
+  if (product.perfumeForm === "decant" && product.perfumeLots?.length) {
+    const remaining = product.perfumeLots.reduce((sum, lot) => sum + Number(lot.remainingQuantity ?? 0), 0);
+    if (remaining > 0) return product.perfumeLots.reduce((sum, lot) => sum + Number(lot.remainingQuantity ?? 0) * Number(lot.landedUnitCost ?? 0), 0) / remaining;
+  }
   return product.lastPurchaseCost ?? product.pieceCost ?? 0;
 }
 export function formatDate(

@@ -67,6 +67,7 @@ import { bankScopeMetrics, filterFinancialMovements, filterTransfers, type Commi
 import { allPermissions, permissionRows, setPermission, setRowFullControl, type PermissionAction } from "./user-permissions";
 import { formatLicenseDuration } from "./license-countdown";
 import { ConfirmationProvider, useAppConfirm } from "./app-confirm";
+import PerfumeDivisions from "./perfume-divisions";
 import { useI18n } from "./i18n/provider";
 import { tr, type MessageKey } from "./i18n/messages";
 import { translateApiError } from "./i18n/api-errors";
@@ -82,6 +83,7 @@ type View =
   | "transfers"
   | "adjustments"
   | "products"
+  | "perfumeDivisions"
   | "records"
   | "reports"
   | "banks"
@@ -136,6 +138,7 @@ function useSessionDraft<T>(key: string, initial: T) {
 const nav: Array<{ id: View; label: string; icon: typeof ShoppingCart }> = [
   { id: "pos", label: "نقطة البيع", icon: ShoppingCart },
   { id: "products", label: "المنتجات", icon: PackagePlus },
+  { id: "perfumeDivisions", label: "التقسيمات", icon: Boxes },
 
   { id: "banks", label: "البنوك", icon: Landmark },
   { id: "reports", label: "التقارير", icon: Receipt },
@@ -143,7 +146,7 @@ const nav: Array<{ id: View; label: string; icon: typeof ShoppingCart }> = [
 ];
 const topNavClass: Record<(typeof MAIN_NAV_ORDER)[number], string> = {
   pos: "nav-sales", invoices: "nav-invoices", warehouses: "nav-warehouses",
-  products: "nav-products", parties: "nav-parties", banks: "nav-accounts",
+  products: "nav-products", perfumeDivisions: "nav-products", parties: "nav-parties", banks: "nav-accounts",
   reports: "nav-reports", settings: "nav-settings",
 };
 const partyNav: Array<{ id: View; label: string; icon: typeof Users }> = [
@@ -169,7 +172,7 @@ const reportOrder: ReportType[] = ["sales", "purchases", "product-sales", "stock
 const NO_ACCESS_TITLE = "لا تملك صلاحية الوصول";
 export const TRANSIENT_NOTICE_MS = 2800;
 export function showTransientNotice(message: string) { window.dispatchEvent(new CustomEvent("alkarna:notice", { detail: message })); }
-export const MAIN_NAV_ORDER = ["pos", "invoices", "warehouses", "products", "parties", "banks", "reports", "settings"] as const;
+export const MAIN_NAV_ORDER = ["pos", "invoices", "warehouses", "products", "perfumeDivisions", "parties", "banks", "reports", "settings"] as const;
 const val = (v: string) => (v === "" ? 0 : Number(v)),
   lineFor = (p: Product): DraftLine => ({
     productId: p.id,
@@ -234,7 +237,7 @@ function ContaAppContent() {
   const dialogRef = useRef<HTMLDivElement>(null), dialogOpenerRef = useRef<HTMLElement | null>(null);
   const can=(capability:string)=>data.principal.principalType==="owner"||data.principal.permissions.includes(capability);
   const settingsAllowed=(target:SettingsTab)=>target==="license"||target==="contact"||can("settings.view")&&(target==="general"||(target==="users"?can("settings.users.manage"):can("settings.backup.manage")||can("settings.legacy.import")));
-  const viewCapability:Record<View,string>={pos:"pos.view",purchases:"purchases.view",expenses:"expenses.view",customers:"customers.view",suppliers:"suppliers.view",warehouses:"warehouses.inventory.view",warehouseAdmin:"warehouses.view",transfers:"warehouses.transfer",adjustments:"warehouses.adjust",products:"products.view",records:"records.view",reports:"reports.view",banks:"banks.view",settings:"settings.view"};
+  const viewCapability:Record<View,string>={pos:"pos.view",purchases:"purchases.view",expenses:"expenses.view",customers:"customers.view",suppliers:"suppliers.view",warehouses:"warehouses.inventory.view",warehouseAdmin:"warehouses.view",transfers:"warehouses.transfer",adjustments:"warehouses.adjust",products:"products.view",perfumeDivisions:"perfume.divisions.view",records:"records.view",reports:"reports.view",banks:"banks.view",settings:"settings.view"};
   useEffect(() => {
     const close = (event: PointerEvent) => {
       if (!warehouseMenuRef.current?.contains(event.target as Node)) setWarehouseMenu(false);
@@ -277,7 +280,7 @@ function ContaAppContent() {
       if (!r.ok) throw new Error(j.error);
       setData(j);
       const permitted=(id:View)=>j.principal.principalType==="owner"||j.principal.permissions.includes(viewCapability[id]);
-      if(!permitted(view)){const first=(["pos","purchases","records","products","customers","suppliers","warehouses","expenses","banks","reports","settings"] as View[]).find(permitted);if(first)setView(first)}
+      if(!permitted(view)){const first=(["pos","purchases","records","products","perfumeDivisions","customers","suppliers","warehouses","expenses","banks","reports","settings"] as View[]).find(permitted);if(first)setView(first)}
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : tr("تعذر تحميل البيانات"));
@@ -392,6 +395,7 @@ function ContaAppContent() {
                 <Parties partyType={view === "customers" ? "customer" : "supplier"} data={data} run={run} openParty={setPartyDetail} />
               )}{" "}
               {view === "products" && <Products data={data} run={run} />}{" "}
+              {view === "perfumeDivisions" && <PerfumeDivisions data={data} run={run} />}{" "}
               {view === "warehouseAdmin" && <WarehouseAdmin data={data} run={run} canDelete={can("warehouses.delete")} />} {view === "warehouses" && (
                 <Warehouses data={data} run={run} openDoc={openDoc} />
               )}{" "}
