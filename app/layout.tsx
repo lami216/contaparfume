@@ -7,8 +7,8 @@ import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
  const locale=normalizeLocale((await cookies()).get(LOCALE_COOKIE)?.value);
- const tagline=locale==="ar"?"نظام المتجر":"Gestion du magasin";
- return { title: `${APP_NAME} — ${tagline}`, description: locale==="ar"?"نظام نقاط بيع ومشتريات ومخازن وحسابات قابل للتدقيق.":"Système de gestion de magasin : ventes, achats, stock et comptes.",
+ const tagline=locale==="ar"?"العطور":"Parfums";
+ return { title: `${APP_NAME} — ${tagline}`, description: locale==="ar"?"نظام محاسبة وإدارة للعطور والمبيعات والمشتريات والمخزون والحسابات.":"Système de gestion et comptabilité pour parfumeries : ventes, achats, stock et comptes.",
   other: {
     "codex-preview": "development",
   },
