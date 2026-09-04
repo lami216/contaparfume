@@ -2,9 +2,7 @@ name: Build Windows desktop
 on:
   workflow_dispatch:
   push:
-    branches: [main, fix-products-decants-header]
-permissions:
-  contents: write
+    branches: [main]
 jobs:
   build:
     # Native better-sqlite3 Electron rebuild currently requires the VS2022 toolchain.
@@ -12,142 +10,6 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v7
-      - name: Apply products/decants header fix
-        if: github.ref == 'refs/heads/fix-products-decants-header'
-        shell: pwsh
-        run: |
-          @'
-          from pathlib import Path
-
-          def replace_once(path, old, new):
-              p = Path(path)
-              text = p.read_text(encoding="utf-8")
-              if old not in text:
-                  raise SystemExit(f"Anchor not found in {path}: {old[:100]!r}")
-              p.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-          app = "app/conta-app.tsx"
-          replace_once(app,
-          '''const topNavClass: Record<(typeof MAIN_NAV_ORDER)[number], string> = {
-            pos: "nav-sales", invoices: "nav-invoices", warehouses: "nav-warehouses",
-            products: "nav-products", perfumeDivisions: "nav-products", parties: "nav-parties", banks: "nav-accounts",
-            reports: "nav-reports", settings: "nav-settings",
-          };''',
-          '''const topNavClass: Record<(typeof MAIN_NAV_ORDER)[number], string> = {
-            pos: "nav-sales", invoices: "nav-invoices", warehouses: "nav-warehouses",
-            products: "nav-products", parties: "nav-parties", banks: "nav-accounts",
-            reports: "nav-reports", settings: "nav-settings",
-          };''')
-
-          replace_once(app,
-          '''const partyNav: Array<{ id: View; label: string; icon: typeof Users }> = [
-            { id: "customers", label: "العملاء", icon: Users },
-            { id: "suppliers", label: "الموردون", icon: Users },
-          ];''',
-          '''const partyNav: Array<{ id: View; label: string; icon: typeof Users }> = [
-            { id: "customers", label: "العملاء", icon: Users },
-            { id: "suppliers", label: "الموردون", icon: Users },
-          ];
-          const productNav: Array<{ id: View; label: string; icon: typeof PackagePlus }> = [
-            { id: "products", label: "المنتجات", icon: PackagePlus },
-            { id: "perfumeDivisions", label: "التقسيمات", icon: Boxes },
-          ];''')
-
-          replace_once(app,
-          'export const MAIN_NAV_ORDER = ["pos", "invoices", "warehouses", "products", "perfumeDivisions", "parties", "banks", "reports", "settings"] as const;',
-          'export const MAIN_NAV_ORDER = ["pos", "invoices", "warehouses", "products", "parties", "banks", "reports", "settings"] as const;')
-
-          replace_once(app,
-          '''    [invoiceMenu, setInvoiceMenu] = useState(false),
-              [warehouseMenu, setWarehouseMenu] = useState(false),
-              [reportMenu, setReportMenu] = useState(false),''',
-          '''    [invoiceMenu, setInvoiceMenu] = useState(false),
-              [warehouseMenu, setWarehouseMenu] = useState(false),
-              [productMenu, setProductMenu] = useState(false),
-              [reportMenu, setReportMenu] = useState(false),''')
-
-          replace_once(app,
-          '''  const warehouseMenuRef = useRef<HTMLDivElement>(null);
-            const invoiceMenuRef = useRef<HTMLDivElement>(null);
-            const reportMenuRef = useRef<HTMLDivElement>(null);''',
-          '''  const warehouseMenuRef = useRef<HTMLDivElement>(null);
-            const invoiceMenuRef = useRef<HTMLDivElement>(null);
-            const productMenuRef = useRef<HTMLDivElement>(null);
-            const reportMenuRef = useRef<HTMLDivElement>(null);''')
-
-          replace_once(app,
-          '''      if (!invoiceMenuRef.current?.contains(event.target as Node)) setInvoiceMenu(false);
-                if (!reportMenuRef.current?.contains(event.target as Node)) setReportMenu(false);''',
-          '''      if (!invoiceMenuRef.current?.contains(event.target as Node)) setInvoiceMenu(false);
-                if (!productMenuRef.current?.contains(event.target as Node)) setProductMenu(false);
-                if (!reportMenuRef.current?.contains(event.target as Node)) setReportMenu(false);''')
-
-          replace_once(app,
-          '''    setView(id); setDoc(null); setPartyDetail(null); setMenu(false); setWarehouseMenu(false); setInvoiceMenu(false); setReportMenu(false); setPartyMenu(false); setBankMenu(false); setSettingsMenu(false);''',
-          '''    setView(id); setDoc(null); setPartyDetail(null); setMenu(false); setWarehouseMenu(false); setInvoiceMenu(false); setProductMenu(false); setReportMenu(false); setPartyMenu(false); setBankMenu(false); setSettingsMenu(false);''')
-
-          replace_once(app,
-          '''  const closeNavigationMenus = () => { setWarehouseMenu(false); setInvoiceMenu(false); setReportMenu(false); setPartyMenu(false); setBankMenu(false); setSettingsMenu(false); };''',
-          '''  const closeNavigationMenus = () => { setWarehouseMenu(false); setInvoiceMenu(false); setProductMenu(false); setReportMenu(false); setPartyMenu(false); setBankMenu(false); setSettingsMenu(false); };''')
-
-          old_direct = '''          {nav.slice(1).filter(n=>n.id!=="reports"&&n.id!=="settings"&&n.id!=="banks").map(n=><PermissionNavItem key={n.id} allowed={can(viewCapability[n.id])} active={view===n.id} className={`nav ${topNavClass[n.id as "products"]}`} onClick={()=>navigate(n.id)}><n.icon/><span>{tr(n.label)}</span></PermissionNavItem>)}'''
-          new_group = '''          <div className="nav-menu nav-products product-nav-menu" ref={productMenuRef}><button className={productNav.some(item=>item.id===view)?"nav active":"nav"} aria-expanded={productMenu} onClick={()=>setProductMenu(value=>!value)}><PackagePlus/><span>{tr("المنتجات")}</span><ChevronDown className="chevron"/></button>{productMenu&&<div className="nav-popover product-nav-popover">{productNav.map(item=><PermissionNavItem key={item.id} allowed={can(viewCapability[item.id])} active={view===item.id} onClick={()=>navigate(item.id)}><span>{tr(item.label)}</span></PermissionNavItem>)}</div>}</div>'''
-          replace_once(app, old_direct, new_group)
-
-          divisions = "app/perfume-divisions.tsx"
-          heading = '<div><h2>{tr("تحويل عطر إلى تقسيمات")}</h2><p>{tr("اختر عطرًا كاملًا، وسيحسب النظام تكلفة التقسيمة وسعر الطياح تلقائيًا.")}</p></div>'
-          action = '<button type="button" className="primary perfume-split-action" disabled={busy || !source || available < 1 || count < 2 || landedCost <= 0 || sell <= 0} onClick={() => void split()}>{busy ? tr("جاري الحفظ…") : tr("تحويل عطر إلى تقسيمات")}</button>'
-          replace_once(divisions, heading, heading + "\n        " + action)
-          old_action = '<button className="primary perfume-split-action" disabled={busy || !source || available < 1 || count < 2 || landedCost <= 0 || sell <= 0} onClick={() => void split()}>{busy ? tr("جاري الحفظ…") : tr("اعتماد التقسيم")}</button>'
-          replace_once(divisions, old_action, '')
-
-          test_path = "tests/navigation.test.mjs"
-          replace_once(test_path,
-          '''test("desktop navigation has nine unique destinations with perfume divisions and reports before settings",async()=>{const source=normalizePresentationSource(await readFile(new URL("../app/conta-app.tsx",import.meta.url),"utf8")),match=source.match(/MAIN_NAV_ORDER = \\[([^\\]]+)\\]/);assert.ok(match);const entries=[...match[1].matchAll(/"([^"]+)"/g)].map(x=>x[1]);assert.deepEqual(entries,["pos","invoices","warehouses","products","perfumeDivisions","parties","banks","reports","settings"]);assert.equal(new Set(entries).size,entries.length);});''',
-          '''test("desktop navigation has eight unique top-level destinations with products grouping perfume divisions",async()=>{const source=normalizePresentationSource(await readFile(new URL("../app/conta-app.tsx",import.meta.url),"utf8")),match=source.match(/MAIN_NAV_ORDER = \\[([^\\]]+)\\]/);assert.ok(match);const entries=[...match[1].matchAll(/"([^"]+)"/g)].map(x=>x[1]);assert.deepEqual(entries,["pos","invoices","warehouses","products","parties","banks","reports","settings"]);assert.equal(new Set(entries).size,entries.length);assert.match(source,/const productNav:[\\s\\S]*?id: "products"[\\s\\S]*?id: "perfumeDivisions"/);});''')
-
-          replace_once(test_path,
-          '''  for (const collection of ["invoiceNav", "warehouseNav", "partyNav", "bankNav", "reportOrder"])''',
-          '''  for (const collection of ["invoiceNav", "warehouseNav", "partyNav", "productNav", "bankNav", "reportOrder"])''')
-          replace_once(test_path,
-          '''  assert.match(source, /partyNav\\.map\\(item=><PermissionNavItem[^>]+active=\\{view===item\\.id\\}/);''',
-          '''  assert.match(source, /partyNav\\.map\\(item=><PermissionNavItem[^>]+active=\\{view===item\\.id\\}/);
-            assert.match(source, /productNav\\.map\\(item=><PermissionNavItem[^>]+active=\\{view===item\\.id\\}/);''')
-          replace_once(test_path,
-          '''  assert.equal((source.match(/className="nav-popover(?: [^"]+)?"/g) ?? []).length, 6);''',
-          '''  assert.equal((source.match(/className="nav-popover(?: [^"]+)?"/g) ?? []).length, 7);''')
-          replace_once(test_path,
-          '''  assert.match(source, /<Users\\s*\\/>\\s*<span>العملاء والموردون<\\/span>\\s*<ChevronDown/);''',
-          '''  assert.match(source, /<Users\\s*\\/>\\s*<span>العملاء والموردون<\\/span>\\s*<ChevronDown/);
-            assert.match(source, /className="nav-menu nav-products product-nav-menu"[\\s\\S]*?<PackagePlus\\s*\\/>\\s*<span>المنتجات<\\/span>\\s*<ChevronDown/);''')
-          replace_once(test_path,
-          '''  assert.match(source, /settingsMenuRef/);''',
-          '''  assert.match(source, /productMenuRef/);
-            assert.match(source, /setProductMenu\\(false\\)/);
-            assert.match(source, /settingsMenuRef/);''')
-
-          css = Path("app/globals.css")
-          css_text = css.read_text(encoding="utf-8")
-          marker = "/* products-decants-header-fix */"
-          if marker not in css_text:
-              css_text += '''\n\n/* products-decants-header-fix */
-          .section-perfumeDivisions { --section-color: var(--color-products); --section-soft: #fff0e4; }
-          .perfume-divisions-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; }
-          .perfume-divisions-heading > div { min-width:0; }
-          .perfume-split-action { flex:0 0 auto; min-width:210px; min-height:42px; white-space:nowrap; }
-          @media (min-width:1051px) {
-            .sidebar nav { flex-wrap:nowrap; }
-            .perfume-divisions-page { height:100%; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:auto; padding:2px 2px 72px; scroll-padding-bottom:72px; }
-          }
-          @media (max-width:620px) {
-            .perfume-divisions-heading { align-items:stretch; flex-direction:column; }
-            .perfume-split-action { width:100%; min-width:0; }
-          }
-          '''
-              css.write_text(css_text, encoding="utf-8")
-          '@ | Set-Content -Path ui_patch.py -Encoding utf8
-          python ui_patch.py
-          Remove-Item ui_patch.py
       - uses: actions/setup-node@v7
         with: {node-version: 22, cache: npm}
       - uses: actions/setup-python@v7
@@ -179,17 +41,6 @@ jobs:
             $hash = (Get-FileHash $artifact -Algorithm SHA256).Hash
             Write-Host "$($file.Name) size=$($file.Length) SHA-256=$hash"
           }
-      - name: Commit validated UI fix
-        if: github.ref == 'refs/heads/fix-products-decants-header'
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/conta-app.tsx app/perfume-divisions.tsx app/globals.css tests/navigation.test.mjs
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) { Write-Host "No UI changes to commit"; exit 0 }
-          git commit -m "Group perfume divisions under products navigation"
-          git push origin HEAD:fix-products-decants-header
       - uses: actions/upload-artifact@v7
         with:
           name: AlKarna-Perfume-Windows-x64
