@@ -95,18 +95,11 @@ jobs:
           replace_once(app, old_direct, new_group)
 
           divisions = "app/perfume-divisions.tsx"
-          replace_once(divisions,
-          '''      <div className="perfume-divisions-heading">
-                <div><h2>{tr("تحويل عطر إلى تقسيمات")}</h2><p>{tr("اختر عطرًا كاملًا، وسيحسب النظام تكلفة التقسيمة وسعر الطياح تلقائيًا.")}</p></div>
-              </div>''',
-          '''      <div className="perfume-divisions-heading">
-                <div><h2>{tr("تحويل عطر إلى تقسيمات")}</h2><p>{tr("اختر عطرًا كاملًا، وسيحسب النظام تكلفة التقسيمة وسعر الطياح تلقائيًا.")}</p></div>
-                <button type="button" className="primary perfume-split-action" disabled={busy || !source || available < 1 || count < 2 || landedCost <= 0 || sell <= 0} onClick={() => void split()}>{busy ? tr("جاري الحفظ…") : tr("تحويل عطر إلى تقسيمات")}</button>
-              </div>''')
-          replace_once(divisions,
-          '''      <button className="primary perfume-split-action" disabled={busy || !source || available < 1 || count < 2 || landedCost <= 0 || sell <= 0} onClick={() => void split()}>{busy ? tr("جاري الحفظ…") : tr("اعتماد التقسيم")}</button>
-          ''',
-          '')
+          heading = '<div><h2>{tr("تحويل عطر إلى تقسيمات")}</h2><p>{tr("اختر عطرًا كاملًا، وسيحسب النظام تكلفة التقسيمة وسعر الطياح تلقائيًا.")}</p></div>'
+          action = '<button type="button" className="primary perfume-split-action" disabled={busy || !source || available < 1 || count < 2 || landedCost <= 0 || sell <= 0} onClick={() => void split()}>{busy ? tr("جاري الحفظ…") : tr("تحويل عطر إلى تقسيمات")}</button>'
+          replace_once(divisions, heading, heading + "\n        " + action)
+          old_action = '<button className="primary perfume-split-action" disabled={busy || !source || available < 1 || count < 2 || landedCost <= 0 || sell <= 0} onClick={() => void split()}>{busy ? tr("جاري الحفظ…") : tr("اعتماد التقسيم")}</button>'
+          replace_once(divisions, old_action, '')
 
           test_path = "tests/navigation.test.mjs"
           replace_once(test_path,
