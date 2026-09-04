@@ -21,11 +21,12 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import textwrap
           workflow=Path('.github/workflows/apply-perfume-divisions-v1.yml').read_text()
           start=workflow.index("          python - <<'PY'\n")+len("          python - <<'PY'\n")
           end=workflow.index("\n          PY\n",start)
-          Path('/tmp/apply-perfume.py').write_text(textwrap.dedent(workflow[start:end]))
+          block=workflow[start:end]
+          lines=[line[10:] if line.startswith("          ") else line for line in block.splitlines()]
+          Path('/tmp/apply-perfume.py').write_text("\n".join(lines)+"\n")
           PY
           set +e
           python /tmp/apply-perfume.py > /tmp/perfume-patch.log 2>&1
