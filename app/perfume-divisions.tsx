@@ -67,6 +67,7 @@ export default function PerfumeDivisions({ data, run }: { data: BootstrapData; r
     <section className="perfume-divisions-card">
       <div className="perfume-divisions-heading">
         <div><h2>{tr("تحويل عطر إلى تقسيمات")}</h2><p>{tr("اختر عطرًا كاملًا، وسيحسب النظام تكلفة التقسيمة وسعر الطياح تلقائيًا.")}</p></div>
+        <button type="button" className="primary perfume-split-action" disabled={busy || !source || available < 1 || count < 2 || landedCost <= 0 || sell <= 0} onClick={() => void split()}>{busy ? tr("جاري الحفظ…") : tr("تحويل عطر إلى تقسيمات")}</button>
       </div>
       <div className="perfume-divisions-form">
         <label>{tr("العطر")}
@@ -94,7 +95,7 @@ export default function PerfumeDivisions({ data, run }: { data: BootstrapData; r
         <div><span>{tr("الربح المتوقع من كامل العطر")}</span><strong>{money(expectedProfit)}</strong></div>
         <div><span>{tr("المتوفر في المخزن")}</span><strong>{quantity(available)}</strong></div>
       </div>
-      <button className="primary perfume-split-action" disabled={busy || !source || available < 1 || count < 2 || landedCost <= 0 || sell <= 0} onClick={() => void split()}>{busy ? tr("جاري الحفظ…") : tr("اعتماد التقسيم")}</button>
+      
     </section>
 
     <section className="perfume-divisions-card">

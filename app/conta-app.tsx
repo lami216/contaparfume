@@ -146,12 +146,16 @@ const nav: Array<{ id: View; label: string; icon: typeof ShoppingCart }> = [
 ];
 const topNavClass: Record<(typeof MAIN_NAV_ORDER)[number], string> = {
   pos: "nav-sales", invoices: "nav-invoices", warehouses: "nav-warehouses",
-  products: "nav-products", perfumeDivisions: "nav-products", parties: "nav-parties", banks: "nav-accounts",
+  products: "nav-products", parties: "nav-parties", banks: "nav-accounts",
   reports: "nav-reports", settings: "nav-settings",
 };
 const partyNav: Array<{ id: View; label: string; icon: typeof Users }> = [
   { id: "customers", label: "العملاء", icon: Users },
   { id: "suppliers", label: "الموردون", icon: Users },
+];
+const productNav: Array<{ id: View; label: string; icon: typeof PackagePlus }> = [
+  { id: "products", label: "المنتجات", icon: PackagePlus },
+  { id: "perfumeDivisions", label: "التقسيمات", icon: Boxes },
 ];
 const invoiceNav: Array<{ id: View; label: string; icon: typeof Receipt }> = [
   { id: "purchases", label: "فواتير الشراء", icon: PackagePlus },
@@ -172,7 +176,7 @@ const reportOrder: ReportType[] = ["sales", "purchases", "product-sales", "stock
 const NO_ACCESS_TITLE = "لا تملك صلاحية الوصول";
 export const TRANSIENT_NOTICE_MS = 2800;
 export function showTransientNotice(message: string) { window.dispatchEvent(new CustomEvent("alkarna:notice", { detail: message })); }
-export const MAIN_NAV_ORDER = ["pos", "invoices", "warehouses", "products", "perfumeDivisions", "parties", "banks", "reports", "settings"] as const;
+export const MAIN_NAV_ORDER = ["pos", "invoices", "warehouses", "products", "parties", "banks", "reports", "settings"] as const;
 const val = (v: string) => (v === "" ? 0 : Number(v)),
   lineFor = (p: Product): DraftLine => ({
     productId: p.id,
@@ -205,6 +209,7 @@ function ContaAppContent() {
     [menu, setMenu] = useState(false),
     [invoiceMenu, setInvoiceMenu] = useState(false),
     [warehouseMenu, setWarehouseMenu] = useState(false),
+    [productMenu, setProductMenu] = useState(false),
     [reportMenu, setReportMenu] = useState(false),
     [partyMenu, setPartyMenu] = useState(false),
     [bankMenu, setBankMenu] = useState(false),
@@ -230,6 +235,7 @@ function ContaAppContent() {
   const registerEditorGuard: RegisterEditorGuard = guard => { activeEditorGuard.current = guard; };
   const warehouseMenuRef = useRef<HTMLDivElement>(null);
   const invoiceMenuRef = useRef<HTMLDivElement>(null);
+  const productMenuRef = useRef<HTMLDivElement>(null);
   const reportMenuRef = useRef<HTMLDivElement>(null);
   const partyMenuRef = useRef<HTMLDivElement>(null);
   const bankMenuRef = useRef<HTMLDivElement>(null);
@@ -242,6 +248,7 @@ function ContaAppContent() {
     const close = (event: PointerEvent) => {
       if (!warehouseMenuRef.current?.contains(event.target as Node)) setWarehouseMenu(false);
       if (!invoiceMenuRef.current?.contains(event.target as Node)) setInvoiceMenu(false);
+      if (!productMenuRef.current?.contains(event.target as Node)) setProductMenu(false);
       if (!reportMenuRef.current?.contains(event.target as Node)) setReportMenu(false);
       if (!partyMenuRef.current?.contains(event.target as Node)) setPartyMenu(false);
       if (!bankMenuRef.current?.contains(event.target as Node)) setBankMenu(false);
@@ -253,9 +260,9 @@ function ContaAppContent() {
   const navigate = (id: View) => {
     if (!can(viewCapability[id])) return;
     if (id !== "adjustments") setAdjustmentPrefill(null);
-    setView(id); setDoc(null); setPartyDetail(null); setMenu(false); setWarehouseMenu(false); setInvoiceMenu(false); setReportMenu(false); setPartyMenu(false); setBankMenu(false); setSettingsMenu(false);
+    setView(id); setDoc(null); setPartyDetail(null); setMenu(false); setWarehouseMenu(false); setInvoiceMenu(false); setProductMenu(false); setReportMenu(false); setPartyMenu(false); setBankMenu(false); setSettingsMenu(false);
   };
-  const closeNavigationMenus = () => { setWarehouseMenu(false); setInvoiceMenu(false); setReportMenu(false); setPartyMenu(false); setBankMenu(false); setSettingsMenu(false); };
+  const closeNavigationMenus = () => { setWarehouseMenu(false); setInvoiceMenu(false); setProductMenu(false); setReportMenu(false); setPartyMenu(false); setBankMenu(false); setSettingsMenu(false); };
   const navigationKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") { closeNavigationMenus(); (event.target as HTMLElement).closest<HTMLElement>(".nav-menu")?.querySelector<HTMLButtonElement>(":scope > button")?.focus(); return; }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -347,7 +354,7 @@ function ContaAppContent() {
           <div className="nav-menu nav-invoices" ref={invoiceMenuRef}><button className={invoiceNav.some(n=>n.id===view)?"nav active":"nav"} aria-expanded={invoiceMenu} onClick={()=>setInvoiceMenu(x=>!x)}><ReceiptText/><span>{tr("الفواتير")}</span><ChevronDown className="chevron"/></button>{invoiceMenu&&<div className="nav-popover">{invoiceNav.map(n=><PermissionNavItem key={n.id} allowed={can(viewCapability[n.id])} active={view===n.id} onClick={()=>navigate(n.id)}><span>{tr(n.label)}</span></PermissionNavItem>)}</div>}</div>
           <div className="nav-menu nav-warehouses" ref={warehouseMenuRef}><button className={warehouseNav.some(n=>n.id===view)?"nav active":"nav"} aria-expanded={warehouseMenu} onClick={()=>setWarehouseMenu(x=>!x)}><Boxes/><span>{tr("المخازن")}</span><ChevronDown className="chevron"/></button>{warehouseMenu&&<div className="nav-popover">{warehouseNav.map(n=><PermissionNavItem key={n.id} allowed={can(viewCapability[n.id])} active={view===n.id} onClick={()=>navigate(n.id)}><span>{tr(n.label)}</span></PermissionNavItem>)}</div>}</div>
           <div className="nav-menu nav-parties party-nav-menu" ref={partyMenuRef}><button className={partyNav.some(item=>item.id===view)?"nav active":"nav"} aria-expanded={partyMenu} onClick={()=>setPartyMenu(value=>!value)}><Users/><span>{tr("العملاء والموردون")}</span><ChevronDown className="chevron"/></button>{partyMenu&&<div className="nav-popover party-nav-popover">{partyNav.map(item=><PermissionNavItem key={item.id} allowed={can(viewCapability[item.id])} active={view===item.id} onClick={()=>navigate(item.id)}><span>{tr(item.label)}</span></PermissionNavItem>)}</div>}</div>
-          {nav.slice(1).filter(n=>n.id!=="reports"&&n.id!=="settings"&&n.id!=="banks").map(n=><PermissionNavItem key={n.id} allowed={can(viewCapability[n.id])} active={view===n.id} className={`nav ${topNavClass[n.id as "products"]}`} onClick={()=>navigate(n.id)}><n.icon/><span>{tr(n.label)}</span></PermissionNavItem>)}
+          <div className="nav-menu nav-products product-nav-menu" ref={productMenuRef}><button className={productNav.some(item=>item.id===view)?"nav active":"nav"} aria-expanded={productMenu} onClick={()=>setProductMenu(value=>!value)}><PackagePlus/><span>{tr("المنتجات")}</span><ChevronDown className="chevron"/></button>{productMenu&&<div className="nav-popover product-nav-popover">{productNav.map(item=><PermissionNavItem key={item.id} allowed={can(viewCapability[item.id])} active={view===item.id} onClick={()=>navigate(item.id)}><span>{tr(item.label)}</span></PermissionNavItem>)}</div>}</div>
           <div className="nav-menu nav-accounts bank-nav-menu" ref={bankMenuRef}><button className={view==="banks"?"nav active":"nav"} aria-expanded={bankMenu} onClick={()=>setBankMenu(open=>!open)}><Landmark/><span>{tr("البنوك")}</span><ChevronDown className="chevron"/></button>{bankMenu&&<div className="nav-popover bank-nav-popover">{bankNav.map(item=><PermissionNavItem key={item.id} allowed={can("banks.view")} active={view==="banks"&&bankTab===item.id} onClick={()=>{setBankTab(item.id);navigate("banks")}}><span>{tr(item.label)}</span></PermissionNavItem>)}</div>}</div>
           <div className="nav-menu nav-reports report-nav-menu" ref={reportMenuRef}><button className={view==="reports"?"nav active":"nav"} aria-expanded={reportMenu} onClick={()=>setReportMenu(value=>!value)}><Receipt/><span>{tr("التقارير")}</span><ChevronDown className="chevron"/></button>{reportMenu&&<div className="nav-popover report-nav-popover">{reportOrder.map(id=><PermissionNavItem key={id} allowed={can("reports.view")} active={view==="reports"&&reportType===id} onClick={()=>{setReportType(id);navigate("reports")}}><span>{tr(reportNames[id])}</span></PermissionNavItem>)}</div>}</div>
           <div className="nav-menu settings-nav-menu" ref={settingsMenuRef}><button className={view==="settings"?"nav nav-settings active":"nav nav-settings"} aria-expanded={settingsMenu} onClick={()=>setSettingsMenu(value=>!value)}><SettingsIcon/><span>{tr("الإعدادات")}</span><ChevronDown className="chevron"/></button>{settingsMenu&&<div className="nav-popover">{([{id:"general",label:"إعدادات عامة"},{id:"users",label:"المستخدمون والصلاحيات"},{id:"data",label:"البيانات والنسخ الاحتياطي"},{id:"license",label:"رخصة التفعيل"},{id:"contact",label:"تواصل مع الدعم"}] as Array<{id:SettingsTab;label:MessageKey}>).map(item=><PermissionNavItem key={item.id} allowed={settingsAllowed(item.id)} active={view==="settings"&&settingsTab===item.id} onClick={()=>{setSettingsTab(item.id);if(item.id==="license"||item.id==="contact"){setView("settings");setSettingsMenu(false)}else navigate("settings")}}><span>{tr(item.label)}</span></PermissionNavItem>)}</div>}</div>
