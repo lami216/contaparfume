@@ -34,22 +34,44 @@ jobs:
           set -e
           if [ "$status" -ne 0 ]; then
             git reset --hard HEAD
-            cp /tmp/perfume-patch.log PERFUME_PATCH_ERROR.txt
+            cp /tmp/perfume-patch.log PERFUME_VALIDATION_ERROR.txt
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add PERFUME_PATCH_ERROR.txt
+            git add PERFUME_VALIDATION_ERROR.txt
             git commit -m "Record perfume divisions patch error"
             git push origin HEAD:perfume-divisions-v1
             exit "$status"
           fi
       - run: npm ci
-      - run: npm test
-      - run: npm run lint
-      - run: npm run build
+      - name: Validate tests lint and build
+        shell: bash
+        run: |
+          set +e
+          npm test > /tmp/perfume-test.log 2>&1
+          test_status=$?
+          if [ "$test_status" -eq 0 ]; then npm run lint > /tmp/perfume-lint.log 2>&1; lint_status=$?; else lint_status=0; fi
+          if [ "$test_status" -eq 0 ] && [ "$lint_status" -eq 0 ]; then npm run build > /tmp/perfume-build.log 2>&1; build_status=$?; else build_status=0; fi
+          set -e
+          if [ "$test_status" -ne 0 ] || [ "$lint_status" -ne 0 ] || [ "$build_status" -ne 0 ]; then
+            {
+              echo "=== npm test ==="
+              cat /tmp/perfume-test.log
+              if [ -f /tmp/perfume-lint.log ]; then echo; echo "=== npm run lint ==="; cat /tmp/perfume-lint.log; fi
+              if [ -f /tmp/perfume-build.log ]; then echo; echo "=== npm run build ==="; cat /tmp/perfume-build.log; fi
+            } > /tmp/validation.log
+            git reset --hard HEAD
+            cp /tmp/validation.log PERFUME_VALIDATION_ERROR.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add PERFUME_VALIDATION_ERROR.txt
+            git commit -m "Record perfume divisions validation error"
+            git push origin HEAD:perfume-divisions-v1
+            exit 1
+          fi
       - name: Commit validated branch
         shell: bash
         run: |
-          rm -f PERFUME_PATCH_ERROR.txt
+          rm -f PERFUME_PATCH_ERROR.txt PERFUME_VALIDATION_ERROR.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
