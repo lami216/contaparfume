@@ -1,0 +1,31 @@
+name: Copy all files from offline-conta
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout destination
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Copy source repository files exactly
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch main https://github.com/lami216/offline-conta.git "$RUNNER_TEMP/source"
+          rsync -a --delete --exclude='.git' "$RUNNER_TEMP/source/" ./
+          git add -A
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Copy offline-conta files exactly"
+          git push origin main
