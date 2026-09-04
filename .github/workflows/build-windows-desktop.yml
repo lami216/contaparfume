@@ -1,0 +1,48 @@
+name: Build Windows desktop
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  build:
+    # Native better-sqlite3 Electron rebuild currently requires the VS2022 toolchain.
+    # Do not switch back to windows-latest without validating node-gyp VS2026 support.
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: {node-version: 22, cache: npm}
+      - uses: actions/setup-python@v7
+        id: python
+        with: {python-version: "3.12"}
+      - name: Configure node-gyp toolchain
+        shell: pwsh
+        run: |
+          "PYTHON=${{ steps.python.outputs.python-path }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "GYP_MSVS_VERSION=2022" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run desktop:prepare
+      - run: npm run desktop:rebuild-native
+      - run: npm run desktop:test-native
+      - run: npm run desktop:test-server
+      - run: npm run desktop:dist:win
+      - run: npm run desktop:test-packaged
+      - name: Verify Windows artifacts
+        shell: pwsh
+        run: |
+          $artifacts = @("dist/AlKarna-Setup-x64.exe")
+          foreach ($artifact in $artifacts) {
+            if (-not (Test-Path $artifact -PathType Leaf)) { throw "Missing Windows artifact: $artifact" }
+            $file = Get-Item $artifact
+            if ($file.Length -le 1MB) { throw "Windows artifact is truncated (must exceed 1 MiB): $artifact ($($file.Length) bytes)" }
+            $hash = (Get-FileHash $artifact -Algorithm SHA256).Hash
+            Write-Host "$($file.Name) size=$($file.Length) SHA-256=$hash"
+          }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: AlKarna-Windows-x64
+          path: dist/AlKarna-Setup-x64.exe
+          if-no-files-found: error
