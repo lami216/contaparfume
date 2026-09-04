@@ -8,6 +8,7 @@ export const permissionRows: Array<{
   { name: "فواتير الشراء", actions: { view: "purchases.view", create: "purchases.create", edit: "purchases.edit", delete: "purchases.delete" } },
   { name: "سجل الفواتير", actions: { view: "records.view" } },
   { name: "المنتجات", actions: { view: "products.view", create: "products.create", edit: "products.edit", delete: "products.delete" } },
+  { name: "التقسيمات", actions: { view: "perfume.divisions.view", create: "perfume.divisions.manage" } },
   { name: "العملاء", actions: { view: "customers.view", create: "customers.create", edit: "customers.edit" } },
   { name: "الموردون", actions: { view: "suppliers.view", create: "suppliers.create", edit: "suppliers.edit" } },
   { name: "حساب العميل / التحصيل", actions: { view: "customers.view", create: "customers.collect" } },
@@ -35,7 +36,7 @@ export const permissionPresets = {
   manager: allPermissions,
   accountant: [
     "purchases.view", "purchases.create", "purchases.edit", "records.view",
-    "products.view", "customers.view", "customers.collect", "suppliers.view", "suppliers.pay",
+    "products.view", "perfume.divisions.view", "perfume.divisions.manage", "customers.view", "customers.collect", "suppliers.view", "suppliers.pay",
     "warehouses.view", "warehouses.inventory.view", "banks.view", "banks.movements.view", "banks.transfer",
     "banks.deposit_withdraw", "expenses.view", "expenses.create", "expenses.edit", "reports.view",
   ],

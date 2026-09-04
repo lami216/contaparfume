@@ -4,11 +4,12 @@ import { getDatabase } from "../../../lib/sqlite.ts";
 import { log } from "../../../lib/log.ts";
 import { requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
 import { isProductExpired } from "../../domain.ts";
+import { divisionLandedCost, roundedDivisionLiquidCost, type PerfumeAllocation, type PerfumeLot } from "../../perfume-logic.ts";
 import { normalizePartyNet, partyCashDelta, partyNet } from "../../party-balance.ts";
 import { nextDocumentSequence, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
 
 type Input = Record<string, unknown>;
-type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; purchaseCost?: number | null; costAtSale?: number | null; grossProfit?: number | null };
+type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; purchaseCost?: number | null; costAtSale?: number | null; grossProfit?: number | null; perfumeAllocations?: PerfumeAllocation[] };
 type WarehouseDoc = { _id: string; name: string; isSalesDefault?: boolean; [key: string]: unknown };
 const warehouses = (db: Db) => db.collection<WarehouseDoc>("warehouses");
 class CommandError extends Error { status: number; constructor(message: string, status = 400) { super(message); this.status = status; } }
@@ -78,6 +79,7 @@ async function financialMovement(db: Db, session: ClientSession, document: Recor
   await db.collection("financialMovements").insertOne({ id: id("fin"), paymentMethod: account.id, paymentCode: account.code, direction, amount, documentId: document.id, documentNumber: document.number, partyId: document.partyId ?? null, partyName: document.partyName ?? null, type, occurredAt: document.occurredAt, transferId: document.transferId ?? null, note: document.note ?? null }, { session });
 }
 async function authoritativeCost(db: Db, session: ClientSession, product: Record<string, unknown>) {
+  if (product.perfumeForm === "partial" && Number.isFinite(Number(product.pieceCost))) return Number(product.pieceCost);
   if (Number.isFinite(product.lastPurchaseCost)) return Number(product.lastPurchaseCost);
   const latest = await db.collection("documents").findOne({ kind: "purchase", status: "posted", "lines.productId": product.id }, { session, sort: { occurredAt: -1 }, projection: { lines: 1, occurredAt: 1 } });
   const line = (latest?.lines as Line[] | undefined)?.find(item => item.productId === product.id);
@@ -156,8 +158,94 @@ async function changeStock(db: Db, session: ClientSession, product: Record<strin
   return { before, after };
 }
 
+function perfumeLots(product: Record<string, unknown>) {
+  return structuredClone(Array.isArray(product.perfumeLots) ? product.perfumeLots : []) as PerfumeLot[];
+}
+async function savePerfumeLots(db: Db, session: ClientSession, product: Record<string, unknown>, lots: PerfumeLot[]) {
+  await db.collection("products").updateOne({ id: product.id }, { $set: { perfumeLots: lots } }, { session });
+  product.perfumeLots = lots;
+}
+async function consumePerfumeLots(db: Db, session: ClientSession, product: Record<string, unknown>, warehouseId: string, quantity: number) {
+  if (product.perfumeForm !== "decant") return null;
+  if (!Number.isInteger(quantity) || quantity <= 0) throw new CommandError("كمية التقسيمات يجب أن تكون عددًا صحيحًا");
+  const lots = perfumeLots(product).sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)));
+  let remaining = quantity, totalCost = 0;
+  const allocations: PerfumeAllocation[] = [];
+  for (const lot of lots) {
+    const available = Number(lot.stocks?.[warehouseId] ?? 0);
+    if (available <= 0 || remaining <= 0) continue;
+    const take = Math.min(available, remaining);
+    lot.stocks = { ...(lot.stocks ?? {}), [warehouseId]: available - take };
+    lot.remainingQuantity = Math.max(0, Number(lot.remainingQuantity ?? 0) - take);
+    totalCost += take * Number(lot.landedUnitCost);
+    allocations.push({ lotId: lot.id, quantity: take, unitCost: Number(lot.landedUnitCost), warehouseId });
+    remaining -= take;
+  }
+  if (remaining > 0) throw new CommandError("مخزون دفعات التقسيمات غير كافٍ", 409);
+  await savePerfumeLots(db, session, product, lots);
+  return { allocations, totalCost, costAtSale: totalCost / quantity };
+}
+async function restorePerfumeAllocations(db: Db, session: ClientSession, product: Record<string, unknown>, allocations: PerfumeAllocation[] | undefined) {
+  if (product.perfumeForm !== "decant" || !allocations?.length) return;
+  const lots = perfumeLots(product), byId = new Map(lots.map(lot => [lot.id, lot]));
+  for (const allocation of allocations) {
+    const lot = byId.get(allocation.lotId); if (!lot) throw new CommandError("تعذر العثور على دفعة التقسيم الأصلية", 409);
+    const amount = Number(allocation.quantity); const warehouseId = String(allocation.warehouseId);
+    lot.stocks = { ...(lot.stocks ?? {}), [warehouseId]: Number(lot.stocks?.[warehouseId] ?? 0) + amount };
+    lot.remainingQuantity = Number(lot.remainingQuantity ?? 0) + amount;
+  }
+  await savePerfumeLots(db, session, product, lots);
+}
+async function transferPerfumeLots(db: Db, session: ClientSession, product: Record<string, unknown>, fromId: string, toId: string, quantity: number) {
+  if (product.perfumeForm !== "decant") return;
+  if (!Number.isInteger(quantity) || quantity <= 0) throw new CommandError("كمية التقسيمات يجب أن تكون عددًا صحيحًا");
+  const lots = perfumeLots(product).sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)));
+  let remaining = quantity;
+  for (const lot of lots) {
+    const available = Number(lot.stocks?.[fromId] ?? 0); if (available <= 0 || remaining <= 0) continue;
+    const move = Math.min(available, remaining);
+    lot.stocks = { ...(lot.stocks ?? {}), [fromId]: available - move, [toId]: Number(lot.stocks?.[toId] ?? 0) + move };
+    remaining -= move;
+  }
+  if (remaining > 0) throw new CommandError("لا يمكن نقل كمية تقسيمات أكبر من دفعات المخزن", 409);
+  await savePerfumeLots(db, session, product, lots);
+}
+
+
 export async function execute(db: Db, session: ClientSession, body: Input) {
   const type = text(body.type);
+  if (type === "perfume-split.post") {
+    const sourceProductId=text(body.sourceProductId),warehouseId=text(body.warehouseId);
+    const source=await db.collection("products").findOne({id:sourceProductId,isArchived:{$ne:true}},{session});
+    if(!source)throw new CommandError("العطر غير موجود",404);
+    if(source.perfumeForm==="decant"||source.perfumeForm==="partial")throw new CommandError("لا يمكن تقسيم منتج مولد من التقسيمات",409);
+    const warehouse=await warehouses(db).findOne({_id:warehouseId,isArchived:{$ne:true}},{session});if(!warehouse)throw new CommandError("المخزن غير موجود",404);
+    const stock=Number((source.stocks as Record<string,number>|undefined)?.[warehouseId]??0);if(stock<1)throw new CommandError(`المخزون غير كافٍ للمنتج ${source.name}`);
+    const divisionsCount=positive(body.divisionsCount,"عدد التقسيمات");if(!Number.isInteger(divisionsCount)||divisionsCount<2)throw new CommandError("عدد التقسيمات يجب أن يكون عددًا صحيحًا أكبر من 1");
+    const bottleCost=Math.ceil(positive(body.bottleCost,"تكلفة زجاجة التقسيمة",true)),salePrice=Math.ceil(positive(body.salePrice,"سعر البيع للتقسيمة"));
+    const size=optionalNumber(body.decantSizeMl,"حجم التقسيمة"),decantSizeMl=size==null?null:size;
+    const sourceCost=await authoritativeCost(db,session,source);if(sourceCost==null||sourceCost<=0)throw new CommandError("لا توجد تكلفة شراء معتمدة لهذا العطر",409);
+    const liquidUnitCost=roundedDivisionLiquidCost(sourceCost,divisionsCount),landedUnitCost=divisionLandedCost(sourceCost,divisionsCount,bottleCost);
+    const doc={...baseDocument("adjustment","SPL"),perfumeConversionType:"perfume-split",partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:"تحويل عطر إلى تقسيمات",total:0,dueTotal:0,paidTotal:0,lines:[] as Record<string,unknown>[]};
+    let decant=await db.collection("products").findOne({perfumeForm:"decant",parentProductId:sourceProductId,decantSizeMl,isArchived:{$ne:true}},{session});
+    if(!decant){const sku=await nextProductCode(db,session);decant={id:id("product"),sku,name:`${source.name} — تقسيمة${decantSizeMl?` ${decantSizeMl}ml`:""}`,barcode:"",pieceCost:landedUnitCost,lastPurchaseCost:null,lastPurchaseAt:null,piecePrice:salePrice,wholesalePrice:null,expiryDate:null,note:null,perfumeForm:"decant",parentProductId:sourceProductId,decantSizeMl,decantBottleCost:bottleCost,perfumeLots:[],stocks:{},createdAt:new Date()};await db.collection("products").insertOne(decant,{session})}else{await db.collection("products").updateOne({id:decant.id},{$set:{piecePrice:salePrice,pieceCost:landedUnitCost,decantBottleCost:bottleCost}},{session});decant.piecePrice=salePrice;decant.pieceCost=landedUnitCost;decant.decantBottleCost=bottleCost}
+    const lot:PerfumeLot={id:id("lot"),sourceProductId,sourceProductName:String(source.name),originalQuantity:divisionsCount,remainingQuantity:divisionsCount,liquidUnitCost,bottleCost,landedUnitCost,decantSizeMl,stocks:{[warehouseId]:divisionsCount},createdAt:String(doc.occurredAt),conversionDocumentId:String(doc.id)};
+    const lots=perfumeLots(decant);lots.push(lot);await savePerfumeLots(db,session,decant,lots);await db.collection("products").updateOne({id:sourceProductId},{$set:{perfumeForm:"full"}},{session});source.perfumeForm="full";
+    await changeStock(db,session,source,warehouse,-1,doc,"perfume-split-out");await changeStock(db,session,decant,warehouse,divisionsCount,doc,"perfume-split-in");
+    doc.lines=[{id:id("line"),productId:sourceProductId,description:String(source.name),quantity:-1,unitPrice:sourceCost,lineTotal:0},{id:id("line"),productId:String(decant.id),description:String(decant.name),quantity:divisionsCount,unitPrice:landedUnitCost,lineTotal:0,perfumeLotId:lot.id}];await db.collection("documents").insertOne(doc,{session});return String(doc.id);
+  }
+  if(type==="perfume-recombine.post"){
+    const decantProductId=text(body.decantProductId),lotId=text(body.lotId),warehouseId=text(body.warehouseId),salePrice=Math.ceil(positive(body.salePrice,"سعر بيع العطر الناقص"));
+    const decant=await db.collection("products").findOne({id:decantProductId,perfumeForm:"decant",isArchived:{$ne:true}},{session});if(!decant)throw new CommandError("دفعة التقسيم غير موجودة",404);
+    const lots=perfumeLots(decant),lot=lots.find(item=>item.id===lotId);if(!lot)throw new CommandError("دفعة التقسيم غير موجودة",404);
+    const remaining=Number(lot.remainingQuantity??0);if(!Number.isInteger(remaining)||remaining<=0)throw new CommandError("لا توجد تقسيمات متبقية في هذه الدفعة",409);
+    const locations=Object.entries(lot.stocks??{}).filter(([,value])=>Number(value)>0);if(locations.length!==1||String(locations[0][0])!==warehouseId||Number(locations[0][1])!==remaining)throw new CommandError("يجب جمع كل التقسيمات المتبقية في مخزن واحد قبل إرجاعها",409);
+    const warehouse=await warehouses(db).findOne({_id:warehouseId,isArchived:{$ne:true}},{session});if(!warehouse)throw new CommandError("المخزن غير موجود",404);
+    const source=await db.collection("products").findOne({id:lot.sourceProductId},{session});if(!source)throw new CommandError("العطر الأصلي غير موجود",409);
+    const partialCost=remaining*Number(lot.liquidUnitCost),sku=await nextProductCode(db,session),partial={id:id("product"),sku,name:`${source.name} — ناقص ${remaining}/${lot.originalQuantity}`,barcode:"",pieceCost:partialCost,lastPurchaseCost:null,lastPurchaseAt:null,piecePrice:salePrice,wholesalePrice:null,expiryDate:null,note:null,perfumeForm:"partial",parentProductId:String(source.id),partialRemainingParts:remaining,partialOriginalParts:Number(lot.originalQuantity),stocks:{},createdAt:new Date()};
+    await db.collection("products").insertOne(partial,{session});const doc={...baseDocument("adjustment","RCB"),perfumeConversionType:"perfume-recombine",partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:lot.conversionDocumentId,paymentMethod:null,title:"تحويل الباقي إلى عطر ناقص",total:0,dueTotal:0,paidTotal:0,lines:[] as Record<string,unknown>[]};
+    await changeStock(db,session,decant,warehouse,-remaining,doc,"perfume-recombine-out");await changeStock(db,session,partial,warehouse,1,doc,"perfume-recombine-in");lot.stocks={...(lot.stocks??{}),[warehouseId]:0};lot.remainingQuantity=0;lot.recombinedAt=String(doc.occurredAt);lot.partialProductId=String(partial.id);await savePerfumeLots(db,session,decant,lots);doc.lines=[{id:id("line"),productId:decantProductId,description:String(decant.name),quantity:-remaining,unitPrice:Number(lot.landedUnitCost),lineTotal:0},{id:id("line"),productId:String(partial.id),description:String(partial.name),quantity:1,unitPrice:partialCost,lineTotal:0}];await db.collection("documents").insertOne(doc,{session});return String(partial.id);
+  }
   if (type === "product.delete") {
     const productId = text(body.id), product = await db.collection("products").findOne({ id: productId }, { session });
     if (!product) throw new CommandError("المنتج غير موجود", 404);
@@ -217,6 +305,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
       return product.id;
     }
     const product=await db.collection("products").findOne({id:productId},{session}); if(!product)throw new CommandError("المنتج غير موجود",404);
+    if(product.perfumeForm==="decant"||product.perfumeForm==="partial"){await db.collection("products").updateOne({id:productId},{$set:{name,barcode,expiryDate:values.expiryDate,note:values.note,piecePrice:values.piecePrice,wholesalePrice:values.wholesalePrice}},{session});return productId;}
     const openingStock=optionalNumber(body.openingStock,"رصيد البداية")??0; if(!Number.isInteger(openingStock))throw new CommandError("رصيد البداية غير صالح");
     let openingWarehouse=null; if(openingStock>0){if(!pieceCost||pieceCost<=0)throw new CommandError("سعر الشراء للفرد مطلوب عند إدخال رصيد بداية"); openingWarehouse=await warehouses(db).findOne({_id:text(body.openingWarehouseId),isArchived:{$ne:true}},{session});if(!openingWarehouse)throw new CommandError("مخزن رصيد البداية مطلوب");}
     await db.collection("products").updateOne({id:productId},{$set:values},{session});
@@ -234,14 +323,16 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     if (party && party.partyType !== (isSale ? "customer" : "supplier")) throw new CommandError(isSale ? "يجب اختيار عميل صالح" : "يجب اختيار مورد صالح");
     if (paymentMethod !== "note") await paymentAccount(db, session, paymentMethod);
     const newProducts = await products(db, session, input), oldLines = original.lines as Line[], oldByProduct = new Map(oldLines.map(line => [line.productId, line]));
+    if(isSale)for(const oldLine of oldLines){if(!oldLine.perfumeAllocations?.length)continue;const product=newProducts.get(oldLine.productId)??await db.collection("products").findOne({id:oldLine.productId},{session});if(product)await restorePerfumeAllocations(db,session,product,oldLine.perfumeAllocations)}
     if (isSale && input.some(line => isProductExpired(newProducts.get(line.productId)!, String(original.businessDate ?? String(original.occurredAt).slice(0, 10))))) throw new CommandError("انتهت صلاحية هذا المنتج ولا يمكن بيعه.");
     const calculated = [] as Record<string, unknown>[];
     for (const line of input) {
       const product = newProducts.get(line.productId)!, old = oldByProduct.get(line.productId);
       const unitPrice = positive(isSale ? line.piecePrice : line.unitPrice, isSale ? "سعر الفرد" : "سعر الشراء"), lineTotal = Math.round(line.quantity * unitPrice);
       if (isSale) {
-        const cost = old ? old.costAtSale ?? null : await historicalCost(db, session, line.productId, String(original.occurredAt));
-        calculated.push({ id: old?.id ?? id("line"), productId: line.productId, description: product.name, quantity: line.quantity, unitPrice, lineTotal, costAtSale: cost, grossProfit: cost == null ? null : lineTotal - line.quantity * Number(cost) });
+        const perfumeCost=product.perfumeForm==="decant"?await consumePerfumeLots(db,session,product,warehouseId,line.quantity):null;
+        const cost=perfumeCost?perfumeCost.costAtSale:(old ? old.costAtSale ?? null : await historicalCost(db, session, line.productId, String(original.occurredAt)));
+        calculated.push({ id: old?.id ?? id("line"), productId: line.productId, description: product.name, quantity: line.quantity, unitPrice, lineTotal, costAtSale: cost, grossProfit: perfumeCost?lineTotal-perfumeCost.totalCost:(cost == null ? null : lineTotal - line.quantity * Number(cost)), ...(perfumeCost?{perfumeAllocations:perfumeCost.allocations}:{}) });
       } else calculated.push({ id: old?.id ?? id("line"), productId: line.productId, description: product.name, quantity: line.quantity, unitPrice, lineTotal });
     }
     const total = calculated.reduce((sum, line) => sum + Number(line.lineTotal), 0), paidTotal = paymentMethod === "note" ? 0 : total, dueTotal = total - paidTotal;
@@ -281,7 +372,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     const warehouse = await warehouses(db).findOne({ _id: String(original.warehouseId) }, { session });
     if (!warehouse) throw new CommandError("مخزن الفاتورة غير موجود", 409);
     const oldLines = original.lines as Line[], found = await db.collection("products").find({ id: { $in: oldLines.map(line => line.productId) } }, { session }).toArray(), map = new Map(found.map(product => [String(product.id), product]));
-    for (const line of oldLines) try { await changeStock(db, session, map.get(line.productId)!, warehouse, isSale ? line.quantity : -line.quantity, original, `${kind}-void`); } catch (error) { if (!isSale && error instanceof CommandError && /المخزون غير كاف/.test(error.message)) throw new CommandError("لا يمكن حذف الفاتورة لأن جزءًا من مخزونها تم التصرف فيه.", 409); throw error; }
+    for (const line of oldLines) try { const product=map.get(line.productId)!; if(isSale&&line.perfumeAllocations?.length)await restorePerfumeAllocations(db,session,product,line.perfumeAllocations); await changeStock(db, session, product, warehouse, isSale ? line.quantity : -line.quantity, original, `${kind}-void`); } catch (error) { if (!isSale && error instanceof CommandError && /المخزون غير كاف/.test(error.message)) throw new CommandError("لا يمكن حذف الفاتورة لأن جزءًا من مخزونها تم التصرف فيه.", 409); throw error; }
     if (Number(original.dueTotal) > 0) await changePartyDebt(db, session, original.partyId, kind, -Number(original.dueTotal), true);
     await reverseInvoicePayment(db, session, original, kind);
     await db.collection("documents").updateOne({ id: documentId, status: "posted" }, { $set: { status: "voided", voidedAt: new Date(), updatedAt: new Date() } }, { session });
@@ -293,8 +384,9 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     if (party && party.partyType !== (isSale ? "customer" : "supplier")) throw new CommandError(isSale ? "يجب اختيار عميل صالح" : "يجب اختيار مورد صالح");
     if (isSale && input.some(line => isProductExpired(map.get(line.productId)!, new Date().toISOString().slice(0, 10)))) throw new CommandError("انتهت صلاحية هذا المنتج ولا يمكن بيعه.");
     if (paymentMethod !== "note") await paymentAccount(db, session, paymentMethod);
-    const costs = isSale ? new Map(await Promise.all(input.map(async line => [line.productId, await authoritativeCost(db, session, map.get(line.productId)!)] as const))) : new Map<string, number | null>();
-    const calculated = input.map(line => { const p = map.get(line.productId)!; let unitPrice: number, total: number; if (isSale) { const price = positive(line.piecePrice, "سعر الفرد"); total = Math.round(line.quantity * price); unitPrice = price; } else { unitPrice = positive(line.unitPrice, "سعر الشراء"); total = Math.round(unitPrice * line.quantity); } return { id: id("line"), productId: line.productId, description: p.name, quantity: line.quantity, unitPrice, lineTotal: total, ...(isSale ? { costAtSale: costs.get(line.productId) ?? null, grossProfit: costs.get(line.productId) == null ? null : total - line.quantity * Number(costs.get(line.productId)) } : {}) }; });
+    if(!isSale&&input.some(line=>["decant","partial"].includes(String(map.get(line.productId)?.perfumeForm??""))))throw new CommandError("التقسيمات المولدة لا تُشترى مباشرة؛ أنشئها من شاشة التقسيمات",409);
+    const calculated:Array<{id:string;productId:string;description:string;quantity:number;unitPrice:number;lineTotal:number;costAtSale?:number|null;grossProfit?:number|null;perfumeAllocations?:PerfumeAllocation[]}>=[];
+    for(const line of input){const p=map.get(line.productId)!;let unitPrice:number,total:number;if(isSale){const price=positive(line.piecePrice,"سعر الفرد");total=Math.round(line.quantity*price);unitPrice=price;const perfumeCost=p.perfumeForm==="decant"?await consumePerfumeLots(db,session,p,warehouseId,line.quantity):null;const cost=perfumeCost?perfumeCost.costAtSale:await authoritativeCost(db,session,p);calculated.push({id:id("line"),productId:line.productId,description:p.name,quantity:line.quantity,unitPrice,lineTotal:total,costAtSale:cost,grossProfit:perfumeCost?total-perfumeCost.totalCost:(cost==null?null:total-line.quantity*Number(cost)),...(perfumeCost?{perfumeAllocations:perfumeCost.allocations}:{})})}else{unitPrice=positive(line.unitPrice,"سعر الشراء");total=Math.round(unitPrice*line.quantity);calculated.push({id:id("line"),productId:line.productId,description:p.name,quantity:line.quantity,unitPrice,lineTotal:total})}}
     const total = calculated.reduce((s, l) => s + l.lineTotal, 0), cashAmount = paymentMethod === "note" ? 0 : positive(body.cashAmount ?? body.paidAmount ?? total, isSale ? "المبلغ المستلم" : "المبلغ المدفوع", true), requestedPaid = Math.min(total, cashAmount), due = Math.max(total - cashAmount, 0), partyDelta = isSale ? total - cashAmount : -total + cashAmount;
     if (partyDelta && !party) throw new CommandError(isSale ? "اختر عميلاً عند وجود مبلغ مستحق" : "اختر موردًا عند وجود مبلغ مستحق");
     const businessDate = new Date().toISOString().slice(0, 10);
@@ -311,10 +403,11 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
   if (type === "transfer.post") {
     const input = lines(body), fromId = text(body.fromWarehouseId), toId = text(body.toWarehouseId); if (!fromId || fromId === toId) throw new CommandError("اختر مخزنين مختلفين");
     const [from, to] = await Promise.all([warehouses(db).findOne({ _id: fromId, isArchived: { $ne: true } }, { session }), warehouses(db).findOne({ _id: toId, isArchived: { $ne: true } }, { session })]); if (!from || !to) throw new CommandError("أحد المخازن غير موجود", 404); const map = await products(db, session, input), doc = { ...baseDocument("transfer", "TRF"), partyId: null, partyName: null, warehouseId: fromId, warehouseName: from.name, destinationWarehouseId: toId, destinationWarehouseName: to.name, parentDocumentId: null, paymentMethod: null, title: null, total: 0, dueTotal: 0, paidTotal: 0, lines: input.map(l => ({ id: id("line"), productId: l.productId, description: map.get(l.productId)!.name, quantity: l.quantity, unitPrice: 0, lineTotal: 0 })) };
-    for (const line of input) { const p = map.get(line.productId)!; await changeStock(db, session, p, from, -line.quantity, doc, "transfer-out"); await changeStock(db, session, p, to, line.quantity, doc, "transfer-in"); } await db.collection("documents").insertOne(doc, { session }); return doc.id;
+    for (const line of input) { const p = map.get(line.productId)!; if(p.perfumeForm==="decant")await transferPerfumeLots(db,session,p,fromId,toId,line.quantity); await changeStock(db, session, p, from, -line.quantity, doc, "transfer-out"); await changeStock(db, session, p, to, line.quantity, doc, "transfer-in"); } await db.collection("documents").insertOne(doc, { session }); return doc.id;
   }
   if (type === "adjustment.post") {
     if (!Array.isArray(body.lines) || !body.lines.length) throw new CommandError("أضف منتجًا"); const input = body.lines.map(raw => { const r = raw as Input; return { productId: text(r.productId), quantity: 1, actualQuantity: positive(r.actualQuantity, "الرصيد الفعلي", true), purchaseCost: r.purchaseCost == null || r.purchaseCost === "" ? null : positive(r.purchaseCost, "تكلفة الشراء") }; }); const { warehouse, warehouseId } = await refs(db, session, body), map = await products(db, session, input), reason = text(body.reason); if (!reason) throw new CommandError("سبب التصحيح مطلوب");
+    if(input.some(line=>["decant","partial"].includes(String(map.get(line.productId)?.perfumeForm??""))))throw new CommandError("لا يمكن تصحيح مخزون التقسيمات أو العطر الناقص يدويًا",409);
     for (const line of input) {
       const product = map.get(line.productId)!, before = Number((product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0);
       if (line.actualQuantity! > before && await authoritativeCost(db, session, product) == null && line.purchaseCost == null) throw new CommandError(`تكلفة الشراء مطلوبة لإضافة مخزون المنتج ${product.name}`);
@@ -380,7 +473,7 @@ export async function POST(request: Request) {const licenseDenied=await requireV
   let type = "unknown";
   try {
     const body = await request.json() as Input; type = text(body.type);
-    const map:Record<string,Capability>={"product.delete":"products.delete","product.restore":"products.edit","product.create":"products.create","product.update":"products.edit","warehouse.create":"warehouses.create","warehouse.update":"warehouses.edit","warehouse.default":"warehouses.edit","warehouse.delete":"warehouses.delete","sale.post":"pos.create","sale.update":"pos.edit","sale.void":"pos.delete","purchase.post":"purchases.create","purchase.update":"purchases.edit","purchase.void":"purchases.delete","transfer.post":"warehouses.transfer","adjustment.post":"warehouses.adjust","payment.post":text(body.side)==="receivable"?"customers.collect":"suppliers.pay","party-cash.post":text(body.partyType)==="supplier"?"suppliers.pay":"customers.collect","settlement.post":"customers.edit","offset.post":"customers.edit","expense.post":"expenses.create","expense.update":"expenses.edit","expense.void":"expenses.delete","payment-account.create":"banks.create","payment-account.update":"banks.edit","payment-account.delete":"banks.delete","payment-account.restore":"banks.edit","account-adjustment.post":"banks.deposit_withdraw","account-transfer.post":"banks.transfer","account-opening-balance-correction.post":"banks.balance_correct","party.create":body.partyType==="customer"?"customers.create":"suppliers.create"};
+    const map:Record<string,Capability>={"product.delete":"products.delete","product.restore":"products.edit","product.create":"products.create","product.update":"products.edit","warehouse.create":"warehouses.create","warehouse.update":"warehouses.edit","warehouse.default":"warehouses.edit","warehouse.delete":"warehouses.delete","sale.post":"pos.create","sale.update":"pos.edit","sale.void":"pos.delete","purchase.post":"purchases.create","purchase.update":"purchases.edit","purchase.void":"purchases.delete","perfume-split.post":"perfume.divisions.manage","perfume-recombine.post":"perfume.divisions.manage","transfer.post":"warehouses.transfer","adjustment.post":"warehouses.adjust","payment.post":text(body.side)==="receivable"?"customers.collect":"suppliers.pay","party-cash.post":text(body.partyType)==="supplier"?"suppliers.pay":"customers.collect","settlement.post":"customers.edit","offset.post":"customers.edit","expense.post":"expenses.create","expense.update":"expenses.edit","expense.void":"expenses.delete","payment-account.create":"banks.create","payment-account.update":"banks.edit","payment-account.delete":"banks.delete","payment-account.restore":"banks.edit","account-adjustment.post":"banks.deposit_withdraw","account-transfer.post":"banks.transfer","account-opening-balance-correction.post":"banks.balance_correct","party.create":body.partyType==="customer"?"customers.create":"suppliers.create"};
     const capability=map[type];if(!capability)return Response.json({error:"العملية غير مدعومة"},{status:400});const denied=await requireCapability(request,capability);if(denied)return denied;if(!validSameOrigin(request))return Response.json({error:"طلب غير صالح"},{status:403});
     const idempotencyKey=text(request.headers.get("Idempotency-Key"));
     if(!idempotencyKey||idempotencyKey.length>200)return Response.json({error:"مفتاح العملية مطلوب"},{status:400});
