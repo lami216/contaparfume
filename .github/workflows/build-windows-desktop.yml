@@ -19,7 +19,10 @@ jobs:
         with: {python-version: "3.12"}
       - name: Apply decant v2 integration
         if: github.ref == 'refs/heads/feature-decant-invoices-v2'
-        run: python scripts/apply-decant-v2.py
+        shell: pwsh
+        run: |
+          python scripts/apply-decant-v2.py
+          python scripts/apply-decant-v2-followup.py
       - name: Configure node-gyp toolchain
         shell: pwsh
         run: |
@@ -52,7 +55,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/domain.ts app/api/command/route.ts app/api/bootstrap/route.ts app/conta-app.tsx app/perfume-invoice-commands.ts app/perfume-invoices.tsx app/perfume-divisions.tsx app/perfume-logic.ts app/party-metrics.ts app/i18n/messages.ts lib/document-sequences.ts lib/reports.ts app/globals.css tests/decant-v2.test.mjs
+          git add app/domain.ts app/report-types.ts app/api/command/route.ts app/api/bootstrap/route.ts app/conta-app.tsx app/perfume-invoice-commands.ts app/perfume-invoices.tsx app/perfume-divisions.tsx app/perfume-logic.ts app/party-metrics.ts app/i18n/messages.ts lib/document-sequences.ts lib/reports.ts app/globals.css tests/decant-v2.test.mjs
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 0) { Write-Host "No changes to commit"; exit 0 }
           git commit -m "Add dedicated decant sales and bottle purchase invoices"
