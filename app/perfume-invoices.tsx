@@ -11,7 +11,6 @@ import {
   stockInWarehouse,
   type BootstrapData,
   type DocumentRecord,
-  type Product,
 } from "./domain";
 import { tr } from "./i18n/messages";
 

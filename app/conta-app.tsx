@@ -68,6 +68,7 @@ import { allPermissions, permissionRows, setPermission, setRowFullControl, type 
 import { formatLicenseDuration } from "./license-countdown";
 import { ConfirmationProvider, useAppConfirm } from "./app-confirm";
 import PerfumeDivisions from "./perfume-divisions";
+import { DecantBottlePurchaseInvoice, DecantSaleInvoice } from "./perfume-invoices";
 import { useI18n } from "./i18n/provider";
 import { tr, type MessageKey } from "./i18n/messages";
 import { translateApiError } from "./i18n/api-errors";
@@ -75,6 +76,8 @@ import { translateApiError } from "./i18n/api-errors";
 type View =
   | "pos"
   | "purchases"
+  | "decantSales"
+  | "decantPurchases"
   | "expenses"
   | "customers"
   | "suppliers"
@@ -109,14 +112,16 @@ type DraftLine = {
 };
 export function invoicePartyName(document: DocumentRecord) {
   if (document.partyId === null && document.kind === "sale") return tr("بيع مباشر");
+  if (document.partyId === null && document.kind === "decant-sale") return tr("بيع تقسيمات مباشر");
   if (document.partyId === null && document.kind === "purchase") return tr("شراء مباشر");
+  if (document.partyId === null && document.kind === "decant-purchase") return tr("شراء زجاج مباشر");
   return document.partyName?.trim() || null;
 }
 const empty: BootstrapData = {
   principal: { principalType: "local", name: "دخول مباشر", permissions: [] },
   branding: { storeName:APP_NAME,storePhone:"",storeAddress:"",registrationNumber:"",taxNumber:"",footerNote:"",nameFont:"tahoma",nameFontSize:24,nameFontWeight:800 },
   nextProductCode: 1,
-  nextDocumentSequences: { sale: 1, purchase: 1, expense: 1 },
+  nextDocumentSequences: { sale: 1, purchase: 1, expense: 1, decantSale: 1, decantPurchase: 1 },
   parties: [],
   warehouses: [],
   products: [],
@@ -158,6 +163,8 @@ const productNav: Array<{ id: View; label: string; icon: typeof PackagePlus }> =
   { id: "perfumeDivisions", label: "التقسيمات", icon: Boxes },
 ];
 const invoiceNav: Array<{ id: View; label: string; icon: typeof Receipt }> = [
+  { id: "decantSales", label: "فاتورة التقسيمات", icon: ShoppingCart },
+  { id: "decantPurchases", label: "فاتورة شراء زجاج التقسيمات", icon: PackagePlus },
   { id: "purchases", label: "فواتير الشراء", icon: PackagePlus },
   { id: "expenses", label: "فواتير المصاريف", icon: WalletCards },
   { id: "records", label: "سجل الفواتير", icon: ReceiptText },
@@ -243,7 +250,7 @@ function ContaAppContent() {
   const dialogRef = useRef<HTMLDivElement>(null), dialogOpenerRef = useRef<HTMLElement | null>(null);
   const can=(capability:string)=>data.principal.principalType==="owner"||data.principal.permissions.includes(capability);
   const settingsAllowed=(target:SettingsTab)=>target==="license"||target==="contact"||can("settings.view")&&(target==="general"||(target==="users"?can("settings.users.manage"):can("settings.backup.manage")||can("settings.legacy.import")));
-  const viewCapability:Record<View,string>={pos:"pos.view",purchases:"purchases.view",expenses:"expenses.view",customers:"customers.view",suppliers:"suppliers.view",warehouses:"warehouses.inventory.view",warehouseAdmin:"warehouses.view",transfers:"warehouses.transfer",adjustments:"warehouses.adjust",products:"products.view",perfumeDivisions:"perfume.divisions.view",records:"records.view",reports:"reports.view",banks:"banks.view",settings:"settings.view"};
+  const viewCapability:Record<View,string>={pos:"pos.view",purchases:"purchases.view",decantSales:"perfume.divisions.view",decantPurchases:"perfume.divisions.view",expenses:"expenses.view",customers:"customers.view",suppliers:"suppliers.view",warehouses:"warehouses.inventory.view",warehouseAdmin:"warehouses.view",transfers:"warehouses.transfer",adjustments:"warehouses.adjust",products:"products.view",perfumeDivisions:"perfume.divisions.view",records:"records.view",reports:"reports.view",banks:"banks.view",settings:"settings.view"};
   useEffect(() => {
     const close = (event: PointerEvent) => {
       if (!warehouseMenuRef.current?.contains(event.target as Node)) setWarehouseMenu(false);
@@ -287,7 +294,7 @@ function ContaAppContent() {
       if (!r.ok) throw new Error(j.error);
       setData(j);
       const permitted=(id:View)=>j.principal.principalType==="owner"||j.principal.permissions.includes(viewCapability[id]);
-      if(!permitted(view)){const first=(["pos","purchases","records","products","perfumeDivisions","customers","suppliers","warehouses","expenses","banks","reports","settings"] as View[]).find(permitted);if(first)setView(first)}
+      if(!permitted(view)){const first=(["pos","decantSales","decantPurchases","purchases","records","products","perfumeDivisions","customers","suppliers","warehouses","expenses","banks","reports","settings"] as View[]).find(permitted);if(first)setView(first)}
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : tr("تعذر تحميل البيانات"));
@@ -395,6 +402,8 @@ function ContaAppContent() {
               {view === "purchases" && (
                 <Purchases data={data} run={run} openDoc={openDoc} editRequest={purchaseEditRequest} clearEditRequest={() => setPurchaseEditRequest(null)} requestPrint={setAutoPrintId} registerEditorGuard={registerEditorGuard} />
               )}{" "}
+              {view === "decantSales" && <DecantSaleInvoice data={data} run={run} openDoc={openDoc} />}{" "}
+              {view === "decantPurchases" && <DecantBottlePurchaseInvoice data={data} run={run} openDoc={openDoc} />}{" "}
               {view === "expenses" && (
                 <Expenses data={data} run={run} openDoc={openDoc} registerEditorGuard={registerEditorGuard} canEdit={can("expenses.edit")} canDelete={can("expenses.delete")} />
               )}{" "}
@@ -402,7 +411,7 @@ function ContaAppContent() {
                 <Parties partyType={view === "customers" ? "customer" : "supplier"} data={data} run={run} openParty={setPartyDetail} />
               )}{" "}
               {view === "products" && <Products data={data} run={run} />}{" "}
-              {view === "perfumeDivisions" && <PerfumeDivisions data={data} run={run} />}{" "}
+              {view === "perfumeDivisions" && <PerfumeDivisions data={data} run={run} onAdjustBottle={openStockAdjustment} />}{" "}
               {view === "warehouseAdmin" && <WarehouseAdmin data={data} run={run} canDelete={can("warehouses.delete")} />} {view === "warehouses" && (
                 <Warehouses data={data} run={run} openDoc={openDoc} />
               )}{" "}
@@ -612,11 +621,11 @@ function ProductSearchPicker({ data, query, setQuery, onPick, mode = "sale", war
 }) {
   const [selected, setSelected] = useState<string | null>(null), listId = useId();
   const term = query.trim().toLocaleLowerCase();
-  const results = useMemo(() => term ? data.products.filter(product => !product.isArchived).map((product, index) => {
+  const results = useMemo(() => term ? data.products.filter(product => !product.isArchived && (mode === "sale" ? !["decant","bottle"].includes(String(product.perfumeForm ?? "")) : mode === "purchase" ? !["decant","partial","bottle"].includes(String(product.perfumeForm ?? "")) : true)).map((product, index) => {
     const name = product.name.toLocaleLowerCase(), sku = (product.sku ?? "").toLocaleLowerCase(), barcode = (product.barcode ?? "").toLocaleLowerCase();
     const score = barcode === term || sku === term ? 0 : barcode.startsWith(term) || sku.startsWith(term) ? 1 : name.startsWith(term) ? 2 : name.includes(term) ? 3 : 4;
     return { product, index, score, matches: `${name} ${sku} ${barcode}`.includes(term) };
-  }).filter(item => item.matches).sort((a, b) => a.score - b.score || a.index - b.index).slice(0, 30).map(item => item.product) : [], [data.products, term]);
+  }).filter(item => item.matches).sort((a, b) => a.score - b.score || a.index - b.index).slice(0, 30).map(item => item.product) : [], [data.products, term, mode]);
   const add = (product: Product) => {
     const stock = stockScope === "selected-warehouse" ? stockInWarehouse(product, warehouseId) : totalProductStock(product);
     if (mode === "sale" && (stock <= 0 || isProductExpired(product))) return;
@@ -734,6 +743,7 @@ function Pos({
   // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => { const document = editRequest ? data.documents.find(item => item.id === editRequest) : null; if (document) loadDocument(document); }, [editRequest]);
   function add(p: Product) {
+    if (["decant","bottle"].includes(String(p.perfumeForm ?? ""))) { setStockNotice(tr("عطر التقسيمات وزجاجه يُباعان من فاتورة التقسيمات فقط")); return; }
     if (isProductExpired(p)) { setStockNotice(tr("انتهت صلاحية هذا المنتج ولا يمكن بيعه.")); return; }
     const available = Number(p.stocks?.[wh?.id ?? ""] ?? 0) + Number(editingDocument?.lines.find(line => line.productId === p.id)?.quantity ?? 0);
     if (!wh || available <= 0) { setStockNotice(tr("المنتج غير متوفر في مخزن البيع")); return; }

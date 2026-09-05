@@ -246,7 +246,7 @@ async function postSale(db: Db, session: ClientSession, body: Input) {
       if (bottleCost == null || bottleCost < 0) throw new PerfumeInvoiceCommandError(`لا توجد تكلفة شراء معتمدة للزجاجة ${bottle.name}`, 409);
       const totalCost = liquid.totalCost + line.quantity * bottleCost;
       doc.lines.push({
-        id: id("line"), productId: line.productId, description: String(product.name), quantity: line.quantity,
+        id: id("line"), productId: line.productId, description: `${product.name} — ${bottle.name}`, quantity: line.quantity,
         unitPrice: line.unitPrice, lineTotal, costAtSale: totalCost / line.quantity, grossProfit: lineTotal - totalCost,
         perfumeAllocations: liquid.allocations, bottleProductId: String(bottle.id), bottleProductName: String(bottle.name),
         bottleUnitCost: bottleCost, bottleQuantity: line.quantity,
