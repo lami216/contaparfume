@@ -4,6 +4,8 @@ export type PaymentMethod = string;
 export type DocumentKind =
   | "purchase"
   | "sale"
+  | "decant-purchase"
+  | "decant-sale"
   /** Legacy read-only document kind; new creation is disabled. */
   | "return"
   | "transfer"
@@ -81,6 +83,10 @@ export interface DocumentLine {
   costAtSale?: number | null;
   grossProfit?: number | null;
   perfumeAllocations?: PerfumeAllocation[];
+  bottleProductId?: string | null;
+  bottleProductName?: string | null;
+  bottleUnitCost?: number | null;
+  bottleQuantity?: number | null;
 }
 export interface DocumentRecord {
   id: string;
@@ -138,7 +144,7 @@ export interface BootstrapData {
   /** Informational only; product.create allocates the authoritative value atomically. */
   nextProductCode: number;
   /** Informational previews; posting remains authoritative and allocates atomically. */
-  nextDocumentSequences: { sale: number; purchase: number; expense: number };
+  nextDocumentSequences: { sale: number; purchase: number; expense: number; decantSale: number; decantPurchase: number };
   parties: Party[];
   warehouses: Warehouse[];
   products: Product[];
@@ -222,6 +228,8 @@ export const paymentMethods: Array<{
 export const kindLabels: Record<DocumentKind, string> = {
   purchase: "فاتورة شراء",
   sale: "فاتورة بيع",
+  "decant-purchase": "فاتورة شراء زجاج التقسيمات",
+  "decant-sale": "فاتورة التقسيمات",
   return: "حركة تاريخية",
   transfer: "تحويل مخزون",
   adjustment: "تصحيح مخزون",
@@ -256,13 +264,13 @@ export function formatMoney(value: number) {
   return `${formatNumber(value)} MRU`;
 }
 export function displayDocumentNumber(document: Pick<DocumentRecord, "number" | "sequence" | "kind">) {
-  return ["sale", "purchase", "expense"].includes(document.kind) && Number.isSafeInteger(Number(document.sequence)) && Number(document.sequence) > 0 ? String(document.sequence) : document.number;
+  return ["sale", "purchase", "expense", "decant-sale", "decant-purchase"].includes(document.kind) && Number.isSafeInteger(Number(document.sequence)) && Number(document.sequence) > 0 ? String(document.sequence) : document.number;
 }
 /** Presentation-only inventory valuation; it does not change accounting cost policy. */
 export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "pieceCost" | "perfumeForm" | "perfumeLots">) {
   if (product.perfumeForm === "decant" && product.perfumeLots?.length) {
     const remaining = product.perfumeLots.reduce((sum, lot) => sum + Number(lot.remainingQuantity ?? 0), 0);
-    if (remaining > 0) return product.perfumeLots.reduce((sum, lot) => sum + Number(lot.remainingQuantity ?? 0) * Number(lot.landedUnitCost ?? 0), 0) / remaining;
+    if (remaining > 0) return product.perfumeLots.reduce((sum, lot) => sum + Number(lot.remainingQuantity ?? 0) * Number(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0), 0) / remaining;
   }
   return product.lastPurchaseCost ?? product.pieceCost ?? 0;
 }

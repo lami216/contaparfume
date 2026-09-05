@@ -36,7 +36,7 @@ const slice = <T>(rows: T[], f: ReportFilters) => f.unpaged ? rows : rows.slice(
 const pageCursor = (cursor: FindCursor<Document>, f: ReportFilters) => f.unpaged ? cursor : cursor.skip((f.page - 1) * f.pageSize).limit(f.pageSize);
 const lineMatches = (line: Document, f: ReportFilters) => !f.productId || String(line.productId) === f.productId;
 
-export const OPERATING_FINANCIAL_TYPES = new Set(["sale", "purchase", "expense", "party-receipt", "party-payment"]);
+export const OPERATING_FINANCIAL_TYPES = new Set(["sale", "decant-sale", "purchase", "decant-purchase", "expense", "party-receipt", "party-payment"]);
 export const isOperatingFinancialMovement = (type: unknown) => OPERATING_FINANCIAL_TYPES.has(String(type));
 
 type Cost = { unit: number | null; source: "snapshot" | "historical-purchase" | "unknown" };
@@ -49,7 +49,7 @@ async function saleFacts(db: Db, documents: Document[], f: ReportFilters) {
   const [identityRows,parentRows,purchaseRows]=await Promise.all([
     db.collection("products").find({ id: { $in: productIds } }).project({ id: 1, name: 1, sku: 1 }).toArray(),
     db.collection("documents").find({id:{$in:parentIds},kind:"sale"}).project({id:1,occurredAt:1}).toArray(),
-    productIds.length?db.collection("documents").find({kind:"purchase",status:"posted","lines.productId":{$in:productIds}}).project({occurredAt:1,lines:1}).sort({occurredAt:1}).toArray():Promise.resolve([]),
+    productIds.length?db.collection("documents").find({kind:{$in:["purchase","decant-purchase"]},status:"posted","lines.productId":{$in:productIds}}).project({occurredAt:1,lines:1}).sort({occurredAt:1}).toArray():Promise.resolve([]),
   ]);
   const identities = new Map(identityRows.map(product => [String(product.id), product])),parentDates=new Map(parentRows.map(document=>[String(document.id),String(document.occurredAt)])),purchaseHistory=new Map<string,Array<{at:string;unit:number}>>();
   for(const purchase of purchaseRows)for(const purchaseLine of (purchase.lines??[]) as Document[]){const key=String(purchaseLine.productId);if(!productIds.includes(key)||!Number.isFinite(Number(purchaseLine.unitPrice)))continue;const rows=purchaseHistory.get(key)??[];rows.push({at:String(purchase.occurredAt),unit:n(purchaseLine.unitPrice)});purchaseHistory.set(key,rows)}
@@ -87,11 +87,11 @@ async function expiredInventoryLoss(db: Db) {
   }, 0);
 }
 
-async function directDocuments(db: Db, f: ReportFilters, kind: string) {
-  const query: Document = { kind, status: "posted", ...matchDate(f) };
+async function directDocuments(db: Db, f: ReportFilters, kind: string | string[]) {
+  const query: Document = { kind: Array.isArray(kind) ? { $in: kind } : kind, status: "posted", ...matchDate(f) };
   if (f.paymentAccountId) query.paymentMethod = f.paymentAccountId;
   if (f.productId) query["lines.productId"] = f.productId;
-  if (kind === "expense" && f.expenseType) query.recurringId = f.expenseType === "recurring" ? { $exists: true } : { $exists: false };
+  if (!Array.isArray(kind) && kind === "expense" && f.expenseType) query.recurringId = f.expenseType === "recurring" ? { $exists: true } : { $exists: false };
   const totalRows = await db.collection("documents").countDocuments(query);
   const rows = await pageCursor(db.collection("documents").find(query).sort({ occurredAt: -1 }), f).toArray();
   const all = f.unpaged ? rows : await db.collection("documents").find(query).toArray();
@@ -101,7 +101,7 @@ async function directDocuments(db: Db, f: ReportFilters, kind: string) {
 export async function buildReport(db: Db, f: ReportFilters): Promise<ReportResponse> {
   const expiryLoss = ["stock", "profit", "overview"].includes(f.type) ? await expiredInventoryLoss(db) : 0;
   if (f.type === "sales") {
-    const sales = await directDocuments(db, f, "sale");
+    const sales = await directDocuments(db, f, ["sale", "decant-sale"]);
     // Read-only compatibility: fold persisted adjustments into net sales; never expose a KPI.
     const returnQuery = { kind: "return", status: "posted", ...matchDate(f), ...(f.productId ? { "lines.productId": f.productId } : {}) };
     const legacySaleAdjustments = await db.collection("documents").find(returnQuery).toArray();
@@ -110,7 +110,7 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
     return { report: f.type, from: f.from!, to: f.to!, summary: { count: sales.totalRows, grossSales: sales.all.reduce((s, d) => s + (f.productId ? (d.lines as Document[]).filter(l => lineMatches(l, f)).reduce((x,l)=>x+n(l.lineTotal),0) : n(d.total)), 0), netSales: totals.revenue, cost: totals.cost, profit: totals.profit, margin: totals.margin, unknownRevenue: totals.unknownRevenue, paid: sales.all.reduce((s,d)=>s+n(d.paidTotal),0), due: sales.all.reduce((s,d)=>s+n(d.dueTotal),0) }, rows, meta: pagination(sales.totalRows, f) };
   }
   if (f.type === "purchases" || f.type === "expenses") {
-    const kind = f.type === "purchases" ? "purchase" : "expense", found = await directDocuments(db, f, kind);
+    const kind = f.type === "purchases" ? ["purchase", "decant-purchase"] : "expense", found = await directDocuments(db, f, kind);
     const productIds = [...new Set(found.rows.flatMap(document => ((document.lines ?? []) as Document[]).map(line => String(line.productId ?? "")).filter(Boolean)))];
     const identities = new Map((await db.collection("products").find({ id: { $in: productIds } }).project({ id: 1, name: 1, sku: 1 }).toArray()).map(product => [String(product.id), product]));
     const rows = found.rows.map(document => { const selected = ((document.lines ?? []) as Document[]).filter(line => lineMatches(line, f)); if (f.type === "purchases" && f.productId) { const line=selected[0]; return { id:String(document.id),documentId:String(document.id),number:displayDocumentNumber(document),occurredAt:String(document.occurredAt),party:String(document.partyName??""),product:String(identities.get(String(line?.productId))?.name??line?.description??"").trim()||"منتج غير متاح",sku:String(identities.get(String(line?.productId))?.sku??line?.sku??"—")||"—",quantity:n(line?.quantity),unitPrice:n(line?.unitPrice),total:n(line?.lineTotal) }; } return { id:String(document.id),documentId:String(document.id),number:displayDocumentNumber(document),occurredAt:String(document.occurredAt),party:String(document.partyName??""),paymentMethod:String(document.paymentMethod??""),title:String(document.title??""),recurring:Boolean(document.recurringId),total:n(document.total),paid:n(document.paidTotal),due:n(document.dueTotal) }; });
@@ -140,8 +140,8 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
     const parentKinds = new Map((await db.collection("documents").find({ id: { $in: parentIds } }).project({ id: 1, kind: 1 }).toArray()).map(d => [String(d.id), String(d.kind)]));
     const effect = (d: Document) => {
       if (Number.isFinite(Number(d.partyBalanceDelta))) return n(d.partyBalanceDelta);
-      if (d.kind === "sale") return n(d.dueTotal);
-      if (d.kind === "purchase") return -n(d.dueTotal);
+      if (d.kind === "sale" || d.kind === "decant-sale") return n(d.dueTotal);
+      if (d.kind === "purchase" || d.kind === "decant-purchase") return -n(d.dueTotal);
       if (d.kind === "return") return -Math.max(0, n(d.total) - n(d.paidTotal));
       if (d.kind === "offset") return 0;
       if (d.kind === "payment" && d.partyCashDirection) return d.partyCashDirection === "receive" ? -n(d.total) : n(d.total);
@@ -150,18 +150,18 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
       return 0;
     };
     const role = partyType === "customer" ? "العميل" : "المورد";
-    const movementLabel = (d: Document) => d.kind === "sale" ? "فاتورة بيع" : d.kind === "purchase" ? "فاتورة شراء" : d.kind === "return" ? "حركة تاريخية" : d.kind === "offset" ? "مقاصة" : d.kind === "settlement" ? "تسوية" : d.partyCashDirection === "receive" ? `استلام من ${role}` : d.partyCashDirection === "pay" ? (partyType === "customer" ? "دفع للعميل" : "دفع للمورد") : "دفعة";
+    const movementLabel = (d: Document) => d.kind === "sale" ? "فاتورة بيع" : d.kind === "decant-sale" ? "فاتورة التقسيمات" : d.kind === "purchase" ? "فاتورة شراء" : d.kind === "decant-purchase" ? "فاتورة شراء زجاج التقسيمات" : d.kind === "return" ? "حركة تاريخية" : d.kind === "offset" ? "مقاصة" : d.kind === "settlement" ? "تسوية" : d.partyCashDirection === "receive" ? `استلام من ${role}` : d.partyCashDirection === "pay" ? (partyType === "customer" ? "دفع للعميل" : "دفع للمورد") : "دفعة";
     const rows = raw.map(d => { const delta = effect(d); return { id: String(d.id), documentId: String(d.id), occurredAt: String(d.occurredAt), movementType: movementLabel(d), documentNumber: displayDocumentNumber(d), description: String(d.title ?? d.partyName ?? ""), debit: Math.max(delta, 0), credit: Math.max(-delta, 0), paymentMethod: String(d.paymentMethod ?? "") }; });
     const tradeTotal = partyType === "customer"
-      ? all.reduce((sum, d) => sum + (d.kind === "sale" ? n(d.total) : d.kind === "return" && parentKinds.get(String(d.parentDocumentId)) !== "purchase" ? -n(d.total) : 0), 0)
-      : all.reduce((sum, d) => sum + (d.kind === "purchase" ? n(d.total) : d.kind === "return" && parentKinds.get(String(d.parentDocumentId)) === "purchase" ? -n(d.total) : 0), 0);
+      ? all.reduce((sum, d) => sum + ((d.kind === "sale" || d.kind === "decant-sale") ? n(d.total) : d.kind === "return" && parentKinds.get(String(d.parentDocumentId)) !== "purchase" ? -n(d.total) : 0), 0)
+      : all.reduce((sum, d) => sum + ((d.kind === "purchase" || d.kind === "decant-purchase") ? n(d.total) : d.kind === "return" && parentKinds.get(String(d.parentDocumentId)) === "purchase" ? -n(d.total) : 0), 0);
     const net = n(party.receivable) - n(party.payable), debitTotal=all.reduce((sum,d)=>sum+Math.max(effect(d),0),0), creditTotal=all.reduce((sum,d)=>sum+Math.max(-effect(d),0),0);
     return { report: f.type, from: f.from ?? null, to: f.to ?? null, summary: { name: String(party.name), partyType, tradeTotal, debitTotal, creditTotal, receivable: Math.max(net, 0), payable: Math.max(-net, 0), net, transactionCount: total }, rows, meta: pagination(total, f) };
   }
   // Read-only compatibility: legacy adjustments remain negative sale facts.
-  const documents=await db.collection("documents").find({kind:{$in:["sale","return"]},status:"posted",...matchDate(f),...(f.productId?{"lines.productId":f.productId}:{})}).toArray(),facts=await saleFacts(db,documents,f);
+  const documents=await db.collection("documents").find({kind:{$in:["sale","decant-sale","return"]},status:"posted",...matchDate(f),...(f.productId?{"lines.productId":f.productId}:{})}).toArray(),facts=await saleFacts(db,documents,f);
   if(f.type==="product-sales"){
-    const purchases=await db.collection("documents").find({kind:"purchase",status:"posted",...matchDate(f),...(f.productId?{"lines.productId":f.productId}:{})}).project({lines:1}).toArray();
+    const purchases=await db.collection("documents").find({kind:{$in:["purchase","decant-purchase"]},status:"posted",...matchDate(f),...(f.productId?{"lines.productId":f.productId}:{})}).project({lines:1}).toArray();
     const activeWarehouses=new Set((await db.collection("warehouses").find({isArchived:{$ne:true}}).project({_id:1}).toArray()).map(warehouse=>String(warehouse._id)));
     const productQuery:Document={...(f.productId?{id:f.productId}:{})};
     const productRows=await db.collection("products").find(productQuery).project({id:1,sku:1,name:1,stocks:1}).toArray(),map=new Map<string,ReportRow>();
@@ -172,7 +172,7 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
   }
   const grouped=new Map<string,ReportRow>();for(const fact of facts){const key=f.groupBy==="product"?String(fact.productId):String(fact.documentId),g=grouped.get(key)??{id:key,documentId:fact.documentId,number:fact.number,occurredAt:fact.occurredAt,productId:fact.productId,product:fact.product,sku:fact.sku,quantity:0,revenue:0,cost:0,profit:0,unknownRevenue:0,costKnown:true,invoiceIdList:""};g.quantity=n(g.quantity)+n(fact.quantity);g.revenue=n(g.revenue)+n(fact.revenue);g.cost=n(g.cost)+n(fact.cost);g.profit=n(g.profit)+n(fact.profit);g.unknownRevenue=n(g.unknownRevenue)+n(fact.unknownRevenue);g.costKnown=Boolean(g.costKnown)&&Boolean(fact.costKnown);const ids=new Set(String(g.invoiceIdList).split(",").filter(Boolean));ids.add(String(fact.documentId));g.invoiceIdList=[...ids].join(",");g.invoiceCount=ids.size;g.margin=n(g.revenue)?n(g.profit)/n(g.revenue)*100:0;grouped.set(key,g)}const prows=[...grouped.values()].map(row=>{const copy={...row};delete copy.invoiceIdList;return copy}).sort((a,b)=>n(b.profit)-n(a.profit));if(f.type==="profit")return{report:f.type,from:f.from!,to:f.to!,summary:{...profitSummary(facts),expiredInventoryLoss:expiryLoss},rows:slice(prows,f),meta:pagination(prows.length,f)};
   // Overview totals include legacy effects, while the invoice list below hides that retired kind.
-  const commercial=await db.collection("documents").find({kind:{$in:["sale","return","purchase","expense"]},status:"posted",...matchDate(f)}).toArray();
+  const commercial=await db.collection("documents").find({kind:{$in:["sale","decant-sale","return","purchase","decant-purchase","expense"]},status:"posted",...matchDate(f)}).toArray();
   // These collections are intentionally unfiltered by the report period: the lower
   // overview is a current position snapshot, while `commercial` remains period-bound.
   const [parties,accounts,products,warehouses]=await Promise.all([
@@ -183,8 +183,8 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
     db.collection("warehouses").find().sort({createdAt:1,name:1}).toArray(),
   ]);
   const factsByDocument=new Map<string,{cost:number;profit:number}>();for(const fact of facts){const key=String(fact.documentId),current=factsByDocument.get(key)??{cost:0,profit:0};current.cost+=n(fact.cost);current.profit+=n(fact.profit);factsByDocument.set(key,current)}
-  const kindRank:Record<string,number>={sale:0,purchase:1,expense:2};
-  const invoices=commercial.filter(d=>d.kind!=="return").map(d=>{const kind=String(d.kind) as "sale"|"purchase"|"expense",value=n(d.total),saleFact=factsByDocument.get(String(d.id));return{id:String(d.id),documentId:String(d.id),kind,type:kind==="sale"?"فاتورة بيع":kind==="purchase"?"فاتورة شراء":"فاتورة مصروفات",number:displayDocumentNumber(d),sequence:Number.isSafeInteger(Number(d.sequence))&&n(d.sequence)>0?n(d.sequence):null,occurredAt:String(d.occurredAt),invoiceValue:value,cost:kind==="sale"?(saleFact?.cost??0):value,profit:kind==="sale"?(saleFact?.profit??value):null}}).sort((a,b)=>kindRank[a.kind]-kindRank[b.kind]||((a.sequence??Number.MAX_SAFE_INTEGER)-(b.sequence??Number.MAX_SAFE_INTEGER))||a.occurredAt.localeCompare(b.occurredAt)||a.id.localeCompare(b.id));
+  const kindRank:Record<string,number>={sale:0,"decant-sale":1,purchase:2,"decant-purchase":3,expense:4};
+  const invoices=commercial.filter(d=>d.kind!=="return").map(d=>{const kind=String(d.kind) as "sale"|"decant-sale"|"purchase"|"decant-purchase"|"expense",value=n(d.total),saleFact=factsByDocument.get(String(d.id)),saleKind=kind==="sale"||kind==="decant-sale",purchaseKind=kind==="purchase"||kind==="decant-purchase";return{id:String(d.id),documentId:String(d.id),kind,type:kind==="decant-sale"?"فاتورة التقسيمات":kind==="sale"?"فاتورة بيع":kind==="decant-purchase"?"فاتورة شراء زجاج التقسيمات":purchaseKind?"فاتورة شراء":"فاتورة مصروفات",number:displayDocumentNumber(d),sequence:Number.isSafeInteger(Number(d.sequence))&&n(d.sequence)>0?n(d.sequence):null,occurredAt:String(d.occurredAt),invoiceValue:value,cost:saleKind?(saleFact?.cost??0):value,profit:saleKind?(saleFact?.profit??value):null}}).sort((a,b)=>kindRank[a.kind]-kindRank[b.kind]||((a.sequence??Number.MAX_SAFE_INTEGER)-(b.sequence??Number.MAX_SAFE_INTEGER))||a.occurredAt.localeCompare(b.occurredAt)||a.id.localeCompare(b.id));
   const typedParties=parties.map(p=>({...p,partyType:resolvePartyType(p)} as Document & {partyType:"customer"|"supplier"}));
   const partyRows=typedParties.map(p=>({id:String(p.id),partyId:String(p.id),name:String(p.name),partyType:p.partyType,receivable:Math.max(n(p.receivable)-n(p.payable),0),payable:Math.max(n(p.payable)-n(p.receivable),0)}));
   const bankAccounts=accounts.map(a=>({id:String(a.id??a._id),name:String(a.name),balance:n(a.balance)}));
@@ -197,7 +197,7 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
   const currentInventoryValue=warehouseValues.reduce((sum,warehouse)=>sum+warehouse.value,0);
   const currentReceivable=typedParties.reduce((v,p)=>v+Math.max(n(p.receivable)-n(p.payable),0),0);
   const currentPayable=typedParties.reduce((v,p)=>v+Math.max(n(p.payable)-n(p.receivable),0),0);
-  const p=profitSummary(facts),sales=commercial.filter(d=>d.kind==="sale").reduce((v,d)=>v+n(d.total),0)-commercial.filter(d=>d.kind==="return").reduce((v,d)=>v+n(d.total),0),expenses=commercial.filter(d=>d.kind==="expense").reduce((v,d)=>v+n(d.total),0);
-  return{report:"overview",from:f.from!,to:f.to!,summary:{sales,salesCost:p.cost,salesProfit:p.profit,purchases:commercial.filter(d=>d.kind==="purchase").reduce((v,d)=>v+n(d.total),0),expenses,netOperatingResult:p.profit-expenses,profit:p.profit,currentReceivable,currentPayable,currentInventoryValue,currentAccountsBalance,customerReceivables:currentReceivable,supplierPayables:currentPayable,bankBalance:currentAccountsBalance,inventoryValue:currentInventoryValue,customerCount:typedParties.filter(p=>p.partyType==="customer").length,supplierCount:typedParties.filter(p=>p.partyType==="supplier").length},rows:[],invoices,parties:partyRows,bankAccounts,warehouseValues,meta:pagination(invoices.length,f)};
+  const p=profitSummary(facts),sales=commercial.filter(d=>d.kind==="sale"||d.kind==="decant-sale").reduce((v,d)=>v+n(d.total),0)-commercial.filter(d=>d.kind==="return").reduce((v,d)=>v+n(d.total),0),expenses=commercial.filter(d=>d.kind==="expense").reduce((v,d)=>v+n(d.total),0);
+  return{report:"overview",from:f.from!,to:f.to!,summary:{sales,salesCost:p.cost,salesProfit:p.profit,purchases:commercial.filter(d=>d.kind==="purchase"||d.kind==="decant-purchase").reduce((v,d)=>v+n(d.total),0),expenses,netOperatingResult:p.profit-expenses,profit:p.profit,currentReceivable,currentPayable,currentInventoryValue,currentAccountsBalance,customerReceivables:currentReceivable,supplierPayables:currentPayable,bankBalance:currentAccountsBalance,inventoryValue:currentInventoryValue,customerCount:typedParties.filter(p=>p.partyType==="customer").length,supplierCount:typedParties.filter(p=>p.partyType==="supplier").length},rows:[],invoices,parties:partyRows,bankAccounts,warehouseValues,meta:pagination(invoices.length,f)};
 
 }

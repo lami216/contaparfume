@@ -4,7 +4,8 @@ import { getDatabase } from "../../../lib/sqlite.ts";
 import { log } from "../../../lib/log.ts";
 import { requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
 import { isProductExpired } from "../../domain.ts";
-import { divisionLandedCost, roundedDivisionLiquidCost, type PerfumeAllocation, type PerfumeLot } from "../../perfume-logic.ts";
+import { roundedDivisionLiquidCost, type PerfumeAllocation, type PerfumeLot } from "../../perfume-logic.ts";
+import { handlePerfumeInvoiceCommand, PerfumeInvoiceCommandError } from "../../perfume-invoice-commands.ts";
 import { normalizePartyNet, partyCashDelta, partyNet } from "../../party-balance.ts";
 import { nextDocumentSequence, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
 
@@ -177,8 +178,9 @@ async function consumePerfumeLots(db: Db, session: ClientSession, product: Recor
     const take = Math.min(available, remaining);
     lot.stocks = { ...(lot.stocks ?? {}), [warehouseId]: available - take };
     lot.remainingQuantity = Math.max(0, Number(lot.remainingQuantity ?? 0) - take);
-    totalCost += take * Number(lot.landedUnitCost);
-    allocations.push({ lotId: lot.id, quantity: take, unitCost: Number(lot.landedUnitCost), warehouseId });
+    const unitCost = Number(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0);
+    totalCost += take * unitCost;
+    allocations.push({ lotId: lot.id, quantity: take, unitCost, warehouseId });
     remaining -= take;
   }
   if (remaining > 0) throw new CommandError("مخزون دفعات التقسيمات غير كافٍ", 409);
@@ -214,25 +216,26 @@ async function transferPerfumeLots(db: Db, session: ClientSession, product: Reco
 
 export async function execute(db: Db, session: ClientSession, body: Input) {
   const type = text(body.type);
+  const perfumeInvoiceResult = await handlePerfumeInvoiceCommand(db, session, body);
+  if (perfumeInvoiceResult !== null) return perfumeInvoiceResult;
   if (type === "perfume-split.post") {
     const sourceProductId=text(body.sourceProductId),warehouseId=text(body.warehouseId);
     const source=await db.collection("products").findOne({id:sourceProductId,isArchived:{$ne:true}},{session});
     if(!source)throw new CommandError("العطر غير موجود",404);
-    if(source.perfumeForm==="decant"||source.perfumeForm==="partial")throw new CommandError("لا يمكن تقسيم منتج مولد من التقسيمات",409);
+    if(["decant","partial","bottle"].includes(String(source.perfumeForm??"")))throw new CommandError("لا يمكن تقسيم منتج مولد من التقسيمات",409);
     const warehouse=await warehouses(db).findOne({_id:warehouseId,isArchived:{$ne:true}},{session});if(!warehouse)throw new CommandError("المخزن غير موجود",404);
     const stock=Number((source.stocks as Record<string,number>|undefined)?.[warehouseId]??0);if(stock<1)throw new CommandError(`المخزون غير كافٍ للمنتج ${source.name}`);
     const divisionsCount=positive(body.divisionsCount,"عدد التقسيمات");if(!Number.isInteger(divisionsCount)||divisionsCount<2)throw new CommandError("عدد التقسيمات يجب أن يكون عددًا صحيحًا أكبر من 1");
-    const bottleCost=Math.ceil(positive(body.bottleCost,"تكلفة زجاجة التقسيمة",true)),salePrice=Math.ceil(positive(body.salePrice,"سعر البيع للتقسيمة"));
-    const size=optionalNumber(body.decantSizeMl,"حجم التقسيمة"),decantSizeMl=size==null?null:size;
+    const salePrice=Math.ceil(positive(body.salePrice,"سعر البيع للتقسيمة"));
     const sourceCost=await authoritativeCost(db,session,source);if(sourceCost==null||sourceCost<=0)throw new CommandError("لا توجد تكلفة شراء معتمدة لهذا العطر",409);
-    const liquidUnitCost=roundedDivisionLiquidCost(sourceCost,divisionsCount),landedUnitCost=divisionLandedCost(sourceCost,divisionsCount,bottleCost);
+    const liquidUnitCost=roundedDivisionLiquidCost(sourceCost,divisionsCount);
     const doc={...baseDocument("adjustment","SPL"),perfumeConversionType:"perfume-split",partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:"تحويل عطر إلى تقسيمات",total:0,dueTotal:0,paidTotal:0,lines:[] as Record<string,unknown>[]};
-    let decant=await db.collection("products").findOne({perfumeForm:"decant",parentProductId:sourceProductId,decantSizeMl,isArchived:{$ne:true}},{session});
-    if(!decant){const sku=await nextProductCode(db,session);decant={id:id("product"),sku,name:`${source.name} — تقسيمة${decantSizeMl?` ${decantSizeMl}ml`:""}`,barcode:"",pieceCost:landedUnitCost,lastPurchaseCost:null,lastPurchaseAt:null,piecePrice:salePrice,wholesalePrice:null,expiryDate:null,note:null,perfumeForm:"decant",parentProductId:sourceProductId,decantSizeMl,decantBottleCost:bottleCost,perfumeLots:[],stocks:{},createdAt:new Date()};await db.collection("products").insertOne(decant,{session})}else{await db.collection("products").updateOne({id:decant.id},{$set:{piecePrice:salePrice,pieceCost:landedUnitCost,decantBottleCost:bottleCost}},{session});decant.piecePrice=salePrice;decant.pieceCost=landedUnitCost;decant.decantBottleCost=bottleCost}
-    const lot:PerfumeLot={id:id("lot"),sourceProductId,sourceProductName:String(source.name),originalQuantity:divisionsCount,remainingQuantity:divisionsCount,liquidUnitCost,bottleCost,landedUnitCost,decantSizeMl,stocks:{[warehouseId]:divisionsCount},createdAt:String(doc.occurredAt),conversionDocumentId:String(doc.id)};
+    let decant=await db.collection("products").findOne({perfumeForm:"decant",parentProductId:sourceProductId,isArchived:{$ne:true}},{session});
+    if(!decant){const sku=await nextProductCode(db,session);decant={id:id("product"),sku,name:`${source.name} — تقسيمة`,barcode:"",pieceCost:liquidUnitCost,lastPurchaseCost:null,lastPurchaseAt:null,piecePrice:salePrice,wholesalePrice:null,expiryDate:null,note:null,perfumeForm:"decant",parentProductId:sourceProductId,decantSizeMl:null,decantBottleCost:0,perfumeLots:[],stocks:{},createdAt:new Date()};await db.collection("products").insertOne(decant,{session})}else{await db.collection("products").updateOne({id:decant.id},{$set:{name:`${source.name} — تقسيمة`,piecePrice:salePrice,pieceCost:liquidUnitCost,decantSizeMl:null,decantBottleCost:0}},{session});decant.name=`${source.name} — تقسيمة`;decant.piecePrice=salePrice;decant.pieceCost=liquidUnitCost;decant.decantSizeMl=null;decant.decantBottleCost=0}
+    const lot:PerfumeLot={id:id("lot"),sourceProductId,sourceProductName:String(source.name),originalQuantity:divisionsCount,remainingQuantity:divisionsCount,liquidUnitCost,bottleCost:0,landedUnitCost:liquidUnitCost,decantSizeMl:null,stocks:{[warehouseId]:divisionsCount},createdAt:String(doc.occurredAt),conversionDocumentId:String(doc.id)};
     const lots=perfumeLots(decant);lots.push(lot);await savePerfumeLots(db,session,decant,lots);await db.collection("products").updateOne({id:sourceProductId},{$set:{perfumeForm:"full"}},{session});source.perfumeForm="full";
     await changeStock(db,session,source,warehouse,-1,doc,"perfume-split-out");await changeStock(db,session,decant,warehouse,divisionsCount,doc,"perfume-split-in");
-    doc.lines=[{id:id("line"),productId:sourceProductId,description:String(source.name),quantity:-1,unitPrice:sourceCost,lineTotal:0},{id:id("line"),productId:String(decant.id),description:String(decant.name),quantity:divisionsCount,unitPrice:landedUnitCost,lineTotal:0,perfumeLotId:lot.id}];await db.collection("documents").insertOne(doc,{session});return String(doc.id);
+    doc.lines=[{id:id("line"),productId:sourceProductId,description:String(source.name),quantity:-1,unitPrice:sourceCost,lineTotal:0},{id:id("line"),productId:String(decant.id),description:String(decant.name),quantity:divisionsCount,unitPrice:liquidUnitCost,lineTotal:0,perfumeLotId:lot.id}];await db.collection("documents").insertOne(doc,{session});return String(doc.id);
   }
   if(type==="perfume-recombine.post"){
     const decantProductId=text(body.decantProductId),lotId=text(body.lotId),warehouseId=text(body.warehouseId),salePrice=Math.ceil(positive(body.salePrice,"سعر بيع العطر الناقص"));
@@ -323,6 +326,8 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     if (party && party.partyType !== (isSale ? "customer" : "supplier")) throw new CommandError(isSale ? "يجب اختيار عميل صالح" : "يجب اختيار مورد صالح");
     if (paymentMethod !== "note") await paymentAccount(db, session, paymentMethod);
     const newProducts = await products(db, session, input), oldLines = original.lines as Line[], oldByProduct = new Map(oldLines.map(line => [line.productId, line]));
+    if(isSale&&input.some(line=>["decant","bottle"].includes(String(newProducts.get(line.productId)?.perfumeForm??""))))throw new CommandError("عطر التقسيمات وزجاجه يُباعان من فاتورة التقسيمات فقط",409);
+    if(!isSale&&input.some(line=>["decant","partial","bottle"].includes(String(newProducts.get(line.productId)?.perfumeForm??""))))throw new CommandError("التقسيمات المولدة وزجاجها لا تُشترى من فاتورة الشراء العادية",409);
     if(isSale)for(const oldLine of oldLines){if(!oldLine.perfumeAllocations?.length)continue;const product=newProducts.get(oldLine.productId)??await db.collection("products").findOne({id:oldLine.productId},{session});if(product)await restorePerfumeAllocations(db,session,product,oldLine.perfumeAllocations)}
     if (isSale && input.some(line => isProductExpired(newProducts.get(line.productId)!, String(original.businessDate ?? String(original.occurredAt).slice(0, 10))))) throw new CommandError("انتهت صلاحية هذا المنتج ولا يمكن بيعه.");
     const calculated = [] as Record<string, unknown>[];
@@ -384,7 +389,8 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     if (party && party.partyType !== (isSale ? "customer" : "supplier")) throw new CommandError(isSale ? "يجب اختيار عميل صالح" : "يجب اختيار مورد صالح");
     if (isSale && input.some(line => isProductExpired(map.get(line.productId)!, new Date().toISOString().slice(0, 10)))) throw new CommandError("انتهت صلاحية هذا المنتج ولا يمكن بيعه.");
     if (paymentMethod !== "note") await paymentAccount(db, session, paymentMethod);
-    if(!isSale&&input.some(line=>["decant","partial"].includes(String(map.get(line.productId)?.perfumeForm??""))))throw new CommandError("التقسيمات المولدة لا تُشترى مباشرة؛ أنشئها من شاشة التقسيمات",409);
+    if(isSale&&input.some(line=>["decant","bottle"].includes(String(map.get(line.productId)?.perfumeForm??""))))throw new CommandError("عطر التقسيمات وزجاجه يُباعان من فاتورة التقسيمات فقط",409);
+    if(!isSale&&input.some(line=>["decant","partial","bottle"].includes(String(map.get(line.productId)?.perfumeForm??""))))throw new CommandError("التقسيمات المولدة وزجاجها لا تُشترى من فاتورة الشراء العادية",409);
     const calculated:Array<{id:string;productId:string;description:string;quantity:number;unitPrice:number;lineTotal:number;costAtSale?:number|null;grossProfit?:number|null;perfumeAllocations?:PerfumeAllocation[]}>=[];
     for(const line of input){const p=map.get(line.productId)!;let unitPrice:number,total:number;if(isSale){const price=positive(line.piecePrice,"سعر الفرد");total=Math.round(line.quantity*price);unitPrice=price;const perfumeCost=p.perfumeForm==="decant"?await consumePerfumeLots(db,session,p,warehouseId,line.quantity):null;const cost=perfumeCost?perfumeCost.costAtSale:await authoritativeCost(db,session,p);calculated.push({id:id("line"),productId:line.productId,description:p.name,quantity:line.quantity,unitPrice,lineTotal:total,costAtSale:cost,grossProfit:perfumeCost?total-perfumeCost.totalCost:(cost==null?null:total-line.quantity*Number(cost)),...(perfumeCost?{perfumeAllocations:perfumeCost.allocations}:{})})}else{unitPrice=positive(line.unitPrice,"سعر الشراء");total=Math.round(unitPrice*line.quantity);calculated.push({id:id("line"),productId:line.productId,description:p.name,quantity:line.quantity,unitPrice,lineTotal:total})}}
     const total = calculated.reduce((s, l) => s + l.lineTotal, 0), cashAmount = paymentMethod === "note" ? 0 : positive(body.cashAmount ?? body.paidAmount ?? total, isSale ? "المبلغ المستلم" : "المبلغ المدفوع", true), requestedPaid = Math.min(total, cashAmount), due = Math.max(total - cashAmount, 0), partyDelta = isSale ? total - cashAmount : -total + cashAmount;
@@ -473,7 +479,7 @@ export async function POST(request: Request) {const licenseDenied=await requireV
   let type = "unknown";
   try {
     const body = await request.json() as Input; type = text(body.type);
-    const map:Record<string,Capability>={"product.delete":"products.delete","product.restore":"products.edit","product.create":"products.create","product.update":"products.edit","warehouse.create":"warehouses.create","warehouse.update":"warehouses.edit","warehouse.default":"warehouses.edit","warehouse.delete":"warehouses.delete","sale.post":"pos.create","sale.update":"pos.edit","sale.void":"pos.delete","purchase.post":"purchases.create","purchase.update":"purchases.edit","purchase.void":"purchases.delete","perfume-split.post":"perfume.divisions.manage","perfume-recombine.post":"perfume.divisions.manage","transfer.post":"warehouses.transfer","adjustment.post":"warehouses.adjust","payment.post":text(body.side)==="receivable"?"customers.collect":"suppliers.pay","party-cash.post":text(body.partyType)==="supplier"?"suppliers.pay":"customers.collect","settlement.post":"customers.edit","offset.post":"customers.edit","expense.post":"expenses.create","expense.update":"expenses.edit","expense.void":"expenses.delete","payment-account.create":"banks.create","payment-account.update":"banks.edit","payment-account.delete":"banks.delete","payment-account.restore":"banks.edit","account-adjustment.post":"banks.deposit_withdraw","account-transfer.post":"banks.transfer","account-opening-balance-correction.post":"banks.balance_correct","party.create":body.partyType==="customer"?"customers.create":"suppliers.create"};
+    const map:Record<string,Capability>={"product.delete":"products.delete","product.restore":"products.edit","product.create":"products.create","product.update":"products.edit","warehouse.create":"warehouses.create","warehouse.update":"warehouses.edit","warehouse.default":"warehouses.edit","warehouse.delete":"warehouses.delete","sale.post":"pos.create","sale.update":"pos.edit","sale.void":"pos.delete","purchase.post":"purchases.create","purchase.update":"purchases.edit","purchase.void":"purchases.delete","perfume-bottle.create":"perfume.divisions.manage","decant-sale.post":"perfume.divisions.manage","decant-sale.void":"perfume.divisions.manage","decant-purchase.post":"perfume.divisions.manage","decant-purchase.void":"perfume.divisions.manage","perfume-split.post":"perfume.divisions.manage","perfume-recombine.post":"perfume.divisions.manage","transfer.post":"warehouses.transfer","adjustment.post":"warehouses.adjust","payment.post":text(body.side)==="receivable"?"customers.collect":"suppliers.pay","party-cash.post":text(body.partyType)==="supplier"?"suppliers.pay":"customers.collect","settlement.post":"customers.edit","offset.post":"customers.edit","expense.post":"expenses.create","expense.update":"expenses.edit","expense.void":"expenses.delete","payment-account.create":"banks.create","payment-account.update":"banks.edit","payment-account.delete":"banks.delete","payment-account.restore":"banks.edit","account-adjustment.post":"banks.deposit_withdraw","account-transfer.post":"banks.transfer","account-opening-balance-correction.post":"banks.balance_correct","party.create":body.partyType==="customer"?"customers.create":"suppliers.create"};
     const capability=map[type];if(!capability)return Response.json({error:"العملية غير مدعومة"},{status:400});const denied=await requireCapability(request,capability);if(denied)return denied;if(!validSameOrigin(request))return Response.json({error:"طلب غير صالح"},{status:403});
     const idempotencyKey=text(request.headers.get("Idempotency-Key"));
     if(!idempotencyKey||idempotencyKey.length>200)return Response.json({error:"مفتاح العملية مطلوب"},{status:400});
@@ -490,5 +496,5 @@ export async function POST(request: Request) {const licenseDenied=await requireV
     });}
     catch(error){if((error as {code?:number}).code===11000){const duplicate=await receipts.findOne({_id:idempotencyKey as never});if(duplicate?.fingerprint!==fingerprint)return Response.json({error:"مفتاح العملية مستخدم لطلب مختلف"},{status:409});if(duplicate?.status==="committed")return Response.json(duplicate.result);return Response.json({error:"العملية قيد التنفيذ"},{status:409});}throw error;}
     log("info","api.command.completed",{commandType:type,entityId:result});return Response.json(response);
-  }catch(error){const status=error instanceof CommandError?error.status:500;log("error","api.command.failed",{commandType:type,error});return Response.json({error:error instanceof CommandError?error.message:"تعذر تنفيذ العملية"},{status});}
+  }catch(error){const commandError=error instanceof CommandError||error instanceof PerfumeInvoiceCommandError;const status=commandError?error.status:500;log("error","api.command.failed",{commandType:type,error});return Response.json({error:commandError?error.message:"تعذر تنفيذ العملية"},{status});}
 }
