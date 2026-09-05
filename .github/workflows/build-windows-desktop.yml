@@ -19,7 +19,10 @@ jobs:
         with: {python-version: "3.12"}
       - name: Apply decant workspace v3
         if: github.ref == 'refs/heads/ui-decant-workspace-v3'
-        run: python scripts/apply-decant-workspace-v3.py
+        shell: pwsh
+        run: |
+          python scripts/apply-decant-workspace-v3.py
+          Remove-Item scripts/apply-decant-workspace-v3.py
       - name: Configure node-gyp toolchain
         shell: pwsh
         run: |
