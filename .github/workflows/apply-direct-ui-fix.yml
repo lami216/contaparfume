@@ -1,0 +1,33 @@
+name: Apply direct decant UI fix
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/apply-direct-ui-v5.py
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply source patch
+        run: python scripts/apply-direct-ui-v5.py
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build
+      - name: Commit validated source directly to main
+        run: |
+          git config user.name "OpenAI"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm scripts/apply-direct-ui-v5.py .github/workflows/apply-direct-ui-fix.yml
+          git add app/conta-app.tsx app/perfume-ui-fixes.css tests/navigation.test.mjs
+          git commit -m "Refine decant workspace and restore navigation proportions"
+          git push origin HEAD:main
