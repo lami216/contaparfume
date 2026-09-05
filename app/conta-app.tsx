@@ -67,7 +67,6 @@ import { bankScopeMetrics, filterFinancialMovements, filterTransfers, type Commi
 import { allPermissions, permissionRows, setPermission, setRowFullControl, type PermissionAction } from "./user-permissions";
 import { formatLicenseDuration } from "./license-countdown";
 import { ConfirmationProvider, useAppConfirm } from "./app-confirm";
-import PerfumeDivisions from "./perfume-divisions";
 import DecantInvoicesPage from "./decant-invoices-page";
 import { useI18n } from "./i18n/provider";
 import { tr, type MessageKey } from "./i18n/messages";
@@ -85,7 +84,6 @@ type View =
   | "transfers"
   | "adjustments"
   | "products"
-  | "perfumeDivisions"
   | "records"
   | "reports"
   | "banks"
@@ -142,7 +140,6 @@ function useSessionDraft<T>(key: string, initial: T) {
 const nav: Array<{ id: View; label: string; icon: typeof ShoppingCart }> = [
   { id: "pos", label: "نقطة البيع", icon: ShoppingCart },
   { id: "products", label: "المنتجات", icon: PackagePlus },
-  { id: "perfumeDivisions", label: "التقسيمات", icon: Boxes },
 
   { id: "banks", label: "البنوك", icon: Landmark },
   { id: "reports", label: "التقارير", icon: Receipt },
@@ -156,10 +153,6 @@ const topNavClass: Record<(typeof MAIN_NAV_ORDER)[number], string> = {
 const partyNav: Array<{ id: View; label: string; icon: typeof Users }> = [
   { id: "customers", label: "العملاء", icon: Users },
   { id: "suppliers", label: "الموردون", icon: Users },
-];
-const productNav: Array<{ id: View; label: string; icon: typeof PackagePlus }> = [
-  { id: "products", label: "المنتجات", icon: PackagePlus },
-  { id: "perfumeDivisions", label: "التقسيمات", icon: Boxes },
 ];
 const invoiceNav: Array<{ id: View; label: string; icon: typeof Receipt }> = [
   { id: "decantInvoices", label: "فواتير التقسيمات", icon: ShoppingCart },
@@ -214,7 +207,6 @@ function ContaAppContent() {
     [menu, setMenu] = useState(false),
     [invoiceMenu, setInvoiceMenu] = useState(false),
     [warehouseMenu, setWarehouseMenu] = useState(false),
-    [productMenu, setProductMenu] = useState(false),
     [reportMenu, setReportMenu] = useState(false),
     [partyMenu, setPartyMenu] = useState(false),
     [bankMenu, setBankMenu] = useState(false),
@@ -240,7 +232,6 @@ function ContaAppContent() {
   const registerEditorGuard: RegisterEditorGuard = guard => { activeEditorGuard.current = guard; };
   const warehouseMenuRef = useRef<HTMLDivElement>(null);
   const invoiceMenuRef = useRef<HTMLDivElement>(null);
-  const productMenuRef = useRef<HTMLDivElement>(null);
   const reportMenuRef = useRef<HTMLDivElement>(null);
   const partyMenuRef = useRef<HTMLDivElement>(null);
   const bankMenuRef = useRef<HTMLDivElement>(null);
@@ -248,12 +239,11 @@ function ContaAppContent() {
   const dialogRef = useRef<HTMLDivElement>(null), dialogOpenerRef = useRef<HTMLElement | null>(null);
   const can=(capability:string)=>data.principal.principalType==="owner"||data.principal.permissions.includes(capability);
   const settingsAllowed=(target:SettingsTab)=>target==="license"||target==="contact"||can("settings.view")&&(target==="general"||(target==="users"?can("settings.users.manage"):can("settings.backup.manage")||can("settings.legacy.import")));
-  const viewCapability:Record<View,string>={pos:"pos.view",purchases:"purchases.view",decantInvoices:"perfume.divisions.view",expenses:"expenses.view",customers:"customers.view",suppliers:"suppliers.view",warehouses:"warehouses.inventory.view",warehouseAdmin:"warehouses.view",transfers:"warehouses.transfer",adjustments:"warehouses.adjust",products:"products.view",perfumeDivisions:"perfume.divisions.view",records:"records.view",reports:"reports.view",banks:"banks.view",settings:"settings.view"};
+  const viewCapability:Record<View,string>={pos:"pos.view",purchases:"purchases.view",decantInvoices:"perfume.divisions.view",expenses:"expenses.view",customers:"customers.view",suppliers:"suppliers.view",warehouses:"warehouses.inventory.view",warehouseAdmin:"warehouses.view",transfers:"warehouses.transfer",adjustments:"warehouses.adjust",products:"products.view",records:"records.view",reports:"reports.view",banks:"banks.view",settings:"settings.view"};
   useEffect(() => {
     const close = (event: PointerEvent) => {
       if (!warehouseMenuRef.current?.contains(event.target as Node)) setWarehouseMenu(false);
       if (!invoiceMenuRef.current?.contains(event.target as Node)) setInvoiceMenu(false);
-      if (!productMenuRef.current?.contains(event.target as Node)) setProductMenu(false);
       if (!reportMenuRef.current?.contains(event.target as Node)) setReportMenu(false);
       if (!partyMenuRef.current?.contains(event.target as Node)) setPartyMenu(false);
       if (!bankMenuRef.current?.contains(event.target as Node)) setBankMenu(false);
@@ -265,9 +255,9 @@ function ContaAppContent() {
   const navigate = (id: View) => {
     if (!can(viewCapability[id])) return;
     if (id !== "adjustments") setAdjustmentPrefill(null);
-    setView(id); setDoc(null); setPartyDetail(null); setMenu(false); setWarehouseMenu(false); setInvoiceMenu(false); setProductMenu(false); setReportMenu(false); setPartyMenu(false); setBankMenu(false); setSettingsMenu(false);
+    setView(id); setDoc(null); setPartyDetail(null); setMenu(false); setWarehouseMenu(false); setInvoiceMenu(false); setReportMenu(false); setPartyMenu(false); setBankMenu(false); setSettingsMenu(false);
   };
-  const closeNavigationMenus = () => { setWarehouseMenu(false); setInvoiceMenu(false); setProductMenu(false); setReportMenu(false); setPartyMenu(false); setBankMenu(false); setSettingsMenu(false); };
+  const closeNavigationMenus = () => { setWarehouseMenu(false); setInvoiceMenu(false); setReportMenu(false); setPartyMenu(false); setBankMenu(false); setSettingsMenu(false); };
   const navigationKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") { closeNavigationMenus(); (event.target as HTMLElement).closest<HTMLElement>(".nav-menu")?.querySelector<HTMLButtonElement>(":scope > button")?.focus(); return; }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -292,7 +282,7 @@ function ContaAppContent() {
       if (!r.ok) throw new Error(j.error);
       setData(j);
       const permitted=(id:View)=>j.principal.principalType==="owner"||j.principal.permissions.includes(viewCapability[id]);
-      if(!permitted(view)){const first=(["pos","decantInvoices","purchases","records","products","perfumeDivisions","customers","suppliers","warehouses","expenses","banks","reports","settings"] as View[]).find(permitted);if(first)setView(first)}
+      if(!permitted(view)){const first=(["pos","decantInvoices","purchases","records","products","customers","suppliers","warehouses","expenses","banks","reports","settings"] as View[]).find(permitted);if(first)setView(first)}
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : tr("تعذر تحميل البيانات"));
@@ -359,7 +349,7 @@ function ContaAppContent() {
           <div className="nav-menu nav-invoices" ref={invoiceMenuRef}><button className={invoiceNav.some(n=>n.id===view)?"nav active":"nav"} aria-expanded={invoiceMenu} onClick={()=>setInvoiceMenu(x=>!x)}><ReceiptText/><span>{tr("الفواتير")}</span><ChevronDown className="chevron"/></button>{invoiceMenu&&<div className="nav-popover">{invoiceNav.map(n=><PermissionNavItem key={n.id} allowed={can(viewCapability[n.id])} active={view===n.id} onClick={()=>navigate(n.id)}><span>{tr(n.label)}</span></PermissionNavItem>)}</div>}</div>
           <div className="nav-menu nav-warehouses" ref={warehouseMenuRef}><button className={warehouseNav.some(n=>n.id===view)?"nav active":"nav"} aria-expanded={warehouseMenu} onClick={()=>setWarehouseMenu(x=>!x)}><Boxes/><span>{tr("المخازن")}</span><ChevronDown className="chevron"/></button>{warehouseMenu&&<div className="nav-popover">{warehouseNav.map(n=><PermissionNavItem key={n.id} allowed={can(viewCapability[n.id])} active={view===n.id} onClick={()=>navigate(n.id)}><span>{tr(n.label)}</span></PermissionNavItem>)}</div>}</div>
           <div className="nav-menu nav-parties party-nav-menu" ref={partyMenuRef}><button className={partyNav.some(item=>item.id===view)?"nav active":"nav"} aria-expanded={partyMenu} onClick={()=>setPartyMenu(value=>!value)}><Users/><span>{tr("العملاء والموردون")}</span><ChevronDown className="chevron"/></button>{partyMenu&&<div className="nav-popover party-nav-popover">{partyNav.map(item=><PermissionNavItem key={item.id} allowed={can(viewCapability[item.id])} active={view===item.id} onClick={()=>navigate(item.id)}><span>{tr(item.label)}</span></PermissionNavItem>)}</div>}</div>
-          <div className="nav-menu nav-products product-nav-menu" ref={productMenuRef}><button className={productNav.some(item=>item.id===view)?"nav active":"nav"} aria-expanded={productMenu} onClick={()=>setProductMenu(value=>!value)}><PackagePlus/><span>{tr("المنتجات")}</span><ChevronDown className="chevron"/></button>{productMenu&&<div className="nav-popover product-nav-popover">{productNav.map(item=><PermissionNavItem key={item.id} allowed={can(viewCapability[item.id])} active={view===item.id} onClick={()=>navigate(item.id)}><span>{tr(item.label)}</span></PermissionNavItem>)}</div>}</div>
+          <PermissionNavItem allowed={can(viewCapability.products)} active={view==="products"} className="nav nav-products" onClick={()=>navigate("products")}><PackagePlus/><span>{tr("المنتجات")}</span></PermissionNavItem>
           <div className="nav-menu nav-accounts bank-nav-menu" ref={bankMenuRef}><button className={view==="banks"?"nav active":"nav"} aria-expanded={bankMenu} onClick={()=>setBankMenu(open=>!open)}><Landmark/><span>{tr("البنوك")}</span><ChevronDown className="chevron"/></button>{bankMenu&&<div className="nav-popover bank-nav-popover">{bankNav.map(item=><PermissionNavItem key={item.id} allowed={can("banks.view")} active={view==="banks"&&bankTab===item.id} onClick={()=>{setBankTab(item.id);navigate("banks")}}><span>{tr(item.label)}</span></PermissionNavItem>)}</div>}</div>
           <div className="nav-menu nav-reports report-nav-menu" ref={reportMenuRef}><button className={view==="reports"?"nav active":"nav"} aria-expanded={reportMenu} onClick={()=>setReportMenu(value=>!value)}><Receipt/><span>{tr("التقارير")}</span><ChevronDown className="chevron"/></button>{reportMenu&&<div className="nav-popover report-nav-popover">{reportOrder.map(id=><PermissionNavItem key={id} allowed={can("reports.view")} active={view==="reports"&&reportType===id} onClick={()=>{setReportType(id);navigate("reports")}}><span>{tr(reportNames[id])}</span></PermissionNavItem>)}</div>}</div>
           <div className="nav-menu settings-nav-menu" ref={settingsMenuRef}><button className={view==="settings"?"nav nav-settings active":"nav nav-settings"} aria-expanded={settingsMenu} onClick={()=>setSettingsMenu(value=>!value)}><SettingsIcon/><span>{tr("الإعدادات")}</span><ChevronDown className="chevron"/></button>{settingsMenu&&<div className="nav-popover">{([{id:"general",label:"إعدادات عامة"},{id:"users",label:"المستخدمون والصلاحيات"},{id:"data",label:"البيانات والنسخ الاحتياطي"},{id:"license",label:"رخصة التفعيل"},{id:"contact",label:"تواصل مع الدعم"}] as Array<{id:SettingsTab;label:MessageKey}>).map(item=><PermissionNavItem key={item.id} allowed={settingsAllowed(item.id)} active={view==="settings"&&settingsTab===item.id} onClick={()=>{setSettingsTab(item.id);if(item.id==="license"||item.id==="contact"){setView("settings");setSettingsMenu(false)}else navigate("settings")}}><span>{tr(item.label)}</span></PermissionNavItem>)}</div>}</div>
@@ -408,7 +398,6 @@ function ContaAppContent() {
                 <Parties partyType={view === "customers" ? "customer" : "supplier"} data={data} run={run} openParty={setPartyDetail} />
               )}{" "}
               {view === "products" && <Products data={data} run={run} />}{" "}
-              {view === "perfumeDivisions" && <PerfumeDivisions data={data} run={run} onAdjustBottle={openStockAdjustment} />}{" "}
               {view === "warehouseAdmin" && <WarehouseAdmin data={data} run={run} canDelete={can("warehouses.delete")} />} {view === "warehouses" && (
                 <Warehouses data={data} run={run} openDoc={openDoc} />
               )}{" "}

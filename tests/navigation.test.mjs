@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { normalizePresentationSource } from "./presentation-source.mjs";
-test("desktop navigation has eight unique top-level destinations with products grouping perfume divisions",async()=>{const source=normalizePresentationSource(await readFile(new URL("../app/conta-app.tsx",import.meta.url),"utf8")),match=source.match(/MAIN_NAV_ORDER = \[([^\]]+)\]/);assert.ok(match);const entries=[...match[1].matchAll(/"([^"]+)"/g)].map(x=>x[1]);assert.deepEqual(entries,["pos","invoices","warehouses","products","parties","banks","reports","settings"]);assert.equal(new Set(entries).size,entries.length);assert.match(source,/const productNav:[\s\S]*?id: "products"[\s\S]*?id: "perfumeDivisions"/);});
+test("desktop navigation has eight unique top-level destinations with products as a direct destination",async()=>{const source=normalizePresentationSource(await readFile(new URL("../app/conta-app.tsx",import.meta.url),"utf8")),match=source.match(/MAIN_NAV_ORDER = \[([^\]]+)\]/);assert.ok(match);const entries=[...match[1].matchAll(/"([^"]+)"/g)].map(x=>x[1]);assert.deepEqual(entries,["pos","invoices","warehouses","products","parties","banks","reports","settings"]);assert.equal(new Set(entries).size,entries.length);assert.doesNotMatch(source,/const productNav:/);assert.match(source,/allowed=\{can\(viewCapability\.products\)\} active=\{view==="products"\} className="nav nav-products" onClick=\{\(\)=>navigate\("products"\)\}/);});
 
 test("submenu current states require their parent view without resetting remembered selections", async () => {
   const source = normalizePresentationSource(await readFile(new URL("../app/conta-app.tsx", import.meta.url), "utf8"));
@@ -13,7 +13,6 @@ test("submenu current states require their parent view without resetting remembe
   assert.match(source, /invoiceNav\.map\(n=><PermissionNavItem[^>]+active=\{view===n\.id\}/);
   assert.match(source, /warehouseNav\.map\(n=><PermissionNavItem[^>]+active=\{view===n\.id\}/);
   assert.match(source, /partyNav\.map\(item=><PermissionNavItem[^>]+active=\{view===item\.id\}/);
-  assert.match(source, /productNav\.map\(item=><PermissionNavItem[^>]+active=\{view===item\.id\}/);
 
   const navigateBody = source.match(/const navigate = \(id: View\) => \{([\s\S]*?)\n  \};/)?.[1];
   assert.ok(navigateBody);
@@ -22,7 +21,7 @@ test("submenu current states require their parent view without resetting remembe
 
 test("permission-aware navigation stays complete and disabled items cannot activate", async () => {
   const source = normalizePresentationSource(await readFile(new URL("../app/conta-app.tsx", import.meta.url), "utf8"));
-  for (const collection of ["invoiceNav", "warehouseNav", "partyNav", "productNav", "bankNav", "reportOrder"])
+  for (const collection of ["invoiceNav", "warehouseNav", "partyNav", "bankNav", "reportOrder"])
     assert.match(source, new RegExp(`${collection}\\.map\\(`));
   assert.doesNotMatch(source, /(?:invoiceNav|warehouseNav|partyNav)\.filter\([^\n]*can/);
   assert.match(source, /if \(!can\(viewCapability\[id\]\)\) return/);
@@ -36,18 +35,17 @@ test("top navigation dropdowns share one visual system and render text-only rows
   const source = normalizePresentationSource(await readFile(new URL("../app/conta-app.tsx", import.meta.url), "utf8"));
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
-  assert.equal((source.match(/className="nav-popover(?: [^"]+)?"/g) ?? []).length, 7);
+  assert.equal((source.match(/className="nav-popover(?: [^"]+)?"/g) ?? []).length, 6);
   assert.match(source, /<ReceiptText\s*\/>\s*<span>الفواتير<\/span>\s*<ChevronDown/);
   assert.match(source, /<Boxes\s*\/>\s*<span>المخازن<\/span>\s*<ChevronDown/);
   assert.match(source, /<Users\s*\/>\s*<span>العملاء والموردون<\/span>\s*<ChevronDown/);
-  assert.match(source, /className="nav-menu nav-products product-nav-menu"[\s\S]*?<PackagePlus\s*\/>\s*<span>المنتجات<\/span>\s*<ChevronDown/);
+  assert.match(source, /className="nav nav-products"[\s\S]{0,160}<PackagePlus\s*\/>\s*<span>المنتجات<\/span>/);
+  assert.doesNotMatch(source, /product-nav-menu|product-nav-popover|productMenuRef|setProductMenu/);
   assert.match(source, /<Landmark\s*\/>\s*<span>البنوك<\/span>\s*<ChevronDown/);
   assert.match(source, /<Receipt\s*\/>\s*<span>التقارير<\/span>\s*<ChevronDown/);
   assert.match(source, /className="nav-menu settings-nav-menu"[\s\S]*?<SettingsIcon\s*\/>\s*<span>الإعدادات<\/span>\s*<ChevronDown/);
   assert.match(source, /\[\{id:"general",label:"إعدادات عامة"\},\{id:"users",label:"المستخدمون والصلاحيات"\},\{id:"data",label:"البيانات والنسخ الاحتياطي"\},\{id:"license",label:"رخصة التفعيل"\},\{id:"contact",label:"تواصل مع الدعم"\}\]/);
   assert.match(source, /const settingsAllowed=.*settings\.users\.manage.*settings\.backup\.manage.*settings\.legacy\.import/);
-  assert.match(source, /productMenuRef/);
-  assert.match(source, /setProductMenu\(false\)/);
   assert.match(source, /settingsMenuRef/);
   assert.match(source, /setSettingsMenu\(false\)/);
 
