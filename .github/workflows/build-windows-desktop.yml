@@ -2,9 +2,7 @@ name: Build Windows desktop
 on:
   workflow_dispatch:
   push:
-    branches: [main, fix-decants-density-i18n]
-permissions:
-  contents: write
+    branches: [main]
 jobs:
   build:
     # Native better-sqlite3 Electron rebuild currently requires the VS2022 toolchain.
@@ -17,9 +15,6 @@ jobs:
       - uses: actions/setup-python@v7
         id: python
         with: {python-version: "3.12"}
-      - name: Apply compact decants and locale fixes
-        if: github.ref == 'refs/heads/fix-decants-density-i18n'
-        run: python scripts/apply-ui-i18n-fix.py
       - name: Configure node-gyp toolchain
         shell: pwsh
         run: |
@@ -46,17 +41,6 @@ jobs:
             $hash = (Get-FileHash $artifact -Algorithm SHA256).Hash
             Write-Host "$($file.Name) size=$($file.Length) SHA-256=$hash"
           }
-      - name: Commit validated fixes
-        if: github.ref == 'refs/heads/fix-decants-density-i18n'
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/conta-app.tsx app/perfume-divisions.tsx app/globals.css desktop/main.cjs desktop/close-flow.cjs tests/desktop-close-backup.test.mjs tests/perfume-ui-i18n.test.mjs
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) { Write-Host "No changes to commit"; exit 0 }
-          git commit -m "Compact perfume divisions and localize desktop close flow"
-          git push origin HEAD:fix-decants-density-i18n
       - uses: actions/upload-artifact@v7
         with:
           name: AlKarna-Perfume-Windows-x64
