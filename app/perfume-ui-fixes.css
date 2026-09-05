@@ -1,0 +1,165 @@
+/* Perfume edition UI corrections.
+   Loaded after globals.css so these rules intentionally restore the original
+   Conta desktop header proportions without changing the accounting workspaces. */
+
+@media (min-width: 1051px) {
+  :root {
+    --app-nav-height: 102px;
+    --page-bar-height: 54px;
+  }
+
+  .app-shell {
+    grid-template-rows: var(--app-nav-height) minmax(0, 1fr);
+  }
+
+  .sidebar {
+    grid-row: 1;
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: var(--app-nav-height);
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    gap: 26px;
+    padding: 12px 24px;
+  }
+
+  .sidebar nav {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    width: auto;
+    min-width: 0;
+    flex: 1;
+    overflow: visible;
+  }
+
+  .sidebar nav > *,
+  .nav-menu,
+  .nav-menu > .nav {
+    width: auto;
+    min-width: max-content;
+  }
+
+  .nav {
+    justify-content: flex-start;
+    width: auto;
+    min-width: max-content;
+    min-height: 56px;
+    padding: 9px 11px;
+    gap: 11px;
+    border-radius: 13px;
+    font-size: 12px;
+  }
+
+  .party-nav-menu > .nav > span {
+    white-space: nowrap;
+    line-height: normal;
+    text-align: start;
+    overflow-wrap: normal;
+  }
+
+  .brand-logo {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+  }
+
+  .brand strong {
+    font-size: 29px;
+    line-height: 1;
+  }
+
+  .side-foot {
+    min-width: max-content;
+  }
+
+  .app-shell > main {
+    grid-row: 2;
+    grid-template-rows: var(--page-bar-height) minmax(0, 1fr);
+    height: 100%;
+  }
+
+  .app-shell header.page-bar {
+    min-height: var(--page-bar-height);
+    height: var(--page-bar-height);
+    padding: 7px 24px;
+  }
+
+  .page-bar h1 {
+    font-size: clamp(20px, 1.7vw, 26px);
+  }
+
+  /* The divisions page owns its scroll area so Windows' taskbar never covers
+     its actions/content when the application is maximized. */
+  .section-perfumeDivisions .content > section {
+    overflow: visible;
+  }
+
+  .perfume-divisions-page {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-bottom: 28px;
+    scrollbar-gutter: stable;
+  }
+
+  .perfume-split-card {
+    overflow: visible;
+  }
+
+  .perfume-split-card .perfume-divisions-heading {
+    position: sticky;
+    top: 0;
+    z-index: 12;
+    padding: 5px 0 7px;
+    border-bottom: 1px solid var(--border, #d0d5dd);
+    background: var(--panel, #fff);
+  }
+
+  .perfume-split-action {
+    min-width: 205px;
+    min-height: 40px;
+    height: 40px;
+    padding-inline: 14px;
+    font-size: 11px;
+    box-shadow: 0 3px 10px rgba(11, 109, 103, 0.18);
+  }
+
+  .product-nav-popover {
+    min-width: 190px !important;
+  }
+}
+
+@media (min-width: 1051px) and (max-width: 1280px) {
+  .sidebar {
+    gap: 12px;
+    padding-inline: 14px;
+  }
+
+  .sidebar nav {
+    gap: 2px;
+  }
+
+  .nav {
+    min-height: 52px;
+    padding-inline: 8px;
+    gap: 6px;
+  }
+
+  .nav span {
+    font-size: 11px;
+  }
+
+  .brand strong {
+    font-size: 24px;
+  }
+}
+
+@media (max-width: 1050px) {
+  .perfume-divisions-page {
+    padding-bottom: max(28px, env(safe-area-inset-bottom));
+  }
+}
