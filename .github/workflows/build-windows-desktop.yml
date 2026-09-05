@@ -2,9 +2,7 @@ name: Build Windows desktop
 on:
   workflow_dispatch:
   push:
-    branches: [main, feature-decant-invoices-v2]
-permissions:
-  contents: write
+    branches: [main]
 jobs:
   build:
     # Native better-sqlite3 Electron rebuild currently requires the VS2022 toolchain.
@@ -17,12 +15,6 @@ jobs:
       - uses: actions/setup-python@v7
         id: python
         with: {python-version: "3.12"}
-      - name: Apply decant v2 integration
-        if: github.ref == 'refs/heads/feature-decant-invoices-v2'
-        shell: pwsh
-        run: |
-          python scripts/apply-decant-v2.py
-          python scripts/apply-decant-v2-followup.py
       - name: Configure node-gyp toolchain
         shell: pwsh
         run: |
@@ -49,17 +41,6 @@ jobs:
             $hash = (Get-FileHash $artifact -Algorithm SHA256).Hash
             Write-Host "$($file.Name) size=$($file.Length) SHA-256=$hash"
           }
-      - name: Commit validated decant v2 integration
-        if: github.ref == 'refs/heads/feature-decant-invoices-v2'
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/domain.ts app/report-types.ts app/api/command/route.ts app/api/bootstrap/route.ts app/conta-app.tsx app/perfume-invoice-commands.ts app/perfume-invoices.tsx app/perfume-divisions.tsx app/perfume-logic.ts app/party-metrics.ts app/i18n/messages.ts lib/document-sequences.ts lib/reports.ts app/globals.css tests/decant-v2.test.mjs
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) { Write-Host "No changes to commit"; exit 0 }
-          git commit -m "Add dedicated decant sales and bottle purchase invoices"
-          git push origin HEAD:feature-decant-invoices-v2
       - uses: actions/upload-artifact@v7
         with:
           name: AlKarna-Perfume-Windows-x64
