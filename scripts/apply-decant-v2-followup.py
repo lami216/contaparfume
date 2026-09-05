@@ -18,4 +18,9 @@ replace_once(
     ': [], [data.products, term]);',
     ': [], [data.products, term, mode]);',
 )
+replace_once(
+    "lib/reports.ts",
+    'const kind=String(d.kind),value=n(d.total),saleFact=',
+    'const kind=String(d.kind) as "sale"|"decant-sale"|"purchase"|"decant-purchase"|"expense",value=n(d.total),saleFact=',
+)
 print("decant v2 follow-up patch applied")
