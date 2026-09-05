@@ -68,7 +68,7 @@ import { allPermissions, permissionRows, setPermission, setRowFullControl, type 
 import { formatLicenseDuration } from "./license-countdown";
 import { ConfirmationProvider, useAppConfirm } from "./app-confirm";
 import PerfumeDivisions from "./perfume-divisions";
-import { DecantBottlePurchaseInvoice, DecantSaleInvoice } from "./perfume-invoices";
+import DecantInvoicesPage from "./decant-invoices-page";
 import { useI18n } from "./i18n/provider";
 import { tr, type MessageKey } from "./i18n/messages";
 import { translateApiError } from "./i18n/api-errors";
@@ -76,8 +76,7 @@ import { translateApiError } from "./i18n/api-errors";
 type View =
   | "pos"
   | "purchases"
-  | "decantSales"
-  | "decantPurchases"
+  | "decantInvoices"
   | "expenses"
   | "customers"
   | "suppliers"
@@ -163,8 +162,7 @@ const productNav: Array<{ id: View; label: string; icon: typeof PackagePlus }> =
   { id: "perfumeDivisions", label: "التقسيمات", icon: Boxes },
 ];
 const invoiceNav: Array<{ id: View; label: string; icon: typeof Receipt }> = [
-  { id: "decantSales", label: "فاتورة التقسيمات", icon: ShoppingCart },
-  { id: "decantPurchases", label: "فاتورة شراء زجاج التقسيمات", icon: PackagePlus },
+  { id: "decantInvoices", label: "فواتير التقسيمات", icon: ShoppingCart },
   { id: "purchases", label: "فواتير الشراء", icon: PackagePlus },
   { id: "expenses", label: "فواتير المصاريف", icon: WalletCards },
   { id: "records", label: "سجل الفواتير", icon: ReceiptText },
@@ -250,7 +248,7 @@ function ContaAppContent() {
   const dialogRef = useRef<HTMLDivElement>(null), dialogOpenerRef = useRef<HTMLElement | null>(null);
   const can=(capability:string)=>data.principal.principalType==="owner"||data.principal.permissions.includes(capability);
   const settingsAllowed=(target:SettingsTab)=>target==="license"||target==="contact"||can("settings.view")&&(target==="general"||(target==="users"?can("settings.users.manage"):can("settings.backup.manage")||can("settings.legacy.import")));
-  const viewCapability:Record<View,string>={pos:"pos.view",purchases:"purchases.view",decantSales:"perfume.divisions.view",decantPurchases:"perfume.divisions.view",expenses:"expenses.view",customers:"customers.view",suppliers:"suppliers.view",warehouses:"warehouses.inventory.view",warehouseAdmin:"warehouses.view",transfers:"warehouses.transfer",adjustments:"warehouses.adjust",products:"products.view",perfumeDivisions:"perfume.divisions.view",records:"records.view",reports:"reports.view",banks:"banks.view",settings:"settings.view"};
+  const viewCapability:Record<View,string>={pos:"pos.view",purchases:"purchases.view",decantInvoices:"perfume.divisions.view",expenses:"expenses.view",customers:"customers.view",suppliers:"suppliers.view",warehouses:"warehouses.inventory.view",warehouseAdmin:"warehouses.view",transfers:"warehouses.transfer",adjustments:"warehouses.adjust",products:"products.view",perfumeDivisions:"perfume.divisions.view",records:"records.view",reports:"reports.view",banks:"banks.view",settings:"settings.view"};
   useEffect(() => {
     const close = (event: PointerEvent) => {
       if (!warehouseMenuRef.current?.contains(event.target as Node)) setWarehouseMenu(false);
@@ -294,7 +292,7 @@ function ContaAppContent() {
       if (!r.ok) throw new Error(j.error);
       setData(j);
       const permitted=(id:View)=>j.principal.principalType==="owner"||j.principal.permissions.includes(viewCapability[id]);
-      if(!permitted(view)){const first=(["pos","decantSales","decantPurchases","purchases","records","products","perfumeDivisions","customers","suppliers","warehouses","expenses","banks","reports","settings"] as View[]).find(permitted);if(first)setView(first)}
+      if(!permitted(view)){const first=(["pos","decantInvoices","purchases","records","products","perfumeDivisions","customers","suppliers","warehouses","expenses","banks","reports","settings"] as View[]).find(permitted);if(first)setView(first)}
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : tr("تعذر تحميل البيانات"));
@@ -402,8 +400,7 @@ function ContaAppContent() {
               {view === "purchases" && (
                 <Purchases data={data} run={run} openDoc={openDoc} editRequest={purchaseEditRequest} clearEditRequest={() => setPurchaseEditRequest(null)} requestPrint={setAutoPrintId} registerEditorGuard={registerEditorGuard} />
               )}{" "}
-              {view === "decantSales" && <DecantSaleInvoice data={data} run={run} openDoc={openDoc} />}{" "}
-              {view === "decantPurchases" && <DecantBottlePurchaseInvoice data={data} run={run} openDoc={openDoc} />}{" "}
+              {view === "decantInvoices" && <DecantInvoicesPage data={data} run={run} openDoc={openDoc} />}{" "}
               {view === "expenses" && (
                 <Expenses data={data} run={run} openDoc={openDoc} registerEditorGuard={registerEditorGuard} canEdit={can("expenses.edit")} canDelete={can("expenses.delete")} />
               )}{" "}

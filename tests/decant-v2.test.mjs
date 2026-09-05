@@ -55,8 +55,8 @@ test("special commercial documents are sequenced, exposed, reported and translat
     assert.match(bootstrap, new RegExp(kind));
     assert.match(reports, new RegExp(kind));
   }
-  assert.match(app, /id: "decantSales", label: "فاتورة التقسيمات"/);
-  assert.match(app, /id: "decantPurchases", label: "فاتورة شراء زجاج التقسيمات"/);
+  assert.match(app, /id: "decantInvoices", label: "فواتير التقسيمات"/);
+  assert.doesNotMatch(app, /id: "decantPurchases"/);
   assert.match(messages, /"فاتورة التقسيمات": "Facture de décants"/);
   assert.match(messages, /"فاتورة شراء زجاج التقسيمات": "Achat de flacons pour décants"/);
 });
