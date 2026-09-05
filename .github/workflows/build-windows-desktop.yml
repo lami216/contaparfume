@@ -2,7 +2,9 @@ name: Build Windows desktop
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, ui-decant-workspace-v3]
+permissions:
+  contents: write
 jobs:
   build:
     # Native better-sqlite3 Electron rebuild currently requires the VS2022 toolchain.
@@ -15,6 +17,9 @@ jobs:
       - uses: actions/setup-python@v7
         id: python
         with: {python-version: "3.12"}
+      - name: Apply decant workspace v3
+        if: github.ref == 'refs/heads/ui-decant-workspace-v3'
+        run: python scripts/apply-decant-workspace-v3.py
       - name: Configure node-gyp toolchain
         shell: pwsh
         run: |
@@ -41,6 +46,17 @@ jobs:
             $hash = (Get-FileHash $artifact -Algorithm SHA256).Hash
             Write-Host "$($file.Name) size=$($file.Length) SHA-256=$hash"
           }
+      - name: Commit validated workspace changes
+        if: github.ref == 'refs/heads/ui-decant-workspace-v3'
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/conta-app.tsx app/perfume-invoices.tsx app/i18n/messages.ts app/globals.css tests/navigation.test.mjs tests/decant-invoice-hub.test.mjs
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { Write-Host "No workspace changes to commit"; exit 0 }
+          git commit -m "Reorganize decant invoices and management workspace"
+          git push origin HEAD:ui-decant-workspace-v3
       - uses: actions/upload-artifact@v7
         with:
           name: AlKarna-Perfume-Windows-x64
