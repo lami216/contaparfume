@@ -1,11 +1,9 @@
-/* Perfume edition UI corrections.
-   Loaded after globals.css so these rules intentionally restore the original
-   Conta desktop header proportions without changing the accounting workspaces. */
+/* Perfume edition UI corrections loaded after globals.css. */
 
 @media (min-width: 1051px) {
   :root {
-    --app-nav-height: 102px;
-    --page-bar-height: 54px;
+    --app-nav-height: 82px;
+    --page-bar-height: 46px;
   }
 
   .app-shell {
@@ -21,8 +19,8 @@
     min-height: 0;
     display: flex;
     align-items: center;
-    gap: 26px;
-    padding: 12px 24px;
+    gap: 14px;
+    padding: 8px 16px;
   }
 
   .sidebar nav {
@@ -46,34 +44,21 @@
     justify-content: flex-start;
     width: auto;
     min-width: max-content;
-    min-height: 56px;
-    padding: 9px 11px;
-    gap: 11px;
-    border-radius: 13px;
-    font-size: 12px;
+    min-height: 46px;
+    padding: 7px 9px;
+    gap: 7px;
+    border-radius: 10px;
+    font-size: 11px;
   }
 
-  .party-nav-menu > .nav > span {
-    white-space: nowrap;
-    line-height: normal;
-    text-align: start;
-    overflow-wrap: normal;
-  }
+  .nav svg { width: 17px; height: 17px; }
+  .party-nav-menu > .nav > span { white-space: nowrap; line-height: normal; text-align: start; overflow-wrap: normal; }
 
-  .brand-logo {
-    width: 44px;
-    height: 44px;
-    flex: 0 0 44px;
-  }
-
-  .brand strong {
-    font-size: 29px;
-    line-height: 1;
-  }
-
-  .side-foot {
-    min-width: max-content;
-  }
+  .brand { gap: 8px; padding: 0; }
+  .brand-logo { width: 40px; height: 40px; flex: 0 0 40px; }
+  .brand strong { font-size: 24px; line-height: 1; }
+  .brand span { font-size: 9px; }
+  .account-session { min-width: max-content; }
 
   .app-shell > main {
     grid-row: 2;
@@ -84,82 +69,219 @@
   .app-shell header.page-bar {
     min-height: var(--page-bar-height);
     height: var(--page-bar-height);
-    padding: 7px 24px;
+    padding: 5px 18px;
   }
 
-  .page-bar h1 {
-    font-size: clamp(20px, 1.7vw, 26px);
+  .page-bar h1 { font-size: clamp(19px, 1.55vw, 23px); }
+
+  /* The old Products > Divisions shortcut is intentionally hidden now that
+     divisions management lives inside the decant invoice workspace. */
+  .product-nav-popover > button:nth-child(2) { display: none !important; }
+  .product-nav-popover { min-width: 150px !important; }
+
+  /* Invoice and history each own half of the desktop workspace. */
+  .decant-invoices-hub {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 6px;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
   }
 
-  /* The divisions page owns its scroll area so Windows' taskbar never covers
-     its actions/content when the application is maximized. */
-  .section-perfumeDivisions .content > section {
+  .decant-invoice-modebar {
+    min-height: 48px;
+    padding: 5px 7px;
+    gap: 9px;
+  }
+
+  .decant-invoice-mode-tabs {
+    grid-template-columns: repeat(3, minmax(145px, 1fr));
+    width: min(720px, 68%);
+    min-width: 520px;
+  }
+
+  .decant-mode-tab {
+    min-height: 34px;
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+
+  .decant-invoice-mode-help { font-size: 9px; }
+  .decant-invoices-hub-body { min-height: 0; overflow: hidden; }
+
+  .decant-invoices-hub .decant-invoice-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 7px;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .decant-invoices-hub .decant-invoice-editor,
+  .decant-invoices-hub .decant-invoice-history {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .decant-invoices-hub .decant-invoice-editor {
     overflow: visible;
+    position: relative;
+    z-index: 2;
+  }
+
+  .decant-invoices-hub .decant-invoice-history {
+    overflow: hidden;
+    position: relative;
+    z-index: 1;
+  }
+
+  .decant-invoices-hub .decant-invoice-history-scroll,
+  .decant-invoices-hub .decant-lines-scroll {
+    min-height: 0;
+    overflow: auto;
+  }
+
+  /* Divisions management now uses the same hub body and keeps only growing
+     datasets scrollable. */
+  .decant-invoices-hub-body.management { overflow: hidden; }
+  .decant-invoices-hub-body.management .perfume-divisions-page {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    padding-bottom: 0;
   }
 
   .perfume-divisions-page {
     height: 100%;
     min-height: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
-    padding-bottom: 28px;
-    scrollbar-gutter: stable;
+    overflow: hidden;
   }
 
-  .perfume-split-card {
-    overflow: visible;
-  }
-
-  .perfume-split-card .perfume-divisions-heading {
-    position: sticky;
-    top: 0;
-    z-index: 12;
-    padding: 5px 0 7px;
-    border-bottom: 1px solid var(--border, #d0d5dd);
-    background: var(--panel, #fff);
-  }
-
+  .perfume-split-card { overflow: visible; position: relative; z-index: 5; }
   .perfume-split-action {
-    min-width: 205px;
-    min-height: 40px;
-    height: 40px;
-    padding-inline: 14px;
-    font-size: 11px;
-    box-shadow: 0 3px 10px rgba(11, 109, 103, 0.18);
+    min-width: 185px;
+    min-height: 34px;
+    height: 34px;
+    padding-inline: 11px;
+    font-size: 10px;
+    box-shadow: 0 2px 8px rgba(11, 109, 103, 0.15);
   }
+}
 
-  .product-nav-popover {
-    min-width: 190px !important;
-  }
+/* Search banner shared by decant sale and perfume conversion. */
+.perfume-product-picker { position: relative; min-width: 0; }
+.perfume-product-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.perfume-product-search > svg {
+  position: absolute;
+  inset-inline-start: 9px;
+  width: 15px;
+  height: 15px;
+  color: var(--muted, #667085);
+  pointer-events: none;
+  z-index: 1;
+}
+.perfume-product-search input {
+  width: 100%;
+  padding-inline-start: 31px !important;
+  padding-inline-end: 30px !important;
+}
+.perfume-product-search-clear {
+  position: absolute;
+  inset-inline-end: 4px;
+  width: 25px;
+  height: 25px;
+  min-height: 25px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted, #667085);
+}
+.perfume-product-search-clear svg { width: 14px; height: 14px; }
+.perfume-product-results {
+  position: absolute;
+  inset-inline: 0;
+  top: calc(100% + 4px);
+  z-index: 80;
+  max-height: 230px;
+  overflow: auto;
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .14);
+}
+.perfume-product-results > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 9px;
+  border: 0;
+  border-bottom: 1px solid #eef1f3;
+  border-radius: 0;
+  background: #fff;
+  color: inherit;
+  text-align: start;
+}
+.perfume-product-results > button:last-child { border-bottom: 0; }
+.perfume-product-results > button:hover,
+.perfume-product-results > button.selected { background: #eef7ff; }
+.perfume-product-results > button:disabled { opacity: .5; }
+.perfume-product-results span { display: grid; gap: 1px; min-width: 0; }
+.perfume-product-results strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.perfume-product-results small,
+.perfume-product-results bdi { color: var(--muted, #667085); font-size: 8.5px; }
+.perfume-product-empty { padding: 10px; text-align: center; color: var(--muted, #667085); }
+.decant-add-row-search { position: relative; z-index: 20; }
+
+.perfume-bottle-adjust {
+  display: grid;
+  grid-template-columns: minmax(70px, .7fr) minmax(110px, 1.2fr) auto auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 310px;
+}
+.perfume-bottle-adjust input,
+.perfume-bottle-adjust button {
+  min-height: 27px;
+  height: 27px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 8.5px;
 }
 
 @media (min-width: 1051px) and (max-width: 1280px) {
-  .sidebar {
-    gap: 12px;
-    padding-inline: 14px;
-  }
-
-  .sidebar nav {
-    gap: 2px;
-  }
-
-  .nav {
-    min-height: 52px;
-    padding-inline: 8px;
-    gap: 6px;
-  }
-
-  .nav span {
-    font-size: 11px;
-  }
-
-  .brand strong {
-    font-size: 24px;
-  }
+  .sidebar { gap: 8px; padding-inline: 10px; }
+  .sidebar nav { gap: 2px; }
+  .nav { min-height: 44px; padding-inline: 6px; gap: 5px; }
+  .nav span { font-size: 10px; }
+  .brand strong { font-size: 22px; }
+  .brand-logo { width: 36px; height: 36px; flex-basis: 36px; }
+  .decant-invoice-mode-tabs { min-width: 470px; }
 }
 
 @media (max-width: 1050px) {
-  .perfume-divisions-page {
-    padding-bottom: max(28px, env(safe-area-inset-bottom));
-  }
+  .decant-invoices-hub { height: auto; min-height: 100%; overflow: visible; }
+  .decant-invoice-modebar { align-items: stretch; flex-direction: column; }
+  .decant-invoice-mode-tabs { width: 100%; min-width: 0; grid-template-columns: 1fr; }
+  .decant-invoices-hub-body { overflow: visible; }
+  .decant-invoices-hub .decant-invoice-page { height: auto; min-height: 100%; grid-template-columns: 1fr; grid-template-rows: auto auto; overflow: visible; }
+  .decant-invoices-hub .decant-invoice-editor,
+  .decant-invoices-hub .decant-invoice-history { height: auto; overflow: visible; }
+  .decant-lines-scroll,
+  .decant-invoice-history-scroll { max-height: 55vh; }
+  .perfume-divisions-page { height: auto; min-height: 100%; overflow: visible; padding-bottom: max(28px, env(safe-area-inset-bottom)); }
+  .perfume-bottle-adjust { grid-template-columns: 1fr 1fr; min-width: 0; }
 }
