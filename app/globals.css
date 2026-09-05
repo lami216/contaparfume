@@ -2399,3 +2399,34 @@ textarea:focus { outline:3px solid rgba(11,109,103,.17); outline-offset:1px; bor
 .decant-invoice-page{display:grid;grid-template-rows:minmax(0,1fr) minmax(145px,.42fr);gap:8px;width:100%;height:100%;min-height:0;overflow:hidden}.decant-invoice-editor,.decant-invoice-history{min-height:0;border:1px solid var(--border,#d0d5dd);border-radius:8px;background:#fff;overflow:hidden}.decant-invoice-editor{display:grid;grid-template-rows:auto auto auto minmax(0,1fr) auto auto;gap:6px;padding:8px}.decant-invoice-history{display:grid;grid-template-rows:auto minmax(0,1fr);padding:7px}.decant-invoice-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}.decant-invoice-heading h2,.decant-invoice-heading h3{margin:0;font-size:14px}.decant-invoice-heading p{margin:2px 0 0;color:var(--muted);font-size:9px}.decant-invoice-heading>strong{font-size:16px}.decant-invoice-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.decant-invoice-meta label,.decant-add-row label{display:grid;gap:2px;font-size:9px;font-weight:800}.decant-invoice-meta select,.decant-add-row select{height:31px;min-height:31px;padding:3px 6px;border-radius:5px;font-size:10px}.decant-add-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:5px}.decant-add-row button,.decant-invoice-actions button{height:31px;min-height:31px;padding:3px 10px}.decant-lines-scroll,.decant-invoice-history-scroll{min-height:0;overflow:auto;overscroll-behavior:contain;border:1px solid var(--border,#d0d5dd)}.decant-lines-table,.decant-invoice-history-table{width:100%;min-width:760px;table-layout:fixed}.decant-lines-table th,.decant-lines-table td,.decant-invoice-history-table th,.decant-invoice-history-table td{height:29px;padding:2px 4px;font-size:9px}.decant-lines-table input,.decant-lines-table select{height:25px;min-height:25px;padding:1px 4px;border-radius:3px;font-size:9px}.decant-invoice-actions{display:flex;justify-content:flex-end}.danger-text{color:#b42318!important}
 @media(max-width:1050px){.perfume-bottle-create{grid-template-columns:1fr 1fr}.decant-invoice-page{height:auto;min-height:100%;overflow:visible}.decant-invoice-editor,.decant-invoice-history{overflow:visible}.decant-lines-scroll,.decant-invoice-history-scroll{max-height:55vh}.decant-invoice-meta{grid-template-columns:1fr 1fr}}
 @media(max-width:620px){.perfume-bottle-create,.decant-invoice-meta{grid-template-columns:1fr}.decant-add-row{grid-template-columns:1fr}.decant-add-row button{width:100%}}
+
+
+/* unified-decant-invoice-hub */
+.section-decantInvoices { --section-color: var(--color-invoices, #0b6d67); --section-soft: #eaf7f5; }
+.decant-invoices-hub { display:grid; grid-template-rows:auto minmax(0,1fr); gap:7px; width:100%; height:100%; min-height:0; overflow:hidden; }
+.decant-invoice-modebar { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:54px; padding:7px 9px; border:1px solid var(--border,#d0d5dd); border-radius:9px; background:var(--panel,#fff); box-shadow:0 3px 12px rgba(15,23,42,.04); }
+.decant-invoice-mode-tabs { display:grid; grid-template-columns:repeat(2,minmax(180px,1fr)); gap:5px; width:min(560px,58%); min-width:410px; padding:3px; border:1px solid #cfe3df; border-radius:7px; background:#f4faf9; }
+.decant-mode-tab { display:flex; align-items:center; justify-content:center; gap:7px; min-height:36px; padding:5px 10px; border:0; border-radius:5px; color:#52605e; background:transparent; font-weight:800; font-size:10px; cursor:pointer; }
+.decant-mode-tab svg { width:16px; height:16px; }
+.decant-mode-tab.active { color:#fff; background:var(--section-color,#0b6d67); box-shadow:0 2px 7px rgba(11,109,103,.18); }
+.decant-invoice-mode-help { flex:1; margin:0; color:var(--muted,#667085); font-size:10px; line-height:1.45; text-align:start; }
+.decant-invoices-hub-body { min-width:0; min-height:0; overflow:hidden; }
+.decant-invoices-hub .decant-invoice-page { grid-template-rows:minmax(0,1fr) minmax(118px,.30fr); gap:6px; }
+.decant-invoices-hub .decant-invoice-editor { gap:5px; padding:7px; }
+.decant-invoices-hub .decant-invoice-history { padding:6px 7px; }
+.decant-invoices-hub .decant-invoice-heading h2 { font-size:13px; }
+.decant-invoices-hub .decant-invoice-heading h3 { font-size:12px; }
+.decant-invoices-hub .decant-invoice-heading > strong { font-size:14px; }
+.decant-invoices-hub .decant-lines-table th,
+.decant-invoices-hub .decant-lines-table td,
+.decant-invoices-hub .decant-invoice-history-table th,
+.decant-invoices-hub .decant-invoice-history-table td { height:27px; }
+@media(max-width:1050px){
+  .decant-invoices-hub { height:auto; min-height:100%; overflow:visible; }
+  .decant-invoice-modebar { align-items:stretch; flex-direction:column; }
+  .decant-invoice-mode-tabs { width:100%; min-width:0; }
+  .decant-invoices-hub-body { overflow:visible; }
+}
+@media(max-width:620px){
+  .decant-invoice-mode-tabs { grid-template-columns:1fr; }
+}
