@@ -1,7 +1,7 @@
 "use client";
 
 import { Search, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 export type PerfumePickerItem = {
   id: string;
@@ -23,12 +23,9 @@ const normalized = (value: string) => value.trim().toLocaleLowerCase();
 
 export default function PerfumeProductPicker({ items, value, onChange, placeholder, ariaLabel }: Props) {
   const selected = items.find(item => item.id === value) ?? null;
-  const [query, setQuery] = useState(selected?.name ?? "");
+  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) setQuery(selected?.name ?? "");
-  }, [open, selected?.id, selected?.name]);
+  const visibleQuery = open ? query : selected?.name ?? "";
 
   const filtered = useMemo(() => {
     const needle = normalized(query);
@@ -51,12 +48,20 @@ export default function PerfumeProductPicker({ items, value, onChange, placehold
       <Search aria-hidden="true"/>
       <input
         type="search"
-        value={query}
+        value={visibleQuery}
         aria-label={ariaLabel ?? placeholder}
         placeholder={placeholder}
         autoComplete="off"
-        onFocus={event => { setOpen(true); if (selected) event.currentTarget.select(); }}
-        onChange={event => { setQuery(event.target.value); if (value) onChange(""); setOpen(true); }}
+        onFocus={event => {
+          setQuery(selected?.name ?? "");
+          setOpen(true);
+          if (selected) window.requestAnimationFrame(() => event.currentTarget.select());
+        }}
+        onChange={event => {
+          setQuery(event.target.value);
+          if (value) onChange("");
+          setOpen(true);
+        }}
         onKeyDown={event => {
           if (event.key === "Escape") { setOpen(false); event.currentTarget.blur(); }
           if (event.key === "Enter") {
@@ -65,7 +70,7 @@ export default function PerfumeProductPicker({ items, value, onChange, placehold
           }
         }}
       />
-      {(query || value) && <button type="button" className="perfume-product-search-clear" aria-label="×" onMouseDown={event => event.preventDefault()} onClick={() => { setQuery(""); onChange(""); setOpen(true); }}><X aria-hidden="true"/></button>}
+      {(visibleQuery || value) && <button type="button" className="perfume-product-search-clear" aria-label="×" onMouseDown={event => event.preventDefault()} onClick={() => { setQuery(""); onChange(""); setOpen(true); }}><X aria-hidden="true"/></button>}
     </div>
     {open && <div className="perfume-product-results" role="listbox">
       {filtered.length === 0
