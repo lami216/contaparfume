@@ -1,5 +1,5 @@
 import type { SqliteSession as ClientSession, SqliteDatabase as Db } from "./sqlite.ts";
-export const SEQUENCED_DOCUMENT_KINDS = ["sale", "purchase", "expense"] as const;
+export const SEQUENCED_DOCUMENT_KINDS = ["sale", "purchase", "expense", "decant-sale", "decant-purchase"] as const;
 export type SequencedDocumentKind = typeof SEQUENCED_DOCUMENT_KINDS[number];
 const counterId = (kind: SequencedDocumentKind) => `documentSequence:${kind}`;
 export async function nextDocumentSequence(db: Db, kind: SequencedDocumentKind, session?: ClientSession) {
