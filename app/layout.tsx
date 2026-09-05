@@ -4,6 +4,7 @@ import { APP_NAME } from "../lib/app-brand";
 import { LocaleProvider } from "./i18n/provider";
 import { direction, LOCALE_COOKIE, normalizeLocale } from "./i18n/locale";
 import "./globals.css";
+import "./perfume-ui-fixes.css";
 
 export async function generateMetadata(): Promise<Metadata> {
  const locale=normalizeLocale((await cookies()).get(LOCALE_COOKIE)?.value);
