@@ -64,7 +64,7 @@ export default function PerfumeDivisions({ data, run }: { data: BootstrapData; r
   };
 
   return <div className="perfume-divisions-page">
-    <section className="perfume-divisions-card">
+    <section className="perfume-divisions-card perfume-split-card">
       <div className="perfume-divisions-heading">
         <div><h2>{tr("تحويل عطر إلى تقسيمات")}</h2><p>{tr("اختر عطرًا كاملًا، وسيحسب النظام تكلفة التقسيمة وسعر الطياح تلقائيًا.")}</p></div>
         <button type="button" className="primary perfume-split-action" disabled={busy || !source || available < 1 || count < 2 || landedCost <= 0 || sell <= 0} onClick={() => void split()}>{busy ? tr("جاري الحفظ…") : tr("تحويل عطر إلى تقسيمات")}</button>
@@ -98,7 +98,7 @@ export default function PerfumeDivisions({ data, run }: { data: BootstrapData; r
       
     </section>
 
-    <section className="perfume-divisions-card">
+    <section className="perfume-divisions-card perfume-batches-card">
       <div className="perfume-divisions-heading"><div><h2>{tr("دفعات التقسيمات")}</h2><p>{tr("كل عملية تقسيم تحتفظ بتكلفتها الأصلية حتى لو تغير سعر شراء العطر لاحقًا.")}</p></div></div>
       <div className="perfume-batches-table-wrap">
         <table className="erp-table perfume-batches-table">

@@ -360,7 +360,7 @@ function ContaAppContent() {
           <div className="nav-menu settings-nav-menu" ref={settingsMenuRef}><button className={view==="settings"?"nav nav-settings active":"nav nav-settings"} aria-expanded={settingsMenu} onClick={()=>setSettingsMenu(value=>!value)}><SettingsIcon/><span>{tr("الإعدادات")}</span><ChevronDown className="chevron"/></button>{settingsMenu&&<div className="nav-popover">{([{id:"general",label:"إعدادات عامة"},{id:"users",label:"المستخدمون والصلاحيات"},{id:"data",label:"البيانات والنسخ الاحتياطي"},{id:"license",label:"رخصة التفعيل"},{id:"contact",label:"تواصل مع الدعم"}] as Array<{id:SettingsTab;label:MessageKey}>).map(item=><PermissionNavItem key={item.id} allowed={settingsAllowed(item.id)} active={view==="settings"&&settingsTab===item.id} onClick={()=>{setSettingsTab(item.id);if(item.id==="license"||item.id==="contact"){setView("settings");setSettingsMenu(false)}else navigate("settings")}}><span>{tr(item.label)}</span></PermissionNavItem>)}</div>}</div>
         </nav>
         <div className="account-session">
-          <strong>{data.principal.name}</strong>
+          <strong>{data.principal.principalType==="local"?tr("دخول مباشر"):data.principal.name}</strong>
           <form action="/api/auth/logout" method="post"><button className="logout-button" type="submit" aria-label={tr("تسجيل الخروج")} title={tr("تسجيل الخروج")}><LogOut aria-hidden="true"/><span>{tr("خروج")}</span></button></form>
         </div>
       </aside>
