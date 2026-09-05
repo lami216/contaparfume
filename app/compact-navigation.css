@@ -1,0 +1,105 @@
+/* Keep the perfume edition's desktop top navigation aligned with the compact
+   navigation geometry used by offline-conta. This file is intentionally limited
+   to the application chrome; perfume/decant workspaces are untouched. */
+
+@media (min-width: 1051px) {
+  :root {
+    --app-nav-height: 68px;
+    --page-bar-height: 44px;
+  }
+
+  .app-shell {
+    grid-template-rows: var(--app-nav-height) minmax(0, 1fr);
+  }
+
+  .sidebar {
+    grid-row: 1;
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: var(--app-nav-height);
+    min-height: 0;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+  }
+
+  .sidebar nav {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    align-items: center;
+    gap: 3px;
+    width: 100%;
+    min-width: 0;
+    overflow: visible;
+  }
+
+  .sidebar nav > *,
+  .nav-menu,
+  .nav-menu > .nav {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .nav {
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+    min-height: 48px;
+    padding: 5px 3px;
+    gap: 5px;
+    border: 2px solid var(--nav-color, #687585);
+    border-radius: 9px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .nav svg {
+    width: 19px;
+    height: 19px;
+    flex: 0 0 auto;
+  }
+
+  .party-nav-menu > .nav > span {
+    min-width: 0;
+    white-space: normal;
+    line-height: 1.05;
+    text-align: center;
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+  }
+
+  .brand {
+    gap: 10px;
+    padding: 0;
+    min-width: 0;
+  }
+
+  .brand-logo {
+    width: 54px;
+    height: 54px;
+    flex: 0 0 54px;
+  }
+
+  .brand strong {
+    font-size: 19px;
+    line-height: 1;
+  }
+
+  .brand span { font-size: 10px; }
+  .account-session { min-width: 0; }
+
+  .app-shell > main {
+    grid-row: 2;
+    grid-template-rows: var(--page-bar-height) minmax(0, 1fr);
+    height: 100%;
+  }
+
+  .app-shell header.page-bar {
+    min-height: 0;
+    height: var(--page-bar-height);
+    padding-block: 4px;
+  }
+}
