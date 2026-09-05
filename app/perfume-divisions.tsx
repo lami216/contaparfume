@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { activeProducts, activeWarehouses, inventoryUnitCost, money, quantity, stockInWarehouse, totalProductStock, type BootstrapData, type Product } from "./domain";
 import { lotRemainingTotal, roundedDivisionLiquidCost, type PerfumeLot } from "./perfume-logic";
+import PerfumeProductPicker from "./perfume-product-search";
 import { tr } from "./i18n/messages";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
@@ -73,7 +74,7 @@ export default function PerfumeDivisions({ data, run, onAdjustBottle }: { data: 
         <button type="button" className="primary perfume-split-action" disabled={busy || !source || available < 1 || count < 2 || liquidCost <= 0 || sell <= 0} onClick={() => void split()}>{busy ? tr("جاري الحفظ…") : tr("تحويل عطر إلى تقسيمات")}</button>
       </div>
       <div className="perfume-divisions-form perfume-divisions-form-v2">
-        <label>{tr("العطر")}<select value={sourceProductId} onChange={event => setSourceProductId(event.target.value)}><option value="">{tr("اختر العطر")}</option>{sourceProducts.map(product => <option key={product.id} value={product.id}>{product.name} — {quantity(totalProductStock(product))}</option>)}</select></label>
+        <label>{tr("العطر")}<PerfumeProductPicker products={sourceProducts} value={sourceProductId} onChange={setSourceProductId} placeholder={tr("اختر العطر")} searchPlaceholder={tr("ابحث عن العطر بالاسم أو الكود أو الباركود")} getMeta={product => `${tr("المتوفر")}: ${quantity(warehouseId ? stockInWarehouse(product, warehouseId) : totalProductStock(product))}`} isDisabled={product => warehouseId ? stockInWarehouse(product, warehouseId) <= 0 : false}/></label>
         <label>{tr("المخزن")}<select value={warehouseId} onChange={event => setWarehouseId(event.target.value)}><option value="">{tr("اختر المخزن")}</option>{warehouses.map(warehouse => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}</select></label>
         <label>{tr("عدد التقسيمات")}<input inputMode="numeric" min="2" step="1" type="number" value={divisionsCount} onChange={event => setDivisionsCount(event.target.value)} /></label>
         <label>{tr("سعر البيع للتقسيمة")}<input inputMode="decimal" min="0" type="number" value={salePrice} onChange={event => setSalePrice(event.target.value)} /></label>
