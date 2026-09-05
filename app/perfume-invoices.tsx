@@ -13,6 +13,7 @@ import {
   type DocumentRecord,
 } from "./domain";
 import { tr } from "./i18n/messages";
+import PerfumeProductPicker, { type PerfumePickerItem } from "./perfume-product-picker";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
 type Props = { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void };
@@ -49,6 +50,13 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
   const [lines, setLines] = useState<DraftLine[]>([]), [busy, setBusy] = useState(false), [localError, setLocalError] = useState("");
   const warehouse = warehouses.find(item => item.id === warehouseId);
   const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
+  const pickerItems = useMemo<PerfumePickerItem[]>(() => saleProducts.map(product => ({
+    id: product.id,
+    name: product.name,
+    group: product.perfumeForm === "decant" ? tr("عطور التقسيمات") : tr("زجاج التقسيمات"),
+    meta: `${tr("المتوفر")}: ${quantity(stockInWarehouse(product, warehouseId))}`,
+    disabled: stockInWarehouse(product, warehouseId) <= 0,
+  })), [saleProducts, warehouseId]);
 
   const add = () => {
     const product = saleProducts.find(item => item.id === productId); if (!product) return;
@@ -92,7 +100,7 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
         <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="note">{tr("آجل")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
         <label>{tr("العميل")}<select value={partyId} onChange={event => setPartyId(event.target.value)}><option value="">{tr("بيع تقسيمات مباشر")}</option>{customers.map(customer => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
       </div>
-      <div className="decant-add-row"><label>{tr("المنتج أو الزجاجة")}<select value={productId} onChange={event => setProductId(event.target.value)}><option value="">{tr("اختر منتج التقسيمات")}</option><optgroup label={tr("عطور التقسيمات")}>{decants.map(product => <option key={product.id} value={product.id} disabled={stockInWarehouse(product, warehouseId) <= 0}>{product.name} — {quantity(stockInWarehouse(product, warehouseId))}</option>)}</optgroup><optgroup label={tr("زجاج التقسيمات")}>{bottles.map(product => <option key={product.id} value={product.id} disabled={stockInWarehouse(product, warehouseId) <= 0}>{product.name} — {quantity(stockInWarehouse(product, warehouseId))}</option>)}</optgroup></select></label><button className="soft" type="button" disabled={!productId} onClick={add}>{tr("إضافة")}</button></div>
+      <div className="decant-add-row decant-add-row-search"><label>{tr("المنتج أو الزجاجة")}<PerfumeProductPicker items={pickerItems} value={productId} onChange={setProductId} placeholder={tr("اختر منتج التقسيمات")} ariaLabel={tr("المنتج أو الزجاجة")}/></label><button className="soft" type="button" disabled={!productId} onClick={add}>{tr("إضافة")}</button></div>
       <div className="decant-lines-scroll"><table className="erp-table decant-lines-table"><thead><tr><th>{tr("المنتج")}</th><th>{tr("الكمية")}</th><th>{tr("سعر البيع")}</th><th>{tr("زجاجة التقسيمة")}</th><th>{tr("المتوفر")}</th><th>{tr("الإجمالي")}</th><th>{tr("إجراء")}</th></tr></thead><tbody>{lines.length === 0 ? <tr><td colSpan={7}>{tr("أضف عطر تقسيمات أو زجاجة فارغة")}</td></tr> : lines.map(line => { const product = saleProducts.find(item => item.id === line.productId)!; const isDecant = product.perfumeForm === "decant"; return <tr key={line.key}><td>{product.name}</td><td><input type="number" min="1" step="1" value={line.quantity} onChange={event => patch(line.key, { quantity: event.target.value })}/></td><td><input type="number" min="0" value={line.unitPrice} onChange={event => patch(line.key, { unitPrice: event.target.value })}/></td><td>{isDecant ? <select value={line.bottleProductId} onChange={event => patch(line.key, { bottleProductId: event.target.value })}><option value="">{tr("اختر الزجاجة")}</option>{bottles.map(bottle => <option key={bottle.id} value={bottle.id} disabled={stockInWarehouse(bottle, warehouseId) < n(line.quantity)}>{bottle.name} · {bottle.decantSizeMl ? `${bottle.decantSizeMl} ml` : ""} · {quantity(stockInWarehouse(bottle, warehouseId))}</option>)}</select> : <span className="muted">{tr("بيع فارغ")}</span>}</td><td className="num-cell">{quantity(stockInWarehouse(product, warehouseId))}</td><td className="num-cell">{money(n(line.quantity) * n(line.unitPrice))}</td><td><button className="soft" type="button" onClick={() => remove(line.key)}>{tr("حذف")}</button></td></tr>; })}</tbody></table></div>
       {localError && <div className="error">{localError}</div>}
       <div className="decant-invoice-actions"><button className="primary" type="button" disabled={busy || !lines.length || !warehouse} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : tr("اعتماد فاتورة التقسيمات")}</button></div>
