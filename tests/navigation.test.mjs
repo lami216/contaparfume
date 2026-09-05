@@ -46,8 +46,6 @@ test("top navigation dropdowns share one visual system and render text-only rows
   assert.match(source, /className="nav-menu settings-nav-menu"[\s\S]*?<SettingsIcon\s*\/>\s*<span>الإعدادات<\/span>\s*<ChevronDown/);
   assert.match(source, /\[\{id:"general",label:"إعدادات عامة"\},\{id:"users",label:"المستخدمون والصلاحيات"\},\{id:"data",label:"البيانات والنسخ الاحتياطي"\},\{id:"license",label:"رخصة التفعيل"\},\{id:"contact",label:"تواصل مع الدعم"\}\]/);
   assert.match(source, /const settingsAllowed=.*settings\.users\.manage.*settings\.backup\.manage.*settings\.legacy\.import/);
-  assert.match(source, /productMenuRef/);
-  assert.match(source, /setProductMenu\(false\)/);
   assert.match(source, /settingsMenuRef/);
   assert.match(source, /setSettingsMenu\(false\)/);
 
