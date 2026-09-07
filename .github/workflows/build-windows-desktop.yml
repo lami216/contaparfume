@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 4
+          fetch-depth: 8
       - uses: actions/setup-node@v7
         with: {node-version: 22, cache: npm}
       - uses: actions/setup-python@v7
@@ -29,7 +29,7 @@ jobs:
       - name: Restore normal workflow and remove temporary patch machinery
         shell: pwsh
         run: |
-          git checkout HEAD~3 -- .github/workflows/build-windows-desktop.yml
+          git checkout fa8d17121e628671eb344c3f5a2a808b684e6bef -- .github/workflows/build-windows-desktop.yml
           git rm scripts/apply-product-categories.py scripts/fix-product-categories-patch.py
       - run: npm ci
       - run: npm test
