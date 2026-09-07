@@ -19,5 +19,11 @@ s=s.replace(bad,good,1)
 s=s.replace('import { useState } from "react";\\nimport { Plus, X }', 'import { useState, type FormEvent } from "react";\\nimport { Plus, X }', 1)
 s=s.replace('event: React.FormEvent', 'event: FormEvent', 1)
 
+bad_categories='const cleanCategories = clean(productCategories).map(category => ({ id: String(category.id), name: String(category.name ?? "") })).filter(category => category.name);'
+good_categories='const cleanCategories = clean(productCategories).map(category => { const raw = category as Record<string, unknown>; return { id: String(raw.id ?? ""), name: String(raw.name ?? "") }; }).filter(category => category.id && category.name);'
+if bad_categories not in s:
+    raise SystemExit('bootstrap cleanCategories template not found')
+s=s.replace(bad_categories,good_categories,1)
+
 p.write_text(s,encoding='utf-8')
-print('Adjusted category patch for compact report-types and current Products UI')
+print('Adjusted category patch for compact report-types, current Products UI, and bootstrap typing')
