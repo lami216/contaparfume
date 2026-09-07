@@ -971,6 +971,15 @@ export const arMessages = {
   "العطر الأصلي غير موجود": "العطر الأصلي غير موجود",
   "التقسيمات المولدة لا تُشترى مباشرة؛ أنشئها من شاشة التقسيمات": "التقسيمات المولدة لا تُشترى مباشرة؛ أنشئها من شاشة التقسيمات",
   "لا يمكن تصحيح مخزون التقسيمات أو العطر الناقص يدويًا": "لا يمكن تصحيح مخزون التقسيمات أو العطر الناقص يدويًا",
+  "الفئات": "الفئات",
+  "الفئة": "الفئة",
+  "إضافة فئة": "إضافة فئة",
+  "اسم الفئة": "اسم الفئة",
+  "الفئات الحالية": "الفئات الحالية",
+  "لا توجد فئات حتى الآن": "لا توجد فئات حتى الآن",
+  "تمت إضافة الفئة": "تمت إضافة الفئة",
+  "بدون فئة": "بدون فئة",
+  "ابحث عن فئة": "ابحث عن فئة",
 } as const;
 
 export type MessageKey = keyof typeof arMessages;
@@ -1949,6 +1958,15 @@ export const frMessages: Record<MessageKey, string> = {
   "العطر الأصلي غير موجود": "Parfum d’origine introuvable",
   "التقسيمات المولدة لا تُشترى مباشرة؛ أنشئها من شاشة التقسيمات": "Les décants générés ne s’achètent pas directement ; créez-les depuis l’écran Décants",
   "لا يمكن تصحيح مخزون التقسيمات أو العطر الناقص يدويًا": "Le stock des décants ou parfums partiels ne peut pas être corrigé manuellement",
+  "الفئات": "Catégories",
+  "الفئة": "Catégorie",
+  "إضافة فئة": "Ajouter une catégorie",
+  "اسم الفئة": "Nom de la catégorie",
+  "الفئات الحالية": "Catégories actuelles",
+  "لا توجد فئات حتى الآن": "Aucune catégorie pour le moment",
+  "تمت إضافة الفئة": "Catégorie ajoutée",
+  "بدون فئة": "Sans catégorie",
+  "ابحث عن فئة": "Rechercher une catégorie",
 
 };
 export const messages = { ar: arMessages, fr: frMessages } as const;

@@ -36,6 +36,11 @@ export interface Warehouse {
   archivedAt?: string | null;
 }
 export function activeWarehouses<T extends Pick<Warehouse, "isArchived">>(warehouses: T[]) { return warehouses.filter(warehouse => !warehouse.isArchived); }
+export interface ProductCategory {
+  id: string;
+  name: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -51,6 +56,7 @@ export interface Product {
   /** Optional business expiry date. The product is sellable through this day. */
   expiryDate?: string | null;
   note?: string | null;
+  categoryId?: string | null;
   perfumeForm?: PerfumeForm | null;
   parentProductId?: string | null;
   decantSizeMl?: number | null;
@@ -148,6 +154,7 @@ export interface BootstrapData {
   parties: Party[];
   warehouses: Warehouse[];
   products: Product[];
+  categories: ProductCategory[];
   documents: DocumentRecord[];
   movements: Movement[];
   financialMovements: FinancialMovement[];

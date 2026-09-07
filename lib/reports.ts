@@ -22,7 +22,7 @@ export function parseReportFilters(url: URL): ReportFilters {
   const page = Number(url.searchParams.get("page") ?? 1), pageSize = Number(url.searchParams.get("pageSize") ?? 100);
   if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 200) throw new Error("إعدادات الصفحة غير صالحة");
   const pick = <T extends string>(key: string, allowed: T[], fallback?: T) => { const value = text(url.searchParams.get(key)); if (!value) return fallback; if (!allowed.includes(value as T)) throw new Error(`الفلتر ${key} غير صالح`); return value as T; };
-  return { type, from: from || undefined, to: to || undefined, allTime, unpaged, partyId: text(url.searchParams.get("partyId")) || undefined, productId: text(url.searchParams.get("productId")) || undefined, paymentAccountId: text(url.searchParams.get("paymentAccountId")) || undefined, movementType: text(url.searchParams.get("movementType")) || undefined, direction: pick("direction", ["in", "out"]), groupBy: pick("groupBy", ["invoice", "product"], "invoice"), sortBy: pick("sortBy", ["quantity", "sales", "name", "profit"], "quantity"), debtSide: pick("debtSide", ["receivable", "payable", "clear"]), expenseType: pick("expenseType", ["once", "recurring"]), search: text(url.searchParams.get("search")) || undefined, page, pageSize };
+  return { type, from: from || undefined, to: to || undefined, allTime, unpaged, partyId: text(url.searchParams.get("partyId")) || undefined, productId: text(url.searchParams.get("productId")) || undefined, categoryId: text(url.searchParams.get("categoryId")) || undefined, paymentAccountId: text(url.searchParams.get("paymentAccountId")) || undefined, movementType: text(url.searchParams.get("movementType")) || undefined, direction: pick("direction", ["in", "out"]), groupBy: pick("groupBy", ["invoice", "product"], "invoice"), sortBy: pick("sortBy", ["quantity", "sales", "name", "profit"], "quantity"), debtSide: pick("debtSide", ["receivable", "payable", "clear"]), expenseType: pick("expenseType", ["once", "recurring"]), search: text(url.searchParams.get("search")) || undefined, page, pageSize };
 }
 
 /** Stored timestamps are canonical ISO strings, so lexical boundaries are exact and
@@ -34,7 +34,9 @@ const matchDate = (f: ReportFilters): Document => f.allTime ? {} : ({ occurredAt
 const pagination = (totalRows: number, f: ReportFilters) => ({ page: f.unpaged ? 1 : f.page, pageSize: f.unpaged ? totalRows : f.pageSize, totalRows, totalPages: f.unpaged ? 1 : Math.max(1, Math.ceil(totalRows / f.pageSize)) });
 const slice = <T>(rows: T[], f: ReportFilters) => f.unpaged ? rows : rows.slice((f.page - 1) * f.pageSize, f.page * f.pageSize);
 const pageCursor = (cursor: FindCursor<Document>, f: ReportFilters) => f.unpaged ? cursor : cursor.skip((f.page - 1) * f.pageSize).limit(f.pageSize);
-const lineMatches = (line: Document, f: ReportFilters) => !f.productId || String(line.productId) === f.productId;
+type ProductScope = Set<string> | null;
+const lineMatches = (line: Document, f: ReportFilters, categoryScope: ProductScope = null) => (!f.productId || String(line.productId) === f.productId) && (!f.categoryId || categoryScope?.has(String(line.productId)) === true);
+const productConstraint = (f: ReportFilters, categoryScope: ProductScope): unknown => f.productId || (f.categoryId ? { $in: categoryScope?.size ? [...categoryScope] : ["__no_category_products__"] } : undefined);
 
 export const OPERATING_FINANCIAL_TYPES = new Set(["sale", "decant-sale", "purchase", "decant-purchase", "expense", "party-receipt", "party-payment"]);
 export const isOperatingFinancialMovement = (type: unknown) => OPERATING_FINANCIAL_TYPES.has(String(type));
@@ -42,7 +44,7 @@ export const isOperatingFinancialMovement = (type: unknown) => OPERATING_FINANCI
 type Cost = { unit: number | null; source: "snapshot" | "historical-purchase" | "unknown" };
 
 /** Applies persisted legacy sale adjustments read-only so historical accounting remains stable. */
-async function saleFacts(db: Db, documents: Document[], f: ReportFilters) {
+async function saleFacts(db: Db, documents: Document[], f: ReportFilters, categoryScope: ProductScope = null) {
   const facts: ReportRow[] = [];
   const productIds = [...new Set(documents.flatMap(document => ((document.lines ?? []) as Document[]).map(line => String(line.productId ?? "")).filter(Boolean)))];
   const parentIds=[...new Set(documents.filter(document=>document.kind==="return"&&document.parentDocumentId).map(document=>String(document.parentDocumentId)))];
@@ -54,7 +56,7 @@ async function saleFacts(db: Db, documents: Document[], f: ReportFilters) {
   const identities = new Map(identityRows.map(product => [String(product.id), product])),parentDates=new Map(parentRows.map(document=>[String(document.id),String(document.occurredAt)])),purchaseHistory=new Map<string,Array<{at:string;unit:number}>>();
   for(const purchase of purchaseRows)for(const purchaseLine of (purchase.lines??[]) as Document[]){const key=String(purchaseLine.productId);if(!productIds.includes(key)||!Number.isFinite(Number(purchaseLine.unitPrice)))continue;const rows=purchaseHistory.get(key)??[];rows.push({at:String(purchase.occurredAt),unit:n(purchaseLine.unitPrice)});purchaseHistory.set(key,rows)}
   for (const document of documents) for (const line of (document.lines ?? []) as Document[]) {
-    if (!lineMatches(line, f)) continue;
+    if (!lineMatches(line, f, categoryScope)) continue;
     const sign = document.kind === "return" ? -1 : 1;
     // Legacy read-only adjustments normally carry the original line cost. Records that do
     // not carry it must resolve at the original sale date, never the return date.
@@ -87,10 +89,11 @@ async function expiredInventoryLoss(db: Db) {
   }, 0);
 }
 
-async function directDocuments(db: Db, f: ReportFilters, kind: string | string[]) {
+async function directDocuments(db: Db, f: ReportFilters, kind: string | string[], categoryScope: ProductScope = null) {
   const query: Document = { kind: Array.isArray(kind) ? { $in: kind } : kind, status: "posted", ...matchDate(f) };
   if (f.paymentAccountId) query.paymentMethod = f.paymentAccountId;
-  if (f.productId) query["lines.productId"] = f.productId;
+  const scopedProduct = productConstraint(f, categoryScope);
+  if (scopedProduct) query["lines.productId"] = scopedProduct;
   if (!Array.isArray(kind) && kind === "expense" && f.expenseType) query.recurringId = f.expenseType === "recurring" ? { $exists: true } : { $exists: false };
   const totalRows = await db.collection("documents").countDocuments(query);
   const rows = await pageCursor(db.collection("documents").find(query).sort({ occurredAt: -1 }), f).toArray();
@@ -99,27 +102,30 @@ async function directDocuments(db: Db, f: ReportFilters, kind: string | string[]
 }
 
 export async function buildReport(db: Db, f: ReportFilters): Promise<ReportResponse> {
+  const categoryScope: ProductScope = f.categoryId ? new Set((await db.collection("products").find({ categoryId: f.categoryId }).project({ id: 1 }).toArray()).map(product => String(product.id))) : null;
+  const scopedProduct = productConstraint(f, categoryScope);
+  const hasProductFilter = Boolean(f.productId || f.categoryId);
   const expiryLoss = ["stock", "profit", "overview"].includes(f.type) ? await expiredInventoryLoss(db) : 0;
   if (f.type === "sales") {
-    const sales = await directDocuments(db, f, ["sale", "decant-sale"]);
+    const sales = await directDocuments(db, f, ["sale", "decant-sale"], categoryScope);
     // Read-only compatibility: fold persisted adjustments into net sales; never expose a KPI.
-    const returnQuery = { kind: "return", status: "posted", ...matchDate(f), ...(f.productId ? { "lines.productId": f.productId } : {}) };
+    const returnQuery = { kind: "return", status: "posted", ...matchDate(f), ...(scopedProduct ? { "lines.productId": scopedProduct } : {}) };
     const legacySaleAdjustments = await db.collection("documents").find(returnQuery).toArray();
-    const summaryFacts = await saleFacts(db, [...sales.all, ...legacySaleAdjustments], f), totals = profitSummary(summaryFacts),pageIds=new Set(sales.rows.map(document=>String(document.id))),pageFacts=summaryFacts.filter(fact=>pageIds.has(String(fact.documentId)));
-    const rows = f.productId ? pageFacts : sales.rows.map(document => { const p = profitSummary(pageFacts.filter(fact=>String(fact.documentId)===String(document.id))); return { id: String(document.id), documentId: String(document.id), number: displayDocumentNumber(document), occurredAt: String(document.occurredAt), party: String(document.partyName ?? "بيع مباشر"), paymentMethod: String(document.paymentMethod ?? ""), total: n(document.total), cost: p.cost, profit: p.profit, margin: n(document.total) ? p.profit / n(document.total) * 100 : 0, paid: n(document.paidTotal), due: n(document.dueTotal) }; });
-    return { report: f.type, from: f.from!, to: f.to!, summary: { count: sales.totalRows, grossSales: sales.all.reduce((s, d) => s + (f.productId ? (d.lines as Document[]).filter(l => lineMatches(l, f)).reduce((x,l)=>x+n(l.lineTotal),0) : n(d.total)), 0), netSales: totals.revenue, cost: totals.cost, profit: totals.profit, margin: totals.margin, unknownRevenue: totals.unknownRevenue, paid: sales.all.reduce((s,d)=>s+n(d.paidTotal),0), due: sales.all.reduce((s,d)=>s+n(d.dueTotal),0) }, rows, meta: pagination(sales.totalRows, f) };
+    const summaryFacts = await saleFacts(db, [...sales.all, ...legacySaleAdjustments], f, categoryScope), totals = profitSummary(summaryFacts),pageIds=new Set(sales.rows.map(document=>String(document.id))),pageFacts=summaryFacts.filter(fact=>pageIds.has(String(fact.documentId)));
+    const rows = hasProductFilter ? pageFacts : sales.rows.map(document => { const p = profitSummary(pageFacts.filter(fact=>String(fact.documentId)===String(document.id))); return { id: String(document.id), documentId: String(document.id), number: displayDocumentNumber(document), occurredAt: String(document.occurredAt), party: String(document.partyName ?? "بيع مباشر"), paymentMethod: String(document.paymentMethod ?? ""), total: n(document.total), cost: p.cost, profit: p.profit, margin: n(document.total) ? p.profit / n(document.total) * 100 : 0, paid: n(document.paidTotal), due: n(document.dueTotal) }; });
+    return { report: f.type, from: f.from!, to: f.to!, summary: { count: sales.totalRows, grossSales: sales.all.reduce((s, d) => s + (hasProductFilter ? (d.lines as Document[]).filter(l => lineMatches(l, f, categoryScope)).reduce((x,l)=>x+n(l.lineTotal),0) : n(d.total)), 0), netSales: totals.revenue, cost: totals.cost, profit: totals.profit, margin: totals.margin, unknownRevenue: totals.unknownRevenue, paid: sales.all.reduce((s,d)=>s+n(d.paidTotal),0), due: sales.all.reduce((s,d)=>s+n(d.dueTotal),0) }, rows, meta: pagination(sales.totalRows, f) };
   }
   if (f.type === "purchases" || f.type === "expenses") {
-    const kind = f.type === "purchases" ? ["purchase", "decant-purchase"] : "expense", found = await directDocuments(db, f, kind);
+    const kind = f.type === "purchases" ? ["purchase", "decant-purchase"] : "expense", found = await directDocuments(db, f, kind, categoryScope);
     const productIds = [...new Set(found.rows.flatMap(document => ((document.lines ?? []) as Document[]).map(line => String(line.productId ?? "")).filter(Boolean)))];
     const identities = new Map((await db.collection("products").find({ id: { $in: productIds } }).project({ id: 1, name: 1, sku: 1 }).toArray()).map(product => [String(product.id), product]));
-    const rows = found.rows.map(document => { const selected = ((document.lines ?? []) as Document[]).filter(line => lineMatches(line, f)); if (f.type === "purchases" && f.productId) { const line=selected[0]; return { id:String(document.id),documentId:String(document.id),number:displayDocumentNumber(document),occurredAt:String(document.occurredAt),party:String(document.partyName??""),product:String(identities.get(String(line?.productId))?.name??line?.description??"").trim()||"منتج غير متاح",sku:String(identities.get(String(line?.productId))?.sku??line?.sku??"—")||"—",quantity:n(line?.quantity),unitPrice:n(line?.unitPrice),total:n(line?.lineTotal) }; } return { id:String(document.id),documentId:String(document.id),number:displayDocumentNumber(document),occurredAt:String(document.occurredAt),party:String(document.partyName??""),paymentMethod:String(document.paymentMethod??""),title:String(document.title??""),recurring:Boolean(document.recurringId),total:n(document.total),paid:n(document.paidTotal),due:n(document.dueTotal) }; });
-    const value = (d: Document) => f.productId ? (d.lines as Document[]).filter(l=>lineMatches(l,f)).reduce((s,l)=>s+n(l.lineTotal),0) : n(d.total);
-    return { report:f.type,from:f.from!,to:f.to!,summary:{count:found.totalRows,total:found.all.reduce((s,d)=>s+value(d),0),quantity:found.all.reduce((s,d)=>s+(d.lines as Document[]).filter(l=>lineMatches(l,f)).reduce((x,l)=>x+n(l.quantity),0),0),paid:found.all.reduce((s,d)=>s+n(d.paidTotal),0),due:found.all.reduce((s,d)=>s+n(d.dueTotal),0),recurringTotal:found.all.filter(d=>Boolean(d.recurringId)).reduce((s,d)=>s+n(d.total),0),oneOffTotal:found.all.filter(d=>!d.recurringId).reduce((s,d)=>s+n(d.total),0)},rows,meta:pagination(found.totalRows,f) };
+    const rows = found.rows.map(document => { const selected = ((document.lines ?? []) as Document[]).filter(line => lineMatches(line, f, categoryScope)); if (f.type === "purchases" && f.productId) { const line=selected[0]; return { id:String(document.id),documentId:String(document.id),number:displayDocumentNumber(document),occurredAt:String(document.occurredAt),party:String(document.partyName??""),product:String(identities.get(String(line?.productId))?.name??line?.description??"").trim()||"منتج غير متاح",sku:String(identities.get(String(line?.productId))?.sku??line?.sku??"—")||"—",quantity:n(line?.quantity),unitPrice:n(line?.unitPrice),total:n(line?.lineTotal) }; } return { id:String(document.id),documentId:String(document.id),number:displayDocumentNumber(document),occurredAt:String(document.occurredAt),party:String(document.partyName??""),paymentMethod:String(document.paymentMethod??""),title:String(document.title??""),recurring:Boolean(document.recurringId),total:n(document.total),paid:n(document.paidTotal),due:n(document.dueTotal) }; });
+    const value = (d: Document) => hasProductFilter ? (d.lines as Document[]).filter(l=>lineMatches(l,f,categoryScope)).reduce((s,l)=>s+n(l.lineTotal),0) : n(d.total);
+    return { report:f.type,from:f.from!,to:f.to!,summary:{count:found.totalRows,total:found.all.reduce((s,d)=>s+value(d),0),quantity:found.all.reduce((s,d)=>s+(d.lines as Document[]).filter(l=>lineMatches(l,f,categoryScope)).reduce((x,l)=>x+n(l.quantity),0),0),paid:found.all.reduce((s,d)=>s+n(d.paidTotal),0),due:found.all.reduce((s,d)=>s+n(d.dueTotal),0),recurringTotal:found.all.filter(d=>Boolean(d.recurringId)).reduce((s,d)=>s+n(d.total),0),oneOffTotal:found.all.filter(d=>!d.recurringId).reduce((s,d)=>s+n(d.total),0)},rows,meta:pagination(found.totalRows,f) };
   }
   if (f.type === "stock" || f.type === "financial") {
     const collection = f.type === "stock" ? "stockMovements" : "financialMovements", query: Document = matchDate(f);
-    if (f.productId && f.type === "stock") query.productId=f.productId; if(f.movementType)query.type=f.movementType;if(f.paymentAccountId&&f.type==="financial")query.paymentMethod=f.paymentAccountId;if(f.direction&&f.type==="financial")query.direction=f.direction;
+    if (f.type === "stock" && scopedProduct) query.productId=scopedProduct; if(f.movementType)query.type=f.movementType;if(f.paymentAccountId&&f.type==="financial")query.paymentMethod=f.paymentAccountId;if(f.direction&&f.type==="financial")query.direction=f.direction;
     const totalRows=await db.collection(collection).countDocuments(query), all=await db.collection(collection).find(query).toArray(), raw=f.unpaged?[...all].sort((a,b)=>String(b.occurredAt).localeCompare(String(a.occurredAt))):await pageCursor(db.collection(collection).find(query).sort({occurredAt:-1}),f).toArray();
     let rows: ReportRow[];
     if(f.type==="stock"){const products=await db.collection("products").find({id:{$in:raw.map(x=>x.productId)}}).project({id:1,sku:1,name:1}).toArray(),identities=new Map(products.map(p=>[String(p.id),p]));rows=raw.map(x=>({id:String(x.id),documentId:String(x.documentId),occurredAt:String(x.occurredAt),sku:String(identities.get(String(x.productId))?.sku??x.sku??"—")||"—",product:String(identities.get(String(x.productId))?.name??x.productName??"").trim()||"منتج غير متاح",warehouse:String(x.warehouseName),movementType:String(x.type),before:n(x.balanceBefore),change:n(x.quantityDelta),after:n(x.balanceAfter),documentNumber:String(x.documentNumber)}));return{report:f.type,from:f.from!,to:f.to!,summary:{movements:totalRows,expiredInventoryLoss:expiryLoss,incoming:all.reduce((s,x)=>s+Math.max(0,n(x.quantityDelta)),0),outgoing:all.reduce((s,x)=>s+Math.abs(Math.min(0,n(x.quantityDelta))),0),netChange:all.reduce((s,x)=>s+n(x.quantityDelta),0)},rows,meta:pagination(totalRows,f)};}
@@ -159,11 +165,11 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
     return { report: f.type, from: f.from ?? null, to: f.to ?? null, summary: { name: String(party.name), partyType, tradeTotal, debitTotal, creditTotal, receivable: Math.max(net, 0), payable: Math.max(-net, 0), net, transactionCount: total }, rows, meta: pagination(total, f) };
   }
   // Read-only compatibility: legacy adjustments remain negative sale facts.
-  const documents=await db.collection("documents").find({kind:{$in:["sale","decant-sale","return"]},status:"posted",...matchDate(f),...(f.productId?{"lines.productId":f.productId}:{})}).toArray(),facts=await saleFacts(db,documents,f);
+  const documents=await db.collection("documents").find({kind:{$in:["sale","decant-sale","return"]},status:"posted",...matchDate(f),...(scopedProduct?{"lines.productId":scopedProduct}:{})}).toArray(),facts=await saleFacts(db,documents,f,categoryScope);
   if(f.type==="product-sales"){
-    const purchases=await db.collection("documents").find({kind:{$in:["purchase","decant-purchase"]},status:"posted",...matchDate(f),...(f.productId?{"lines.productId":f.productId}:{})}).project({lines:1}).toArray();
+    const purchases=await db.collection("documents").find({kind:{$in:["purchase","decant-purchase"]},status:"posted",...matchDate(f),...(scopedProduct?{"lines.productId":scopedProduct}:{})}).project({lines:1}).toArray();
     const activeWarehouses=new Set((await db.collection("warehouses").find({isArchived:{$ne:true}}).project({_id:1}).toArray()).map(warehouse=>String(warehouse._id)));
-    const productQuery:Document={...(f.productId?{id:f.productId}:{})};
+    const productQuery:Document={...(f.productId?{id:f.productId}:f.categoryId?{categoryId:f.categoryId}:{})};
     const productRows=await db.collection("products").find(productQuery).project({id:1,sku:1,name:1,stocks:1}).toArray(),map=new Map<string,ReportRow>();
     for(const product of productRows)map.set(String(product.id),{id:String(product.id),productId:String(product.id),sku:String(product.sku??"—")||"—",product:String(product.name??"").trim()||"منتج غير متاح",soldQuantity:0,currentQuantity:Object.entries((product.stocks??{}) as Record<string,unknown>).filter(([warehouseId])=>activeWarehouses.has(warehouseId)).reduce((sum,[,quantity])=>sum+n(quantity),0),netSales:0,purchasedQuantity:0,purchases:0,netPurchases:0,averagePrice:0,averagePurchasePrice:0,profit:0,costKnown:true});
     for(const fact of facts){const key=String(fact.productId),row=map.get(key);if(!row)continue;row.soldQuantity=n(row.soldQuantity)+n(fact.quantity);row.netSales=n(row.netSales)+n(fact.revenue);row.averagePrice=n(row.soldQuantity)?n(row.netSales)/n(row.soldQuantity):0;row.costKnown=Boolean(row.costKnown)&&Boolean(fact.costKnown);row.profit=n(row.profit)+n(fact.profit)}

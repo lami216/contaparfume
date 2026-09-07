@@ -6,6 +6,10 @@ const exactFrench: Record<string, string> = {
   "طلب غير صالح": "Requête invalide",
   "تعذر تسجيل الدخول": "Connexion impossible",
   "تعذر تنفيذ العملية": "Impossible d’effectuer l’opération",
+  "اسم الفئة مطلوب": "Le nom de la catégorie est obligatoire",
+  "اسم الفئة طويل جدًا": "Le nom de la catégorie est trop long",
+  "هذه الفئة موجودة بالفعل": "Cette catégorie existe déjà",
+  "الفئة غير موجودة": "Catégorie introuvable",
 };
 
 export function translateApiError(locale: Locale, message: string): string {
