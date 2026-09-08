@@ -31,7 +31,7 @@ test("special commands consume liquid and selected bottles independently", async
 });
 
 test("normal sale and purchase exclude decants and bottle stock", async () => {
-  const route = await source("app/api/command/route.ts");
+  const route = `${await source("app/api/command/route.ts")}\n${await source("app/api/command/base-route.ts")}`;
   assert.match(route, /handlePerfumeInvoiceCommand/);
   assert.match(route, /\["decant","bottle"\].*فاتورة التقسيمات فقط/);
   assert.match(route, /\["decant","partial","bottle"\].*فاتورة الشراء العادية/);
