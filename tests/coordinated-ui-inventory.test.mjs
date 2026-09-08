@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {compareTableValues,sortTableRows} from "../app/table-sorting.tsx";
 import { normalizePresentationSource } from "./presentation-source.mjs";
-const app=normalizePresentationSource(readFileSync(new URL("../app/conta-app.tsx",import.meta.url), "utf8")),css=readFileSync(new URL("../app/globals.css",import.meta.url),"utf8"),command=readFileSync(new URL("../app/api/command/route.ts",import.meta.url),"utf8");
+const app=normalizePresentationSource(readFileSync(new URL("../app/conta-app.tsx",import.meta.url), "utf8")),css=readFileSync(new URL("../app/globals.css",import.meta.url),"utf8"),command=`${readFileSync(new URL("../app/api/command/route.ts",import.meta.url),"utf8")}\n${readFileSync(new URL("../app/api/command/base-route.ts",import.meta.url),"utf8")}`;
 test("application selection guard preserves editable selection",()=>{assert.match(css,/user-select:none/);assert.match(css,/input,textarea,\[contenteditable="true"\],\[contenteditable=""\][^}]*user-select:text/)});
 test("all warehouse inventory has a technical sentinel and active aggregation",()=>{assert.match(app,/ALL_WAREHOUSES="__all_warehouses__"/);assert.match(app,/scopedWarehouseIds=allSelected\?activeWarehouseIds:\[wh\]/);assert.match(app,/label:"كل المخازن"/)});
 test("shared select closes before change and pointer selection fires once",()=>{assert.match(app,/const choose = \(next: string\) => \{ closeSelect\(\); onChange\(next\); \}/);assert.match(app,/onPointerDown=\{event => \{ event\.preventDefault\(\); choose\(option\.value\); \}\}/)});
