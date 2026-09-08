@@ -1,0 +1,199 @@
+.modal {
+  width: min(540px, 94vw);
+  display: grid;
+  gap: 10px;
+}
+
+.create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 7px;
+}
+
+.create label {
+  display: grid;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.create input,
+.create button {
+  height: 34px;
+  min-height: 34px;
+}
+
+.create button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.create button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.list {
+  display: grid;
+  gap: 7px;
+  min-height: 90px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 7px;
+  max-height: 190px;
+  overflow: auto;
+  padding: 2px;
+}
+
+.categoryCard {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 92px;
+  max-width: 190px;
+  min-height: 34px;
+  padding: 6px 31px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(20, 49, 47, 0.04);
+  transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+
+.categoryCard:hover,
+.categoryCard:focus-within {
+  border-color: #a9c9c5;
+  background: #fbfdfd;
+  box-shadow: 0 3px 10px rgba(20, 49, 47, 0.08);
+  outline: none;
+}
+
+.categoryName {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.categoryActions {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .12s ease;
+}
+
+.categoryCard:hover .categoryActions,
+.categoryCard:focus-within .categoryActions {
+  opacity: 1;
+  visibility: visible;
+}
+
+.actionButton,
+.editActionButton {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .96);
+  color: var(--brand);
+  pointer-events: auto;
+}
+
+.actionButton:hover,
+.editActionButton:hover {
+  background: var(--soft);
+}
+
+.actionButton svg,
+.editActionButton svg {
+  width: 13px;
+  height: 13px;
+}
+
+.deleteAction {
+  color: var(--red);
+}
+
+.deleteAction:hover {
+  background: #fff4f5;
+  border-color: #efcbd0;
+}
+
+.editCard {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) auto auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 190px;
+  min-height: 34px;
+  padding: 3px;
+  border: 1px solid #a9c9c5;
+  border-radius: 10px;
+  background: #fbfdfd;
+  box-shadow: 0 3px 10px rgba(20, 49, 47, 0.08);
+}
+
+.editCard input {
+  height: 28px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.list p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+@media (max-width: 1050px) {
+  .create {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .categoryCard {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .editCard {
+    min-width: 0;
+  }
+}
