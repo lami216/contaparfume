@@ -1,0 +1,90 @@
+/* Perfume divisions layout safety overrides.
+   Keep management controls inside their cards instead of letting dense inline controls overlap. */
+
+.perfume-local-error {
+  min-width: 0;
+  margin: 0;
+}
+
+@media (min-width: 1051px) {
+  .decant-invoices-hub-body.management .perfume-divisions-page {
+    grid-template-rows: max-content minmax(0, 1fr) auto;
+    grid-template-areas:
+      "split batches"
+      "bottles batches"
+      "error error";
+  }
+
+  .decant-invoices-hub-body.management .perfume-local-error {
+    grid-area: error;
+  }
+
+  .decant-invoices-hub-body.management .perfume-bottles-table td:last-child,
+  .decant-invoices-hub-body.management .perfume-batches-table td:last-child {
+    overflow: visible;
+    white-space: normal;
+  }
+
+  .decant-invoices-hub-body.management .perfume-bottle-adjust,
+  .decant-invoices-hub-body.management .perfume-recombine-control {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 3px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .decant-invoices-hub-body.management .perfume-bottle-adjust :is(input,button),
+  .decant-invoices-hub-body.management .perfume-recombine-control :is(input,button) {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .decant-invoices-hub-body.management .perfume-recombine-control small {
+    display: block;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.25;
+  }
+}
+
+@media (min-width: 1051px) and (max-width: 1280px) {
+  .decant-invoices-hub-body.management .perfume-bottle-create {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .decant-invoices-hub-body.management .perfume-bottle-create > button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 1050px) {
+  .perfume-divisions-page {
+    grid-template-areas:
+      "split"
+      "bottles"
+      "batches"
+      "error";
+    grid-template-rows: auto auto auto auto;
+  }
+
+  .perfume-local-error {
+    grid-area: error;
+  }
+
+  .perfume-bottle-adjust,
+  .perfume-recombine-control {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    min-width: 0;
+  }
+
+  .perfume-bottle-adjust :is(input,button),
+  .perfume-recombine-control :is(input,button) {
+    width: 100%;
+    min-width: 0;
+  }
+}
