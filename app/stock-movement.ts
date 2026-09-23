@@ -48,15 +48,18 @@ export function isOpeningStockDocument(document: StockMovementDocumentHint | nul
 export function classifyStockMovementType(type: unknown, document?: StockMovementDocumentHint | null) {
   if (isOpeningStockCorrectionDocument(document)) return "opening-correction";
   if (isOpeningStockInitialDocument(document)) return "opening";
-  return asText(type) || "unknown";
+  const current = asText(type);
+  if (current.startsWith("decant-sale")) return "sale";
+  if (current.startsWith("decant-purchase")) return "purchase";
+  return current || "unknown";
 }
 
 /** Sale/purchase edit and void movements belong to their parent commercial filter. */
 export function stockMovementMatchesFilter(type: unknown, filter: string | null | undefined) {
   if (!filter) return true;
   const current = asText(type);
-  if (filter === "sale") return current === "sale" || current.startsWith("sale-");
-  if (filter === "purchase") return current === "purchase" || current.startsWith("purchase-");
+  if (filter === "sale") return current === "sale" || current.startsWith("sale-") || current.startsWith("decant-sale");
+  if (filter === "purchase") return current === "purchase" || current.startsWith("purchase-") || current.startsWith("decant-purchase");
   return current === filter;
 }
 
