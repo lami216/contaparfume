@@ -8,6 +8,10 @@ import { displayDocumentNumber } from "./document-sequences.ts";
 import { classifyStockMovementType, stockMovementMatchesFilter } from "../app/stock-movement.ts";
 
 const TYPES: ReportType[] = ["overview", "sales", "purchases", "product-sales", "stock", "profit", "debts", "party-ledger", "financial", "expenses"];
+const SALE_KINDS = ["sale", "decant-sale"] as const;
+const PURCHASE_KINDS = ["purchase", "decant-purchase"] as const;
+const isSaleKind = (kind: unknown) => SALE_KINDS.includes(String(kind) as typeof SALE_KINDS[number]);
+const isPurchaseKind = (kind: unknown) => PURCHASE_KINDS.includes(String(kind) as typeof PURCHASE_KINDS[number]);
 const REPORT_SORT_KEYS: Record<ReportType, Set<string>> = {
   overview:new Set(),
   sales:new Set(["number","occurredAt","party","paymentMethod","total","cost","profit","product","quantity","revenue"]),
@@ -58,7 +62,7 @@ type ProductScope = Set<string> | null;
 const lineMatches = (line: Document, f: ReportFilters, categoryScope: ProductScope = null) => (!f.productId || String(line.productId) === f.productId) && (!categoryScope || categoryScope.has(String(line.productId)));
 const productConstraint = (f: ReportFilters, categoryScope: ProductScope) => f.productId || (categoryScope ? { $in: [...categoryScope] } : undefined);
 
-export const OPERATING_FINANCIAL_TYPES = new Set(["sale", "purchase", "expense", "party-receipt", "party-payment"]);
+export const OPERATING_FINANCIAL_TYPES = new Set(["sale", "purchase", "decant-sale", "decant-purchase", "expense", "party-receipt", "party-payment"]);
 export const financialMovementKind = (type: unknown) => { const value=String(type??""); if(value.startsWith("sale:"))return "sale"; if(value.startsWith("purchase:"))return "purchase"; return value; };
 export const isOperatingFinancialMovement = (type: unknown) => OPERATING_FINANCIAL_TYPES.has(financialMovementKind(type));
 
@@ -71,8 +75,8 @@ async function saleFacts(db: Db, documents: Document[], f: ReportFilters, catego
   const parentIds=[...new Set(documents.filter(document=>document.kind==="return"&&document.parentDocumentId).map(document=>String(document.parentDocumentId)))];
   const [identityRows,parentRows,purchaseRows,openingRows]=await Promise.all([
     db.collection("products").find({ id: { $in: productIds } }).project({ id: 1, name: 1, sku: 1 }).toArray(),
-    db.collection("documents").find({id:{$in:parentIds},kind:"sale"}).project({id:1,occurredAt:1}).toArray(),
-    productIds.length?db.collection("documents").find({kind:"purchase",status:"posted","lines.productId":{$in:productIds}}).project({occurredAt:1,lines:1}).sort({occurredAt:1}).toArray():Promise.resolve([]),
+    db.collection("documents").find({id:{$in:parentIds},kind:{$in:[...SALE_KINDS]}}).project({id:1,occurredAt:1}).toArray(),
+    productIds.length?db.collection("documents").find({kind:{$in:[...PURCHASE_KINDS]},status:"posted","lines.productId":{$in:productIds}}).project({occurredAt:1,lines:1}).sort({occurredAt:1}).toArray():Promise.resolve([]),
     productIds.length?db.collection("documents").find({kind:"adjustment",status:"posted","lines.productId":{$in:productIds}}).project({number:1,openingCorrection:1,occurredAt:1,lines:1}).sort({occurredAt:1}).toArray():Promise.resolve([]),
   ]);
   const identities = new Map(identityRows.map(product => [String(product.id), product])),parentDates=new Map(parentRows.map(document=>[String(document.id),String(document.occurredAt)])),purchaseHistory=new Map<string,Array<{at:string;unit:number}>>(),openingHistory=new Map<string,Array<{at:string;unit:number}>>();
@@ -112,8 +116,8 @@ async function expiredInventoryLoss(db: Db) {
   }, 0);
 }
 
-async function directDocuments(db: Db, f: ReportFilters, kind: string, categoryScope: ProductScope = null) {
-  const query: Document = { kind, status: "posted", ...matchDate(f) };
+async function directDocuments(db: Db, f: ReportFilters, kind: string | readonly string[], categoryScope: ProductScope = null) {
+  const query: Document = { kind: Array.isArray(kind) ? { $in: [...kind] } : kind, status: "posted", ...matchDate(f) };
   if (f.paymentAccountId) query.paymentMethod = f.paymentAccountId;
   const constraint = productConstraint(f, categoryScope);
   if (constraint) query["lines.productId"] = constraint;
@@ -129,7 +133,7 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
   const constraint = productConstraint(f, categoryScope), hasProductFilter = Boolean(f.productId || f.categoryId);
   const expiryLoss = ["stock", "profit", "overview"].includes(f.type) ? await expiredInventoryLoss(db) : 0;
   if (f.type === "sales") {
-    const sales = await directDocuments(db, f, "sale", categoryScope);
+    const sales = await directDocuments(db, f, SALE_KINDS, categoryScope);
     // Read-only compatibility: fold persisted adjustments into net sales; never expose a KPI.
     const returnQuery = { kind: "return", status: "posted", ...matchDate(f), ...(constraint ? { "lines.productId": constraint } : {}) };
     const legacySaleAdjustments = await db.collection("documents").find(returnQuery).toArray();
@@ -140,7 +144,7 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
     return { report: f.type, from: f.from!, to: f.to!, summary: { count: sales.totalRows, grossSales: sales.all.reduce((sum, document) => sum + (hasProductFilter ? (document.lines as Document[]).filter(line => lineMatches(line, f, categoryScope)).reduce((lineSum,line)=>lineSum+n(line.lineTotal),0) : n(document.total)), 0), netSales: totals.revenue, cost: totals.cost, profit: totals.profit, margin: totals.margin, unknownRevenue: totals.unknownRevenue, paid: sales.all.reduce((sum,document)=>sum+n(document.paidTotal),0), due: sales.all.reduce((sum,document)=>sum+n(document.dueTotal),0) }, rows, meta: pagination(allRows.length, f) };
   }
   if (f.type === "purchases" || f.type === "expenses") {
-    const kind = f.type === "purchases" ? "purchase" : "expense", found = await directDocuments(db, f, kind, categoryScope);
+    const kind = f.type === "purchases" ? PURCHASE_KINDS : "expense", found = await directDocuments(db, f, kind, categoryScope);
     const productIds = [...new Set(found.all.flatMap(document => ((document.lines ?? []) as Document[]).map(line => String(line.productId ?? "")).filter(Boolean)))];
     const identities = new Map((await db.collection("products").find({ id: { $in: productIds } }).project({ id: 1, name: 1, sku: 1 }).toArray()).map(product => [String(product.id), product]));
     const partyIds=[...new Set(found.all.map(document=>String(document.partyId??"")).filter(Boolean))],partyNames=new Map((partyIds.length?await db.collection("parties").find({id:{$in:partyIds}}).project({id:1,name:1}).toArray():[]).map(party=>[String(party.id),String(party.name)]));
@@ -170,18 +174,18 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
   }
   if (f.type === "party-ledger") {
     if(!f.partyId)throw new Error("يجب اختيار الطرف");const party=await db.collection("parties").findOne({id:f.partyId});if(!party)throw new Error("الطرف غير موجود");
-    const partyType=resolvePartyType(party),query={partyId:f.partyId,status:"posted",kind:{$in:["sale","purchase","return","payment","offset","settlement"]},...matchDate(f)},all=await db.collection("documents").find(query).toArray(),parentIds=all.filter(document=>document.kind==="return"&&document.parentDocumentId).map(document=>document.parentDocumentId),parentKinds=new Map((await db.collection("documents").find({id:{$in:parentIds}}).project({id:1,kind:1}).toArray()).map(document=>[String(document.id),String(document.kind)]));
-    const effect=(document:Document)=>{if(Number.isFinite(Number(document.partyBalanceDelta)))return n(document.partyBalanceDelta);if(document.kind==="sale")return n(document.dueTotal);if(document.kind==="purchase")return-n(document.dueTotal);if(document.kind==="return")return-Math.max(0,n(document.total)-n(document.paidTotal));if(document.kind==="offset")return 0;if(document.kind==="payment"&&document.partyCashDirection)return document.partyCashDirection==="receive"?-n(document.total):n(document.total);if(document.kind==="payment"||document.kind==="settlement")return String(document.title).includes("دفع لنا")?-n(document.total):n(document.total);return 0};
-    const role=partyType==="customer"?"العميل":"المورد",movementLabel=(document:Document)=>document.kind==="sale"?"فاتورة بيع":document.kind==="purchase"?"فاتورة شراء":document.kind==="return"?"حركة تاريخية":document.kind==="offset"?"مقاصة":document.kind==="settlement"?"تسوية":document.partyCashDirection==="receive"?`استلام من ${role}`:document.partyCashDirection==="pay"?(partyType==="customer"?"دفع للعميل":"دفع للمورد"):"دفعة";
+    const partyType=resolvePartyType(party),query={partyId:f.partyId,status:"posted",kind:{$in:[...SALE_KINDS,...PURCHASE_KINDS,"return","payment","offset","settlement"]},...matchDate(f)},all=await db.collection("documents").find(query).toArray(),parentIds=all.filter(document=>document.kind==="return"&&document.parentDocumentId).map(document=>document.parentDocumentId),parentKinds=new Map((await db.collection("documents").find({id:{$in:parentIds}}).project({id:1,kind:1}).toArray()).map(document=>[String(document.id),String(document.kind)]));
+    const effect=(document:Document)=>{if(Number.isFinite(Number(document.partyBalanceDelta)))return n(document.partyBalanceDelta);if(isSaleKind(document.kind))return n(document.dueTotal);if(isPurchaseKind(document.kind))return-n(document.dueTotal);if(document.kind==="return")return-Math.max(0,n(document.total)-n(document.paidTotal));if(document.kind==="offset")return 0;if(document.kind==="payment"&&document.partyCashDirection)return document.partyCashDirection==="receive"?-n(document.total):n(document.total);if(document.kind==="payment"||document.kind==="settlement")return String(document.title).includes("دفع لنا")?-n(document.total):n(document.total);return 0};
+    const role=partyType==="customer"?"العميل":"المورد",movementLabel=(document:Document)=>document.kind==="decant-sale"?"فاتورة التقسيمات":document.kind==="decant-purchase"?"فاتورة شراء زجاج التقسيمات":document.kind==="sale"?"فاتورة بيع":document.kind==="purchase"?"فاتورة شراء":document.kind==="return"?"حركة تاريخية":document.kind==="offset"?"مقاصة":document.kind==="settlement"?"تسوية":document.partyCashDirection==="receive"?`استلام من ${role}`:document.partyCashDirection==="pay"?(partyType==="customer"?"دفع للعميل":"دفع للمورد"):"دفعة";
     const allRows:ReportRow[]=[...all].sort((a,b)=>String(b.occurredAt).localeCompare(String(a.occurredAt))).map(document=>{const delta=effect(document);return{id:String(document.id),documentId:String(document.id),occurredAt:String(document.occurredAt),movementType:movementLabel(document),documentNumber:displayDocumentNumber(document),description:String(document.title??document.partyName??""),debit:Math.max(delta,0),credit:Math.max(-delta,0),paymentMethod:String(document.paymentMethod??"")}}),rows=pageReportRows(sortReportRows(allRows,f),f),total=allRows.length;
-    const tradeTotal=partyType==="customer"?all.reduce((sum,document)=>sum+(document.kind==="sale"?n(document.total):document.kind==="return"&&parentKinds.get(String(document.parentDocumentId))!=="purchase"?-n(document.total):0),0):all.reduce((sum,document)=>sum+(document.kind==="purchase"?n(document.total):document.kind==="return"&&parentKinds.get(String(document.parentDocumentId))==="purchase"?-n(document.total):0),0),net=n(party.receivable)-n(party.payable),debitTotal=all.reduce((sum,document)=>sum+Math.max(effect(document),0),0),creditTotal=all.reduce((sum,document)=>sum+Math.max(-effect(document),0),0);
+    const tradeTotal=partyType==="customer"?all.reduce((sum,document)=>sum+(isSaleKind(document.kind)?n(document.total):document.kind==="return"&&!isPurchaseKind(parentKinds.get(String(document.parentDocumentId)))?-n(document.total):0),0):all.reduce((sum,document)=>sum+(isPurchaseKind(document.kind)?n(document.total):document.kind==="return"&&isPurchaseKind(parentKinds.get(String(document.parentDocumentId)))?-n(document.total):0),0),net=n(party.receivable)-n(party.payable),debitTotal=all.reduce((sum,document)=>sum+Math.max(effect(document),0),0),creditTotal=all.reduce((sum,document)=>sum+Math.max(-effect(document),0),0);
     return{report:f.type,from:f.from??null,to:f.to??null,summary:{name:String(party.name),partyType,tradeTotal,debitTotal,creditTotal,receivable:Math.max(net,0),payable:Math.max(-net,0),net,transactionCount:total},rows,meta:pagination(total,f)};
   }
   // Read-only compatibility: legacy adjustments remain negative sale facts.
-  const overviewCommercial=f.type==="overview"?await db.collection("documents").find({kind:{$in:["sale","return","purchase","expense"]},status:"posted",...matchDate(f)}).toArray():null;
-  const documents=overviewCommercial?overviewCommercial.filter(document=>(document.kind==="sale"||document.kind==="return")&&(!constraint||(document.lines??[]).some((line:Document)=>lineMatches(line,f,categoryScope)))):await db.collection("documents").find({kind:{$in:["sale","return"]},status:"posted",...matchDate(f),...(constraint?{"lines.productId":constraint}:{})}).toArray(),facts=await saleFacts(db,documents,f,categoryScope);
+  const overviewCommercial=f.type==="overview"?await db.collection("documents").find({kind:{$in:[...SALE_KINDS,"return",...PURCHASE_KINDS,"expense"]},status:"posted",...matchDate(f)}).toArray():null;
+  const documents=overviewCommercial?overviewCommercial.filter(document=>(isSaleKind(document.kind)||document.kind==="return")&&(!constraint||(document.lines??[]).some((line:Document)=>lineMatches(line,f,categoryScope)))):await db.collection("documents").find({kind:{$in:[...SALE_KINDS,"return"]},status:"posted",...matchDate(f),...(constraint?{"lines.productId":constraint}:{})}).toArray(),facts=await saleFacts(db,documents,f,categoryScope);
   if(f.type==="product-sales"){
-    const purchases=await db.collection("documents").find({kind:"purchase",status:"posted",...matchDate(f),...(constraint?{"lines.productId":constraint}:{})}).project({lines:1}).toArray();
+    const purchases=await db.collection("documents").find({kind:{$in:[...PURCHASE_KINDS]},status:"posted",...matchDate(f),...(constraint?{"lines.productId":constraint}:{})}).project({lines:1}).toArray();
     const activeWarehouses=new Set((await db.collection("warehouses").find({isArchived:{$ne:true}}).project({_id:1}).toArray()).map(warehouse=>String(warehouse._id)));
     const productQuery:Document={...(f.productId?{id:f.productId}:f.categoryId?{categoryId:f.categoryId}:{})};
     const productRows=await db.collection("products").find(productQuery).project({id:1,sku:1,name:1,stocks:1}).toArray(),map=new Map<string,ReportRow>();
@@ -203,8 +207,8 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
     db.collection("warehouses").find().sort({createdAt:1,name:1}).toArray(),
   ]);
   const factsByDocument=new Map<string,{cost:number;profit:number}>();for(const fact of facts){const key=String(fact.documentId),current=factsByDocument.get(key)??{cost:0,profit:0};current.cost+=n(fact.cost);current.profit+=n(fact.profit);factsByDocument.set(key,current)}
-  const kindRank:Record<string,number>={sale:0,purchase:1,expense:2};
-  const invoices=commercial.filter(d=>d.kind!=="return").map(d=>{const kind=String(d.kind) as "sale"|"purchase"|"expense",value=n(d.total),saleFact=factsByDocument.get(String(d.id));return{id:String(d.id),documentId:String(d.id),kind,type:kind==="sale"?"فاتورة بيع":kind==="purchase"?"فاتورة شراء":"فاتورة مصروفات",number:displayDocumentNumber(d),sequence:Number.isSafeInteger(Number(d.sequence))&&n(d.sequence)>0?n(d.sequence):null,occurredAt:String(d.occurredAt),invoiceValue:value,cost:kind==="sale"?(saleFact?.cost??0):value,profit:kind==="sale"?(saleFact?.profit??value):null}}).sort((a,b)=>kindRank[a.kind]-kindRank[b.kind]||((a.sequence??Number.MAX_SAFE_INTEGER)-(b.sequence??Number.MAX_SAFE_INTEGER))||a.occurredAt.localeCompare(b.occurredAt)||a.id.localeCompare(b.id));
+  const kindRank:Record<string,number>={sale:0,"decant-sale":1,purchase:2,"decant-purchase":3,expense:4};
+  const invoices=commercial.filter(d=>d.kind!=="return").map(d=>{const kind=String(d.kind) as "sale"|"decant-sale"|"purchase"|"decant-purchase"|"expense",value=n(d.total),saleFact=factsByDocument.get(String(d.id)),saleLike=isSaleKind(kind);return{id:String(d.id),documentId:String(d.id),kind,type:kind==="decant-sale"?"فاتورة التقسيمات":kind==="decant-purchase"?"فاتورة شراء زجاج التقسيمات":kind==="sale"?"فاتورة بيع":kind==="purchase"?"فاتورة شراء":"فاتورة مصروفات",number:displayDocumentNumber(d),sequence:Number.isSafeInteger(Number(d.sequence))&&n(d.sequence)>0?n(d.sequence):null,occurredAt:String(d.occurredAt),invoiceValue:value,cost:saleLike?(saleFact?.cost??0):value,profit:saleLike?(saleFact?.profit??value):null}}).sort((a,b)=>kindRank[a.kind]-kindRank[b.kind]||((a.sequence??Number.MAX_SAFE_INTEGER)-(b.sequence??Number.MAX_SAFE_INTEGER))||a.occurredAt.localeCompare(b.occurredAt)||a.id.localeCompare(b.id));
   const typedParties=parties.map(p=>({...p,partyType:resolvePartyType(p)} as Document & {partyType:"customer"|"supplier"}));
   const partyRows=typedParties.map(p=>({id:String(p.id),partyId:String(p.id),name:String(p.name),partyType:p.partyType,receivable:Math.max(n(p.receivable)-n(p.payable),0),payable:Math.max(n(p.payable)-n(p.receivable),0)}));
   const bankAccounts=accounts.map(a=>({id:String(a.id??a._id),name:String(a.name),balance:n(a.balance)}));
@@ -217,12 +221,12 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
   const currentInventoryValue=warehouseValues.reduce((sum,warehouse)=>sum+warehouse.value,0);
   const currentReceivable=typedParties.reduce((v,p)=>v+Math.max(n(p.receivable)-n(p.payable),0),0);
   const currentPayable=typedParties.reduce((v,p)=>v+Math.max(n(p.payable)-n(p.receivable),0),0);
-  const p=profitSummary(facts),sales=commercial.filter(d=>d.kind==="sale").reduce((v,d)=>v+n(d.total),0)-commercial.filter(d=>d.kind==="return").reduce((v,d)=>v+n(d.total),0),expenses=commercial.filter(d=>d.kind==="expense").reduce((v,d)=>v+n(d.total),0);
-  const detailRow=(d:Document,value:number)=>({id:String(d.id),documentId:String(d.id),number:displayDocumentNumber(d),occurredAt:String(d.occurredAt),kind:String(d.kind) as "sale"|"return"|"purchase"|"expense",value});
-  const salesDetails=commercial.filter(d=>d.kind==="sale"||d.kind==="return").map(d=>detailRow(d,d.kind==="return"?-n(d.total):n(d.total)));
-  const purchaseDetails=commercial.filter(d=>d.kind==="purchase").map(d=>detailRow(d,n(d.total)));
+  const p=profitSummary(facts),sales=commercial.filter(d=>isSaleKind(d.kind)).reduce((v,d)=>v+n(d.total),0)-commercial.filter(d=>d.kind==="return").reduce((v,d)=>v+n(d.total),0),expenses=commercial.filter(d=>d.kind==="expense").reduce((v,d)=>v+n(d.total),0);
+  const detailRow=(d:Document,value:number)=>({id:String(d.id),documentId:String(d.id),number:displayDocumentNumber(d),occurredAt:String(d.occurredAt),kind:String(d.kind) as "sale"|"decant-sale"|"return"|"purchase"|"decant-purchase"|"expense",value});
+  const salesDetails=commercial.filter(d=>isSaleKind(d.kind)||d.kind==="return").map(d=>detailRow(d,d.kind==="return"?-n(d.total):n(d.total)));
+  const purchaseDetails=commercial.filter(d=>isPurchaseKind(d.kind)).map(d=>detailRow(d,n(d.total)));
   const expenseDetails=commercial.filter(d=>d.kind==="expense").map(d=>detailRow(d,n(d.total)));
   const salesProfitDetails=commercial.filter(d=>d.kind==="sale"||d.kind==="return").map(d=>{const fact=factsByDocument.get(String(d.id))??{cost:0,profit:0};return{...detailRow(d,n(fact.profit)),revenue:d.kind==="return"?-n(d.total):n(d.total),cost:n(fact.cost),profit:n(fact.profit)}});
-  return{report:"overview",from:f.from!,to:f.to!,summary:{sales,salesCost:p.cost,salesProfit:p.profit,purchases:commercial.filter(d=>d.kind==="purchase").reduce((v,d)=>v+n(d.total),0),expenses,netOperatingResult:p.profit-expenses,profit:p.profit,currentReceivable,currentPayable,currentInventoryValue,currentAccountsBalance,customerReceivables:currentReceivable,supplierPayables:currentPayable,bankBalance:currentAccountsBalance,inventoryValue:currentInventoryValue,customerCount:typedParties.filter(p=>p.partyType==="customer").length,supplierCount:typedParties.filter(p=>p.partyType==="supplier").length},rows:[],invoices,parties:partyRows,bankAccounts,warehouseValues,overviewDetails:{sales:salesDetails,purchases:purchaseDetails,expenses:expenseDetails,salesProfit:salesProfitDetails},meta:pagination(invoices.length,f)};
+  return{report:"overview",from:f.from!,to:f.to!,summary:{sales,salesCost:p.cost,salesProfit:p.profit,purchases:commercial.filter(d=>isPurchaseKind(d.kind)).reduce((v,d)=>v+n(d.total),0),expenses,netOperatingResult:p.profit-expenses,profit:p.profit,currentReceivable,currentPayable,currentInventoryValue,currentAccountsBalance,customerReceivables:currentReceivable,supplierPayables:currentPayable,bankBalance:currentAccountsBalance,inventoryValue:currentInventoryValue,customerCount:typedParties.filter(p=>p.partyType==="customer").length,supplierCount:typedParties.filter(p=>p.partyType==="supplier").length},rows:[],invoices,parties:partyRows,bankAccounts,warehouseValues,overviewDetails:{sales:salesDetails,purchases:purchaseDetails,expenses:expenseDetails,salesProfit:salesProfitDetails},meta:pagination(invoices.length,f)};
 
 }
