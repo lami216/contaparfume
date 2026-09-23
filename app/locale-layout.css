@@ -1,0 +1,91 @@
+/* Locale-only presentation corrections.
+   Keep this file narrow: it fixes authenticated language controls and RTL/LTR layout
+   without touching accounting, import, backup, or other application behavior. */
+
+/* Language is chosen on the login screen only. The authenticated application keeps
+   the locale selected before login, but does not expose another language switch. */
+.app-shell .language-switch,
+.unlicensed-shell .language-switch {
+  display: none !important;
+}
+
+/* Authenticated presentation follows the document/app locale. */
+.app-shell,
+.app-shell > main,
+.app-shell .page-bar,
+.app-shell .content,
+.app-shell .panel,
+.app-shell .nav,
+.app-shell .nav-popover,
+.app-shell .combobox-popover,
+.app-shell .modal-overlay {
+  direction: inherit;
+}
+
+.app-shell :where(
+  .page-bar,
+  .panel,
+  .nav-popover,
+  .combobox-popover,
+  .heading,
+  .filters,
+  .search,
+  label
+) {
+  text-align: start;
+}
+
+/* Desktop POS/purchase workspace used to be permanently French/LTR. Keep the same
+   three widths, but mirror their physical positions with the selected locale while
+   giving each region the correct text/control direction. */
+@media (min-width: 1051px) {
+  .app-shell .transaction-workspace {
+    direction: ltr !important;
+    grid-template-areas: none !important;
+  }
+
+  .app-shell .transaction-workspace > .workspace-checkout,
+  .app-shell .transaction-workspace > .workspace-invoice,
+  .app-shell .transaction-workspace > .workspace-discovery {
+    grid-area: auto !important;
+    grid-row: 1 !important;
+  }
+
+  html[dir="ltr"] .app-shell .transaction-workspace {
+    grid-template-columns: minmax(0, 22fr) minmax(0, 43fr) minmax(0, 35fr) !important;
+  }
+
+  html[dir="ltr"] .app-shell .transaction-workspace > * {
+    direction: ltr !important;
+  }
+
+  html[dir="ltr"] .app-shell .workspace-checkout { grid-column: 1 !important; }
+  html[dir="ltr"] .app-shell .workspace-invoice { grid-column: 2 !important; }
+  html[dir="ltr"] .app-shell .workspace-discovery { grid-column: 3 !important; }
+
+  html[dir="rtl"] .app-shell .transaction-workspace {
+    grid-template-columns: minmax(0, 35fr) minmax(0, 43fr) minmax(0, 22fr) !important;
+  }
+
+  html[dir="rtl"] .app-shell .transaction-workspace > * {
+    direction: rtl !important;
+  }
+
+  html[dir="rtl"] .app-shell .workspace-discovery { grid-column: 1 !important; }
+  html[dir="rtl"] .app-shell .workspace-invoice { grid-column: 2 !important; }
+  html[dir="rtl"] .app-shell .workspace-checkout { grid-column: 3 !important; }
+}
+
+/* On narrow layouts there is no horizontal region mirroring; only inherit the
+   selected locale so Arabic controls/text are RTL and French controls/text are LTR. */
+@media (max-width: 1050px) {
+  html[dir="rtl"] .app-shell .transaction-workspace,
+  html[dir="rtl"] .app-shell .transaction-workspace > * {
+    direction: rtl !important;
+  }
+
+  html[dir="ltr"] .app-shell .transaction-workspace,
+  html[dir="ltr"] .app-shell .transaction-workspace > * {
+    direction: ltr !important;
+  }
+}
