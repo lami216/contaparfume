@@ -5,6 +5,7 @@ import { log } from "../../../lib/log.ts";
 import { requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
 import { PerfumeInvoiceCommandError } from "../../perfume-invoice-commands.ts";
 import { execute as executeBaseCommand } from "./base-route.ts";
+import { execute as executeCoreCommand } from "./core-route.ts";
 
 type Input = Record<string, unknown>;
 class CommandError extends Error { status: number; constructor(message: string, status = 400) { super(message); this.status = status; } }
@@ -39,7 +40,8 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     await db.collection("productCategories").deleteOne({ id: categoryId }, { session });
     return categoryId;
   }
-  return executeBaseCommand(db, session, body);
+  const perfumeCommands = new Set(["perfume-bottle.create","decant-sale.post","decant-sale.void","decant-purchase.post","decant-purchase.void","perfume-split.post","perfume-recombine.post"]);
+  return perfumeCommands.has(type) ? executeBaseCommand(db, session, body) : executeCoreCommand(db, session, body);
 }
 
 export async function POST(request: Request) {
