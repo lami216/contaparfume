@@ -33,6 +33,6 @@ test("filtered sales UI displays line revenue total without overwriting unit pri
 test("desktop renderer has a local recovery path instead of leaving Chromium raw error UI", () => {
   const source = readFileSync(new URL("../desktop/main.cjs", import.meta.url), "utf8");
   assert.match(source, /did-fail-load/);
-  assert.match(source, /تعذر تحميل الصفحة داخل الكرنه/);
+  assert.match(source, /تعذر تحميل الصفحة داخل الكرنة للعطور/);
   assert.match(source, /إعادة المحاولة/);
 });
