@@ -25,6 +25,7 @@ export const permissionRows: Array<{
   { name: "تصحيح رصيد بنك/وسيلة دفع", actions: { view: "banks.view", create: "banks.balance_correct", edit: "banks.balance_correct.edit", delete: "banks.balance_correct.delete" } },
   { name: "المصاريف", actions: { view: "expenses.view", create: "expenses.create", edit: "expenses.edit", delete: "expenses.delete" } },
   { name: "التقارير", actions: { view: "reports.view" } },
+  { name: "التقسيمات والعطور", actions: { view: "perfume.divisions.view", create: "perfume.divisions.manage", edit: "perfume.divisions.manage", delete: "perfume.divisions.manage" } },
   { name: "الإعدادات", actions: { view: "settings.view" } },
   { name: "هوية النشاط والمستندات", actions: { edit: "settings.branding.manage" } },
   { name: "النسخ الاحتياطي والاستعادة", actions: { create: "settings.backup.manage" } },
