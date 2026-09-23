@@ -114,11 +114,10 @@ workflow=workflow.replace("AlKarna-Setup-x64.exe","AlKarna-Perfume-Setup-x64.exe
 workflow=workflow.replace("AlKarna-Windows-x64-","AlKarna-Perfume-Windows-x64-")
 write(".github/workflows/build-windows-desktop.yml",workflow.encode())
 
-if conflicts:
-    pathlib.Path(".sync-conflicts.txt").write_text("\\n".join(sorted(set(conflicts)))+"\\n")
-    print(f"MERGE_CONFLICTS={len(set(conflicts))}")
-    sys.exit(2)
-
 run("npm","install","--package-lock-only","--ignore-scripts")
-run("git","diff","--check")
-print("SYNC_MERGE_OK")
+if conflicts:
+    pathlib.Path(".sync-conflicts.txt").write_text(chr(10).join(sorted(set(conflicts)))+chr(10))
+    print(f"MERGE_CONFLICTS={len(set(conflicts))}; committing checkpoint for resolution")
+else:
+    run("git","diff","--check")
+    print("SYNC_MERGE_OK")
