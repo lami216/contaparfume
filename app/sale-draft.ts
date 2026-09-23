@@ -1,5 +1,6 @@
 import { isProductExpired, type Product } from "./domain";
 import type { Locale } from "./i18n/locale";
+import { clearPendingLowStockWarning, shouldWarnLowStock, stagePendingLowStockWarning, type LowStockWarningItem } from "./low-stock-warning";
 
 export type SaleDraftLine = {
   productId: string;
@@ -18,6 +19,7 @@ export function clearPersistedSaleDraft(storage: Pick<Storage, "setItem">) {
   storage.setItem("conta:sale-lines", "[]");
   storage.setItem("conta:sale-payment", JSON.stringify(""));
   storage.setItem("conta:sale-party", JSON.stringify(""));
+  clearPendingLowStockWarning(storage);
 }
 
 export function belowCostConfirmation(locale: Locale, warnings: BelowCostWarning[]) {
@@ -63,6 +65,7 @@ export function updateSaleDraftLine<T extends SaleDraftLine>(lines: T[], product
 export function validateSaleDraft(lines: SaleDraftLine[], products: Product[], warehouseId?: string, businessDate?: string) {
   const errors: SaleValidationError[] = [];
   const warnings: BelowCostWarning[] = [];
+  const lowStock: LowStockWarningItem[] = [];
   const invalidProductIds = new Set<string>();
   for (const line of lines) {
     const product = products.find(item => item.id === line.productId);
@@ -83,6 +86,9 @@ export function validateSaleDraft(lines: SaleDraftLine[], products: Product[], w
     } else if (quantity > available) {
       errors.push({ code: "insufficientQuantity", productId: product.id, productName: product.name, requested: quantity, available });
       invalidProductIds.add(product.id);
+    } else {
+      const remaining = available - quantity;
+      if (shouldWarnLowStock(remaining)) lowStock.push({ productId: product.id, productName: product.name, remaining });
     }
     if (line.piecePrice.trim() === "" || !Number.isFinite(price) || price <= 0) {
       errors.push({ code: "invalidSalePrice", productId: product.id, productName: product.name });
@@ -91,5 +97,7 @@ export function validateSaleDraft(lines: SaleDraftLine[], products: Product[], w
       warnings.push({ productId: product.id, productName: product.name, salePrice: price, purchaseCost: product.lastPurchaseCost });
     }
   }
+  if (errors.length) clearPendingLowStockWarning();
+  else stagePendingLowStockWarning(lowStock);
   return { errors, warnings, invalidProductIds };
 }
