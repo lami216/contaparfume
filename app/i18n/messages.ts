@@ -1379,7 +1379,7 @@ export const frMessages: Record<MessageKey, string> = {
   "المعلومات الأساسية": "Informations de base",
   "المقاصة تتجاوز الرصيد المشترك": "La compensation dépasse le solde combiné",
   "المقبوض": "Arrêté",
-  "المقبوضات التشغيلية": "Recettes d'exploitation",
+  "المقبوضات التشغيلية": "Encaissements d’exploitation",
   "الملاحظة": "Observation",
   "الملف أكبر من الحد المسموح": "Le fichier est plus grand que la limite autorisée",
   "المنتج": "Produit",
