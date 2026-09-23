@@ -3,6 +3,7 @@ const {app,BrowserWindow,Menu,shell,dialog,session,ipcMain}=require('electron');
 const PRODUCT_NAME='الكرنة للعطور';
 const APP_ID='mr.alkarna.perfume.desktop';
 const USER_DATA_DIR='AlKarna-Perfume';
+const LOCALE_COOKIE='alkarna_locale';
 app.setName(PRODUCT_NAME);
 const isolatedUserData=require('node:path').join(app.getPath('appData'),USER_DATA_DIR);
 require('node:fs').mkdirSync(isolatedUserData,{recursive:true});
@@ -16,6 +17,7 @@ const lock=app.requestSingleInstanceLock();if(!lock)app.quit();
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.focus()}});
 const freePort=()=>new Promise((resolve,reject)=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p))});s.on('error',reject)});
 const stamp=message=>{logStream?.write(`[${new Date().toISOString()}] ${message}\n`)};
+async function currentLocale(){if(!serverUrl)return 'ar';try{const values=await session.defaultSession.cookies.get({url:serverUrl,name:LOCALE_COOKIE});return values[0]?.value==='fr'?'fr':'ar'}catch{return 'ar'}}
 const normalizePrintSettings=value=>{const source=value&&typeof value==='object'?value:{},profile=PRINT_PROFILES.has(source.profile)?source.profile:'a4',deviceName=typeof source.deviceName==='string'&&source.deviceName.trim()?source.deviceName.trim():null;return{deviceName,profile}};
 const printingSettingsPath=()=>join(app.getPath('userData'),'printing-settings.json');
 async function getPrintingSettings(){try{return normalizePrintSettings(JSON.parse(await readFile(printingSettingsPath(),'utf8')))}catch{return{...DEFAULT_PRINT_SETTINGS}}}
@@ -49,7 +51,7 @@ async function start(){
  const url=`http://127.0.0.1:${port}`;serverUrl=url;for(let i=0;i<120;i++){if(server.exitCode!==null)break;try{const response=await fetch(`${url}/api/health`);if(response.status===200){ready=true;break}}catch{}await new Promise(r=>setTimeout(r,250))}if(!ready)return failStartup();stamp('health ready');
  window=new BrowserWindow({title:PRODUCT_NAME,width:1500,height:900,minWidth:1100,minHeight:700,icon:join(root,'public','alkarna-logo.png'),webPreferences:{preload:join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});const expectedOrigin=new URL(url).origin,isLocal=target=>{try{return new URL(target).origin===expectedOrigin}catch{return false}};
  Menu.setApplicationMenu(null);window.webContents.setWindowOpenHandler(({url:target})=>{if(isLocal(target))return{action:'allow'};shell.openExternal(target);return{action:'deny'}});window.webContents.on('will-navigate',(event,target)=>{if(!isLocal(target))event.preventDefault()});
- closeFlow=createCloseFlow({dialog,window:()=>window,fetchBackup:async()=>{const response=await fetch(`${serverUrl}/api/desktop/backup`,{headers:{'x-alkarna-desktop-token':desktopToken}});if(!response.ok)throw Error(`backup HTTP ${response.status}`);return Buffer.from(await response.arrayBuffer())},writeBackup:writeFile,onFailure:async error=>{stamp(`backup failed: ${error.stack||error}`);await dialog.showMessageBox(window,{type:'error',title:PRODUCT_NAME,message:'تعذر إنشاء النسخة الاحتياطية. لم يتم إغلاق البرنامج.',buttons:['حسنًا']})},approveQuit:async()=>{quitting=true;await stopServer();logStream?.end();app.quit()}});
+ closeFlow=createCloseFlow({dialog,window:()=>window,fetchBackup:async()=>{const response=await fetch(`${serverUrl}/api/desktop/backup`,{headers:{'x-alkarna-desktop-token':desktopToken}});if(!response.ok)throw Error(`backup HTTP ${response.status}`);return Buffer.from(await response.arrayBuffer())},writeBackup:writeFile,getLocale:currentLocale,onFailure:async error=>{stamp(`backup failed: ${error.stack||error}`);await dialog.showMessageBox(window,{type:'error',title:PRODUCT_NAME,message:'تعذر إنشاء النسخة الاحتياطية. لم يتم إغلاق البرنامج.',buttons:['حسنًا']})},approveQuit:async()=>{quitting=true;await stopServer();logStream?.end();app.quit()}});
  window.on('close',event=>{if(quitting||closeFlow.isApproved())return;event.preventDefault();void closeFlow.requestClose().then(closed=>{if(!closed&&window&&!window.isDestroyed()){window.focus();window.webContents.focus()}})});
  await session.defaultSession.cookies.remove(url,'conta_session');
  await window.loadURL(url);
