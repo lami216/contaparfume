@@ -2,7 +2,7 @@ import { resolvePartyType, type FinancialMovement, type Party, type PaymentAccou
 
 export type CommittedPeriod = { from: string; to: string } | null;
 export const inCommittedPeriod = (occurredAt: string, period: CommittedPeriod) => !period || ((!period.from || occurredAt.slice(0, 10) >= period.from) && (!period.to || occurredAt.slice(0, 10) <= period.to));
-export function financialMovementKind(type: unknown) { const value=String(type??""); if(value.startsWith("sale:"))return "sale"; if(value.startsWith("purchase:"))return "purchase"; return value; }
+export function financialMovementKind(type: unknown) { const value=String(type??""); if(value==="decant-sale"||value.startsWith("sale:"))return "sale"; if(value==="decant-purchase"||value.startsWith("purchase:"))return "purchase"; return value; }
 export function filterFinancialMovements(rows: FinancialMovement[], period: CommittedPeriod, accountId = "", type = "") { return rows.filter(row => inCommittedPeriod(row.occurredAt, period) && (!accountId || row.paymentMethod === accountId) && (!type || financialMovementKind(row.type) === type)); }
 export function filterTransfers<T extends { occurredAt: string; fromAccountId: string; toAccountId: string }>(rows: T[], period: CommittedPeriod, fromAccountId = "", toAccountId = "") { return rows.filter(row => inCommittedPeriod(row.occurredAt, period) && (!fromAccountId || row.fromAccountId === fromAccountId) && (!toAccountId || row.toAccountId === toAccountId)); }
 const nonOperatingMovementTypes = new Set(["transfer-in", "transfer-out", "opening-balance", "opening-balance-correction", "balance-correction"]);
