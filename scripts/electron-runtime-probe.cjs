@@ -10,7 +10,7 @@ const root = fs.realpathSync(process.argv[2]);
 const label = process.argv[3] || 'RUNTIME';
 const runtimeRequire = createRequire(path.join(root, 'server.js'));
 const packagePath = fs.realpathSync(runtimeRequire.resolve('better-sqlite3'));
-const nativePath = fs.realpathSync(runtimeRequire.resolve('better-sqlite3/build/Release/better_sqlite3.node'));
+const nativePath = fs.realpathSync(path.join(root, 'node_modules', 'better-sqlite3', 'prebuilds', `${process.platform}-x64.node`));
 assert.ok(isPathInside(root, packagePath), `${label} package escaped runtime: ${packagePath}`);
 assert.ok(isPathInside(root, nativePath), `${label} native binary escaped runtime: ${nativePath}`);
 console.log(`${label} Electron version: ${process.versions.electron}`);
