@@ -20,7 +20,7 @@ export function stringifyBackup(value: ContaBackup) { return value.encoding==="m
 export function parseAndValidateBackup(input: string): ContaBackup {
   let value: unknown; try { const raw=JSON.parse(input) as Record<string,unknown>;value=raw.encoding==="mongodb-extended-json-v2"?EJSON.parse(input,{relaxed:true}):raw; } catch { throw new Error("ملف النسخة ليس JSON صالحًا"); }
   const b = value as Partial<ContaBackup>;
-  if (b.format !== "conta-backup") throw new Error("هذا الملف ليس نسخة الكرنه");
+  if (b.format !== "conta-backup") throw new Error("هذا الملف ليس نسخة الكرنة");
   if (b.schemaVersion !== BACKUP_SCHEMA_VERSION) throw new Error(Number(b.schemaVersion) > BACKUP_SCHEMA_VERSION ? "إصدار النسخة أحدث من هذا التطبيق" : "إصدار النسخة غير مدعوم");
   if (!b.collections || typeof b.collections !== "object" || Array.isArray(b.collections)) throw new Error("بنية collections غير صالحة");
   // Backups created before product categories existed have no productCategories collection.
