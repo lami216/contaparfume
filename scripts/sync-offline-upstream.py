@@ -109,11 +109,6 @@ nsis["shortcutName"]="الكرنة للعطور"
 nsis["artifactName"]="AlKarna-Perfume-Setup-x64.exe"
 write("package.json",(json.dumps(pkg,ensure_ascii=False,indent=2)+chr(10)).encode())
 
-workflow=show(THEIRS,".github/workflows/build-windows-desktop.yml").decode()
-workflow=workflow.replace("AlKarna-Setup-x64.exe","AlKarna-Perfume-Setup-x64.exe")
-workflow=workflow.replace("AlKarna-Windows-x64-","AlKarna-Perfume-Windows-x64-")
-write(".github/workflows/build-windows-desktop.yml",workflow.encode())
-
 if conflicts:
     pathlib.Path(".sync-conflicts.txt").write_text(chr(10).join(sorted(set(conflicts)))+chr(10))
     print(f"MERGE_CONFLICTS={len(set(conflicts))}; committing checkpoint for resolution")
