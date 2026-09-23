@@ -2349,7 +2349,6 @@ textarea:focus { outline:3px solid rgba(11,109,103,.17); outline-offset:1px; bor
 .today-short{display:none}
 @media(max-width:760px){.page-utilities{gap:5px;font-size:11px}.page-utilities time{display:inline}.today-long{display:none}.today-short{display:inline}.language-switch{padding-inline:7px}}
 
-<<<<<<< /tmp/tmppaa1a8da/ours
 /* perfume-divisions-v2: compact, fixed desktop frame; only the growing batch list scrolls. */
 .section-perfumeDivisions { --section-color: var(--color-products); --section-soft: #fff0e4; }
 .perfume-divisions-page { display:grid; grid-template-rows:auto minmax(0,1fr); gap:8px; width:100%; height:100%; min-height:0; overflow:hidden; }
@@ -2435,12 +2434,7 @@ textarea:focus { outline:3px solid rgba(11,109,103,.17); outline-offset:1px; bor
 }
 
 
-/* product-categories */
-=======
-
-/* product-categories + comprehensive-report-summary */
->>>>>>> /tmp/tmppaa1a8da/theirs
-.product-category-modal{width:min(540px,94vw);display:grid;gap:10px}
+/* product-categories */.product-category-modal{width:min(540px,94vw);display:grid;gap:10px}
 .product-category-create{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:7px}
 .product-category-create label{display:grid;gap:4px;font-size:10px;font-weight:800}
 .product-category-create input,.product-category-create button{height:34px;min-height:34px}
@@ -2449,11 +2443,6 @@ textarea:focus { outline:3px solid rgba(11,109,103,.17); outline-offset:1px; bor
 .product-category-list>div{display:flex;flex-wrap:wrap;gap:5px;max-height:190px;overflow:auto}
 .product-category-list span{padding:5px 9px;border:1px solid var(--line);border-radius:999px;background:var(--panel-soft,#f7f9f8);font-size:10px;font-weight:800}
 .product-category-list p{margin:0;color:var(--muted);font-size:10px}
-<<<<<<< /tmp/tmppaa1a8da/ours
-.report-category-filter{flex:0 0 180px;min-width:160px;max-width:210px}
-.report-category-filter .combobox{width:100%;min-width:0}
-@media(max-width:1050px){.product-category-create{grid-template-columns:1fr}.report-category-filter{flex:1 1 190px;max-width:none}}
-=======
 .report-category-filter{flex:0 0 180px;min-width:160px;max-width:210px}.report-category-filter .combobox{width:100%;min-width:0}
 .overview-summary-groups{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;min-width:0}
 .overview-summary-group{min-width:0;padding:7px;border:1px solid var(--line);border-radius:7px;background:var(--panel,#fff)}
@@ -2524,4 +2513,3 @@ html:has(.modal-overlay),body:has(.modal-overlay){overflow:hidden}
 .summary-breakdown-compact .summary-breakdown-note{display:inline;margin:0;white-space:nowrap}
 .summary-breakdown-compact .summary-source-link{flex:0 0 auto;min-height:24px;margin:0;margin-inline-start:auto;padding:2px 7px;white-space:nowrap}
 @media(max-width:700px){.summary-breakdown-modal.summary-breakdown-compact{width:100%}.summary-breakdown-compact .summary-breakdown-label{gap:5px}.summary-breakdown-compact .summary-breakdown-note{white-space:normal}.summary-breakdown-compact .summary-source-link{white-space:normal}}
->>>>>>> /tmp/tmppaa1a8da/theirs
