@@ -65,5 +65,5 @@ test("only growing decant invoice datasets own scroll areas on desktop", async (
   const css = `${await source("app/globals.css")}\n${await source("app/perfume-ui-fixes.css")}\n${await source("app/perfume-layout-safety.css")}`;
   assert.match(css, /\.decant-invoice-page\s*\{[^}]*height:\s*100%[^}]*overflow:\s*hidden/);
   assert.match(css, /\.decant-lines-scroll,[\s\S]*?\.decant-invoice-history-scroll\s*\{[^}]*overflow-y:\s*auto/);
-  assert.match(css, /\.perfume-bottles-table-wrap\s*\{[^}]*overflow-y:\s*auto/);
+  assert.match(css, /\.perfume-bottles-table-wrap,[\s\S]*?\.perfume-batches-table-wrap\s*\{[^}]*overflow-y:\s*auto/);
 });
