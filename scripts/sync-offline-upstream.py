@@ -85,10 +85,10 @@ with tempfile.TemporaryDirectory() as tdname:
         conflicts.append("app/api/command/base-route.ts"); print(f"[conflict] app/api/command/base-route.ts ({p.returncode} hunks)")
 
 main=show(THEIRS,"desktop/main.cjs").decode()
-main=main.replace("const PRODUCT_NAME='الكرنه';","const PRODUCT_NAME='الكرنة للعطور';\\nconst APP_ID='mr.alkarna.perfume.desktop';\\nconst USER_DATA_DIR='AlKarna-Perfume';")
+main=main.replace("const PRODUCT_NAME='الكرنه';","const PRODUCT_NAME='الكرنة للعطور';"+chr(10)+"const APP_ID='mr.alkarna.perfume.desktop';"+chr(10)+"const USER_DATA_DIR='AlKarna-Perfume';")
 anchor="const {spawn}=require('node:child_process');const {join}=require('node:path');const {mkdirSync,createWriteStream}=require('node:fs');"
 if anchor in main:
-    main=main.replace(anchor,anchor+"\\nconst isolatedUserData=join(app.getPath('appData'),USER_DATA_DIR);mkdirSync(isolatedUserData,{recursive:true});app.setPath('userData',isolatedUserData);",1)
+    main=main.replace(anchor,anchor+chr(10)+"const isolatedUserData=join(app.getPath('appData'),USER_DATA_DIR);mkdirSync(isolatedUserData,{recursive:true});app.setPath('userData',isolatedUserData);",1)
 main=main.replace("ALKARNA_DATABASE_PATH:join(userData,'data','alkarna.sqlite')","ALKARNA_DATABASE_PATH:join(userData,'data','alkarna-perfume.sqlite'),ALKARNA_LICENSE_STATE_PATH:join(process.env.LOCALAPPDATA||userData,'PayZone','AlKarna-Perfume-Licensing','state-v2.json'),ALKARNA_LICENSE_DISABLE_REGISTRY:'1'")
 main=main.replace("app.setAppUserModelId('mr.alkarna.desktop')","app.setAppUserModelId(APP_ID)")
 main=main.replace('app.setAppUserModelId("mr.alkarna.desktop")',"app.setAppUserModelId(APP_ID)")
@@ -107,17 +107,17 @@ build.setdefault("win",{})["executableName"]="AlKarna-Perfume"
 nsis=build.setdefault("nsis",{})
 nsis["shortcutName"]="الكرنة للعطور"
 nsis["artifactName"]="AlKarna-Perfume-Setup-x64.exe"
-write("package.json",(json.dumps(pkg,ensure_ascii=False,indent=2)+"\\n").encode())
+write("package.json",(json.dumps(pkg,ensure_ascii=False,indent=2)+chr(10)).encode())
 
 workflow=show(THEIRS,".github/workflows/build-windows-desktop.yml").decode()
 workflow=workflow.replace("AlKarna-Setup-x64.exe","AlKarna-Perfume-Setup-x64.exe")
 workflow=workflow.replace("AlKarna-Windows-x64-","AlKarna-Perfume-Windows-x64-")
 write(".github/workflows/build-windows-desktop.yml",workflow.encode())
 
-run("npm","install","--package-lock-only","--ignore-scripts")
 if conflicts:
     pathlib.Path(".sync-conflicts.txt").write_text(chr(10).join(sorted(set(conflicts)))+chr(10))
     print(f"MERGE_CONFLICTS={len(set(conflicts))}; committing checkpoint for resolution")
 else:
+    run("npm","install","--package-lock-only","--ignore-scripts")
     run("git","diff","--check")
     print("SYNC_MERGE_OK")
