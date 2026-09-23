@@ -43,14 +43,8 @@ export function activeWarehouses<T extends Pick<Warehouse, "isArchived">>(wareho
 export interface ProductCategory {
   id: string;
   name: string;
-<<<<<<< /tmp/tmp06qyduiy/ours
-}
-
-=======
   createdAt?: string;
-}
->>>>>>> /tmp/tmp06qyduiy/theirs
-export interface Product {
+}export interface Product {
   id: string;
   name: string;
   sku: string;
@@ -74,17 +68,13 @@ export interface Product {
   expiryDate?: string | null;
   note?: string | null;
   categoryId?: string | null;
-<<<<<<< /tmp/tmp06qyduiy/ours
   perfumeForm?: PerfumeForm | null;
   parentProductId?: string | null;
   decantSizeMl?: number | null;
   decantBottleCost?: number | null;
   partialRemainingParts?: number | null;
   partialOriginalParts?: number | null;
-  perfumeLots?: PerfumeLot[];
-=======
->>>>>>> /tmp/tmp06qyduiy/theirs
-  stocks: Record<string, number>;
+  perfumeLots?: PerfumeLot[];  stocks: Record<string, number>;
   isArchived?: boolean;
   archivedAt?: string | null;
 }
@@ -108,17 +98,12 @@ export interface DocumentLine {
   lineTotal: number;
   costAtSale?: number | null;
   grossProfit?: number | null;
-<<<<<<< /tmp/tmp06qyduiy/ours
   perfumeAllocations?: PerfumeAllocation[];
   bottleProductId?: string | null;
   bottleProductName?: string | null;
   bottleUnitCost?: number | null;
-  bottleQuantity?: number | null;
-=======
-  balanceBefore?: number;
-  balanceAfter?: number;
->>>>>>> /tmp/tmp06qyduiy/theirs
-}
+  bottleQuantity?: number | null;  balanceBefore?: number;
+  balanceAfter?: number;}
 export interface DocumentRecord {
   id: string;
   number: string;
@@ -335,19 +320,13 @@ export function formatMoney(value: number) {
 export function displayDocumentNumber(document: Pick<DocumentRecord, "number" | "sequence" | "kind">) {
   return ["sale", "purchase", "expense", "decant-sale", "decant-purchase"].includes(document.kind) && Number.isSafeInteger(Number(document.sequence)) && Number(document.sequence) > 0 ? String(document.sequence) : document.number;
 }
-<<<<<<< /tmp/tmp06qyduiy/ours
-/** Presentation-only inventory valuation; it does not change accounting cost policy. */
-export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "pieceCost" | "perfumeForm" | "perfumeLots">) {
+/** Accounting-backed inventory valuation, with lot valuation for generated perfume decants. */
+export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "openingCost" | "legacyOpeningCost" | "perfumeForm" | "perfumeLots">) {
   if (product.perfumeForm === "decant" && product.perfumeLots?.length) {
     const remaining = product.perfumeLots.reduce((sum, lot) => sum + Number(lot.remainingQuantity ?? 0), 0);
     if (remaining > 0) return product.perfumeLots.reduce((sum, lot) => sum + Number(lot.remainingQuantity ?? 0) * Number(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0), 0) / remaining;
   }
-  return product.lastPurchaseCost ?? product.pieceCost ?? 0;
-=======
-/** Accounting-backed inventory valuation. Manual pieceCost never silently becomes historical cost. */
-export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "openingCost" | "legacyOpeningCost">) {
   return product.lastPurchaseCost ?? product.openingCost ?? product.legacyOpeningCost ?? 0;
->>>>>>> /tmp/tmp06qyduiy/theirs
 }
 export function formatDate(
   value: Date | string | number,
