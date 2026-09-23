@@ -58,3 +58,13 @@ test("product picker and document overlay regression checkpoints remain mounted"
   assert.match(source, /\{doc && <div className="modal-overlay"/);
   assert.doesNotMatch(source, /\) : doc \? \(/);
 });
+
+
+test("records workspace reads audit history instead of posted bootstrap documents",()=>{const source=readFileSync(new URL("../app/conta-app.tsx",import.meta.url),"utf8"),records=source.slice(source.indexOf("function Records"),source.indexOf("const reportNames"));assert.match(records,/\/api\/history\?/);assert.doesNotMatch(records,/status === "posted"/);assert.match(source,/resource=documents&id=/);});
+
+
+test("records audit view paginates instead of silently stopping at 250 rows",()=>{const source=readFileSync(new URL("../app/conta-app.tsx",import.meta.url),"utf8"),records=source.slice(source.indexOf("function Records"),source.indexOf("const reportNames"));assert.match(records,/page:String\(page\),pageSize:"100"/);assert.match(records,/setTotalPages/);assert.match(records,/setPage\(current=>Math\.min\(totalPages,current\+1\)\)/);});
+test("report rows can request their exact source document without granting a general history list",()=>{const source=readFileSync(new URL("../app/api/history/route.ts",import.meta.url),"utf8");assert.match(source,/reportDocumentLookup=resource==="documents"&&Boolean\(id\)&&hasCapability\(principal,"reports\.view"\)/);assert.match(source,/reportDocumentLookup\|\|canReadDocument/);});
+
+
+test("records view exposes document stock and financial audit resources",()=>{const source=readFileSync(new URL("../app/conta-app.tsx",import.meta.url),"utf8"),records=source.slice(source.indexOf("function Records"),source.indexOf("const reportNames")),history=readFileSync(new URL("../app/api/history/route.ts",import.meta.url),"utf8");for(const resource of ["documents","stockMovements","financialMovements"])assert.match(records,new RegExp(resource));assert.match(history,/recordsAccess\|\|hasCapability\(principal,"warehouses\.inventory\.view"\)/);assert.match(history,/recordsAccess\|\|hasCapability\(principal,"banks\.movements\.view"\)/);});
