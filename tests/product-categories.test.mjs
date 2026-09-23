@@ -5,7 +5,8 @@ import { readFile } from "node:fs/promises";
 const source = async path => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("product categories are persisted and exposed through bootstrap", async () => {
-  const [domain, bootstrap, route, core] = await Promise.all([source("app/domain.ts"), source("app/api/bootstrap/route.ts"), source("app/api/command/route.ts"), source("app/api/command/core-route.ts")]);\n  const command = `${route}\n${core}`;
+  const [domain, bootstrap, route, core] = await Promise.all([source("app/domain.ts"), source("app/api/bootstrap/route.ts"), source("app/api/command/route.ts"), source("app/api/command/core-route.ts")]);
+  const command = `${route}\n${core}`;
   assert.match(domain, /interface ProductCategory/);
   assert.match(domain, /categoryId\?: string \| null/);
   assert.match(domain, /categories: ProductCategory\[\]/);
