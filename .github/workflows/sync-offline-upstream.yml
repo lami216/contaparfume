@@ -1,0 +1,34 @@
+name: Perfume upstream integration
+
+on:
+  push:
+    branches:
+      - fix/core-sync-perfume-20260923
+    paths:
+      - scripts/sync-offline-upstream.py
+      - .github/workflows/sync-offline-upstream.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: ${{ !contains(github.event.head_commit.message, '[sync-generated]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - name: Merge offline-conta changes
+        run: python scripts/sync-offline-upstream.py
+      - name: Commit integrated source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Sync current offline-conta core into perfume edition [sync-generated]"
+          git push origin HEAD:${{ github.ref_name }}
