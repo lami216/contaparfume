@@ -62,8 +62,8 @@ test("special commercial documents are sequenced, exposed, reported and translat
 });
 
 test("only growing decant invoice datasets own scroll areas on desktop", async () => {
-  const css = await source("app/globals.css");
+  const css = `${await source("app/globals.css")}\n${await source("app/perfume-ui-fixes.css")}\n${await source("app/perfume-layout-safety.css")}`;
   assert.match(css, /\.decant-invoice-page\{[^}]*height:100%[^}]*overflow:hidden/);
-  assert.match(css, /\.decant-lines-scroll,[^{]*\.decant-invoice-history-scroll\{[^}]*overflow:auto/);
+  assert.match(css, /\.decant-lines-scroll,[\s\S]*?\.decant-invoice-history-scroll\s*\{[^}]*overflow-y:\s*auto/);
   assert.match(css, /\.perfume-bottles-table-wrap\{[^}]*overflow:auto/);
 });
