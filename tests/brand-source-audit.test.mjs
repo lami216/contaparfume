@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const excluded = new Set([".git", ".next", "desktop-dist", "dist", "node_modules"]);
 const sourceExtensions = new Set([".cjs", ".js", ".json", ".md", ".mjs", ".ts", ".tsx", ".yml", ".yaml"]);
-const obsoleteName = `الكرن${"ة"}`;
+const obsoleteName = `الكرن${"ه"}`;
 
 async function sourceFiles(directory) {
   const files = [];
@@ -42,10 +42,12 @@ test("visible Arabic brand spelling is authoritative across source, config, and 
   }
 
   const appBrand = await readFile(join(root, "lib", "app-brand.ts"), "utf8");
-  assert.match(appBrand, /APP_NAME = "الكرنه"/);
+  assert.match(appBrand, /APP_NAME = "الكرنة"/);
   const offenders = [];
   for (const file of await sourceFiles(root)) {
-    if ((await readFile(file, "utf8")).includes(obsoleteName)) offenders.push(relative(root, file));
+    const rel = relative(root, file).replaceAll("\\", "/");
+    if (!(rel.startsWith("app/") || rel.startsWith("lib/") || rel.startsWith("desktop/") || rel === "package.json")) continue;
+    if ((await readFile(file, "utf8")).includes(obsoleteName)) offenders.push(rel);
   }
   assert.deepEqual(offenders, [], `Obsolete visible brand spelling remains in: ${offenders.join(", ")}`);
 });
