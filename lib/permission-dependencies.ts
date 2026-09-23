@@ -45,6 +45,7 @@ const prerequisites: Readonly<Record<PermissionName, readonly PermissionName[]>>
   "banks.balance_correct.delete": ["banks.view"],
   "expenses.edit": ["expenses.view"],
   "expenses.delete": ["expenses.view"],
+  "perfume.divisions.manage": ["perfume.divisions.view"],
 };
 
 export function expandPermissionDependencies(permissions: readonly PermissionName[]) {
