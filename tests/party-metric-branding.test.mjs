@@ -23,12 +23,12 @@ test("party list and account summaries keep both debt directions visible in the 
 });
 
 test("visible product branding uses the shared Arabic identity and logo path", () => {
-  assert.match(brand, /APP_NAME = "الكرنه"/);
+  assert.match(brand, /APP_NAME = "الكرنة"/);
   assert.match(brand, /APP_LOGO_PATH = "\/alkarna-logo\.png"/);
   assert.match(app, /className="brand-logo"><img src=\{APP_LOGO_PATH\}/);
   assert.match(login, /<img src=\{APP_LOGO_PATH\}/);
   assert.match(layout, /title: `\$\{APP_NAME\} — \$\{tagline\}`/);
-  assert.match(layout, /locale==="ar"\?"نظام المتجر":"Gestion du magasin"/);
+  assert.match(brand, /APP_TAGLINE = "العطور"/);
   assert.doesNotMatch(login, />Conta<|>C</);
   assert.match(app, /تم إنشاء هذا المستند بواسطة \{APP_NAME\}/);
 });
