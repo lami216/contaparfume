@@ -8,7 +8,7 @@ test("product categories persist in SQLite and survive backup restore", async t 
   t.after(() => harness.close());
   const db = harness.db;
 
-  assert.equal(db.native.prepare("SELECT max(version) version FROM schema_migrations").get().version, 4);
+  assert.ok(db.native.prepare("SELECT max(version) version FROM schema_migrations").get().version >= 7);
 
   await db.collection("productCategories").insertOne({ id: "cat-drinks", name: "Drinks" });
   await db.collection("products").insertOne({ id: "categorized-product", sku: "501", name: "Juice", categoryId: "cat-drinks", stocks: {} });
