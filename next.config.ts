@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  agentRules: false,
   output: "standalone",
   distDir: process.env.NEXT_DIST_DIR || ".next",
   serverExternalPackages: ["sql.js", "better-sqlite3"],
