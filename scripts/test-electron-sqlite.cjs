@@ -10,7 +10,8 @@ const repositoryRoot = fs.realpathSync(path.resolve(__dirname, '..'));
 const stagedApp = fs.realpathSync(path.join(repositoryRoot, 'desktop-dist', 'app'));
 const serverRequire = createRequire(path.join(stagedApp, 'server.js'));
 const packagePath = fs.realpathSync(serverRequire.resolve('better-sqlite3'));
-const nativePath = fs.realpathSync(serverRequire.resolve('better-sqlite3/build/Release/better_sqlite3.node'));
+const packageRoot = fs.realpathSync(path.join(path.dirname(packagePath), '..'));
+const nativePath = fs.realpathSync(path.join(packageRoot, 'prebuilds', `${process.platform}-x64.node`));
 const isInside = (candidate, parent) => candidate === parent || candidate.startsWith(`${parent}${path.sep}`);
 
 for (const [label, candidate] of [['package', packagePath], ['native binary', nativePath]]) {
@@ -40,8 +41,8 @@ let database;
 try {
   database = new Database(path.join(temporaryDirectory, 'smoke.sqlite'));
   database.exec('CREATE TABLE smoke_test (value TEXT NOT NULL)');
-  database.prepare('INSERT INTO smoke_test (value) VALUES (?)').run('electron-abi-ok');
-  assert.equal(database.prepare('SELECT value FROM smoke_test').get().value, 'electron-abi-ok');
+  database.prepare('INSERT INTO smoke_test (value) VALUES (?)').run('electron-napi-ok');
+  assert.equal(database.prepare('SELECT value FROM smoke_test').get().value, 'electron-napi-ok');
   console.log('Electron server-context CREATE / INSERT / SELECT smoke passed.');
 } finally {
   database?.close();
