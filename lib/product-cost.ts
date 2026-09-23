@@ -10,7 +10,7 @@ export function resolveProductCost(product: DbDocument, documents: DbDocument[])
   const relevant = documents.filter(document => document.status === "posted" &&
     Array.isArray(document.lines) && document.lines.some((line: DbDocument) => line.productId === product.id));
   // Stable sorting retains posting order for equal timestamps; newest is last.
-  const purchases = relevant.filter(document => document.kind === "purchase").sort((a, b) =>
+  const purchases = relevant.filter(document => ["purchase","decant-purchase"].includes(String(document.kind))).sort((a, b) =>
     String(a.occurredAt).localeCompare(String(b.occurredAt)) || Number(a.sequence ?? 0) - Number(b.sequence ?? 0));
   const latest = purchases.at(-1);
   const purchaseCost = positiveCost(latest?.lines.find((line: DbDocument) => line.productId === product.id)?.unitPrice);
@@ -37,7 +37,7 @@ export async function currentProductCost(db: SqliteDatabase, session: SqliteSess
 }
 
 export async function productsWithCurrentCosts(db: SqliteDatabase, products: DbDocument[], documents?: DbDocument[]): Promise<DbDocument[]> {
-  const source = documents ?? await db.collection("documents").find({ status: "posted", kind: { $in: ["purchase", "adjustment"] } }).toArray();
+  const source = documents ?? await db.collection("documents").find({ status: "posted", kind: { $in: ["purchase", "decant-purchase", "adjustment"] } }).toArray();
   const byProduct = new Map<string, DbDocument[]>();
   for (const document of source) for (const productId of new Set<string>((document.lines ?? []).map((line: DbDocument) => String(line.productId)))) {
     const rows = byProduct.get(productId) ?? [];
