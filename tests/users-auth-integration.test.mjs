@@ -16,5 +16,21 @@ test('zero users enables direct local access, while creating the first user star
  let interactive=await login(uiLoginRequest('missing','keep-in-memory'));assert.equal(interactive.status,401);assert.deepEqual(await interactive.json(),{ok:false,field:'username',error:'اسم المستخدم غير صحيح'});
  interactive=await login(uiLoginRequest('test','wrong'));assert.equal(interactive.status,401);assert.deepEqual(await interactive.json(),{ok:false,field:'password',error:'كلمة المرور غير صحيحة'});
  interactive=await login(uiLoginRequest('test','1234'));assert.equal(interactive.status,200);assert.equal((await interactive.json()).ok,true);assert.ok(cookie(interactive));
- response=await userRoute.DELETE(apiRequest(`/api/settings/users/${user.id}`,'DELETE',firstCookie),context(user.id));assert.equal(response.status,200);assert.equal((await response.json()).logoutRequired,false);assert.equal((await auth.getPrincipalFromRequest(apiRequest('/','GET'))).principalType,'local');
+ response=await userRoute.DELETE(apiRequest(`/api/settings/users/${user.id}`,'DELETE',firstCookie),context(user.id));assert.equal(response.status,200);assert.equal((await response.json()).logoutRequired,true);assert.equal((await auth.getPrincipalFromRequest(apiRequest('/','GET'))).principalType,'local');
+});
+
+
+test('first user is always a manager and the last active user manager cannot be removed',async()=>{
+ await harness.reset();
+ let response=await usersRoute.POST(apiRequest('/api/settings/users','POST','',{username:'first',password:'1234',permissions:['pos.view']}));
+ assert.equal(response.status,201);const firstCookie=cookie(response),first=(await response.json()).user;
+ assert.ok(first.permissions.includes('settings.users.manage'));
+ response=await usersRoute.POST(apiRequest('/api/settings/users','POST',firstCookie,{username:'second',password:'1234',permissions:['pos.view']}));
+ assert.equal(response.status,201);const second=(await response.json()).user;
+ response=await userRoute.PUT(apiRequest(`/api/settings/users/${first.id}`,'PUT',firstCookie,{username:'first',isActive:true,permissions:['pos.view']}),context(first.id));
+ assert.equal(response.status,409);
+ response=await userRoute.PUT(apiRequest(`/api/settings/users/${second.id}`,'PUT',firstCookie,{username:'second',isActive:true,permissions:['pos.view','settings.users.manage']}),context(second.id));
+ assert.equal(response.status,200);
+ response=await userRoute.PUT(apiRequest(`/api/settings/users/${first.id}`,'PUT',firstCookie,{username:'first',isActive:true,permissions:['pos.view']}),context(first.id));
+ assert.equal(response.status,200);assert.equal((await response.json()).logoutRequired,true);
 });

@@ -10,7 +10,7 @@ const between = (start, end) => app.slice(app.indexOf(start), app.indexOf(end, a
 
 test("legacy branding receives empty optional business fields", () => {
   const value = validateInvoiceBranding({ storeName: "متجر", nameFont: "tahoma", nameFontSize: 24, nameFontWeight: 800 });
-  assert.deepEqual(value, { storeName: "متجر", storePhone: "", storeAddress: "", registrationNumber: "", taxNumber: "", footerNote: "", nameFont: "tahoma", nameFontSize: 24, nameFontWeight: 800 });
+  assert.deepEqual(value, { storeName: "متجر", storeLogoDataUrl: "", storePhone: "", storeAddress: "", registrationNumber: "", taxNumber: "", footerNote: "", nameFont: "tahoma", nameFontSize: 24, nameFontWeight: 800 });
 });
 
 test("new transaction editors require explicit payment and preserve loaded edit values", () => {
