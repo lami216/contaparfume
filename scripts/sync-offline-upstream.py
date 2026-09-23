@@ -66,11 +66,11 @@ for path in sorted(base_files|theirs_files):
         td=pathlib.Path(tdname)
         (td/"ours").write_bytes(o); (td/"base").write_bytes(b); (td/"theirs").write_bytes(t)
         p=subprocess.run(["git","merge-file","-p",str(td/"ours"),str(td/"base"),str(td/"theirs")],cwd=ROOT,capture_output=True)
-        if p.returncode not in (0,1):
-            conflicts.append(path); print(f"[conflict: binary/merge error] {path}"); continue
+        if p.returncode == 255:
+            conflicts.append(path); print(f"[conflict: merge error] {path}"); continue
         write(path,p.stdout)
-        if p.returncode==1:
-            conflicts.append(path); print(f"[conflict] {path}")
+        if p.returncode:
+            conflicts.append(path); print(f"[conflict] {path} ({p.returncode} hunks)")
 
 b=show(BASE,"app/api/command/route.ts")
 t=show(THEIRS,"app/api/command/route.ts")
@@ -81,10 +81,8 @@ with tempfile.TemporaryDirectory() as tdname:
     (td/"ours").write_bytes(o); (td/"base").write_bytes(b); (td/"theirs").write_bytes(t)
     p=subprocess.run(["git","merge-file","-p",str(td/"ours"),str(td/"base"),str(td/"theirs")],cwd=ROOT,capture_output=True)
     write("app/api/command/base-route.ts",p.stdout)
-    if p.returncode==1:
-        conflicts.append("app/api/command/base-route.ts"); print("[conflict] app/api/command/base-route.ts")
-    elif p.returncode not in (0,1):
-        conflicts.append("app/api/command/base-route.ts"); print("[conflict: merge error] app/api/command/base-route.ts")
+    if p.returncode:
+        conflicts.append("app/api/command/base-route.ts"); print(f"[conflict] app/api/command/base-route.ts ({p.returncode} hunks)")
 
 main=show(THEIRS,"desktop/main.cjs").decode()
 main=main.replace("const PRODUCT_NAME='الكرنه';","const PRODUCT_NAME='الكرنة للعطور';\\nconst APP_ID='mr.alkarna.perfume.desktop';\\nconst USER_DATA_DIR='AlKarna-Perfume';")
