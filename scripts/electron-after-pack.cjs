@@ -5,12 +5,13 @@ const {join} = require('node:path');
 const {isPathInside} = require('./path-containment.cjs');
 
 const RUNTIME_DIRECTORY = 'alkarna-runtime';
+const nativeRelative = `node_modules/better-sqlite3/prebuilds/${process.platform}-x64.node`;
 const requiredFiles = [
   'server.js',
   'public/alkarna-logo.png',
   'node_modules/better-sqlite3/package.json',
   'node_modules/better-sqlite3/lib/index.js',
-  'node_modules/better-sqlite3/build/Release/better_sqlite3.node',
+  nativeRelative,
   'node_modules/sql.js/package.json',
   'node_modules/sql.js/dist/sql-wasm.js',
   'node_modules/sql.js/dist/sql-wasm.wasm',
@@ -18,7 +19,7 @@ const requiredFiles = [
 const requiredDirectories = ['.next', '.next/static', 'public'];
 const criticalFiles = [
   'server.js',
-  'node_modules/better-sqlite3/build/Release/better_sqlite3.node',
+  nativeRelative,
   'node_modules/sql.js/dist/sql-wasm.wasm',
 ];
 
@@ -58,7 +59,7 @@ module.exports = async function afterPack(context) {
   const packagedRoot = await realpath(destination);
   for (const item of [
     'node_modules/better-sqlite3',
-    'node_modules/better-sqlite3/build/Release/better_sqlite3.node',
+    nativeRelative,
     'node_modules/sql.js',
     'node_modules/sql.js/dist/sql-wasm.wasm',
   ]) {
