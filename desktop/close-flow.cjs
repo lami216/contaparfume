@@ -1,5 +1,5 @@
 const CLOSE_COPY={
- ar:{title:'الكرنه للعطور',message:'هل تريد حفظ نسخة احتياطية قبل إغلاق البرنامج؟',buttons:['نعم، حفظ نسخة','لا، خروج','إلغاء'],saveTitle:'حفظ النسخة الاحتياطية',filterName:'نسخة الكرنه للعطور',failure:'تعذر إنشاء النسخة الاحتياطية. لن يتم إغلاق البرنامج.',ok:'حسنًا'},
+ ar:{title:'الكرنة للعطور',message:'هل تريد حفظ نسخة احتياطية قبل إغلاق البرنامج؟',buttons:['نعم، حفظ نسخة','لا، خروج','إلغاء'],saveTitle:'حفظ النسخة الاحتياطية',filterName:'نسخة الكرنة للعطور',failure:'تعذر إنشاء النسخة الاحتياطية. لن يتم إغلاق البرنامج.',ok:'حسنًا'},
  fr:{title:'Al Karna — Parfums',message:'Voulez-vous enregistrer une sauvegarde avant de quitter ?',buttons:['Oui, sauvegarder','Non, quitter','Annuler'],saveTitle:'Enregistrer la sauvegarde',filterName:'Sauvegarde Al Karna Parfums',failure:"Impossible de créer la sauvegarde. L’application reste ouverte.",ok:'OK'}
 };
 function normalizeLocale(value){return value==='fr'?'fr':'ar'}
