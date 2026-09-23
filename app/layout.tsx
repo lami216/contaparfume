@@ -4,6 +4,8 @@ import { APP_NAME } from "../lib/app-brand";
 import { LocaleProvider } from "./i18n/provider";
 import { direction, LOCALE_COOKIE, normalizeLocale } from "./i18n/locale";
 import "./globals.css";
+import "./locale-layout.css";
+import "./printing.css";
 import "./perfume-ui-fixes.css";
 import "./compact-navigation.css";
 import "./perfume-layout-safety.css";

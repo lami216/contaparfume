@@ -6,8 +6,9 @@
   margin: 0;
 }
 
-@media (min-width: 1051px) {
+@media (min-width: 1281px) {
   .decant-invoices-hub-body.management .perfume-divisions-page {
+    grid-template-columns: minmax(0, .88fr) minmax(0, 1.12fr);
     grid-template-rows: max-content minmax(0, 1fr) auto;
     grid-template-areas:
       "split batches"
@@ -51,12 +52,59 @@
 }
 
 @media (min-width: 1051px) and (max-width: 1280px) {
+  .decant-invoices-hub-body.management {
+    overflow: auto;
+  }
+
+  .decant-invoices-hub-body.management .perfume-divisions-page {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(320px, 1fr) auto;
+    grid-template-areas:
+      "split"
+      "bottles"
+      "batches"
+      "error";
+  }
+
+  .decant-invoices-hub-body.management .perfume-bottles-table-wrap {
+    max-height: 220px;
+  }
+
   .decant-invoices-hub-body.management .perfume-bottle-create {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .decant-invoices-hub-body.management .perfume-bottle-create > button {
     width: 100%;
+  }
+}
+
+@media (min-width: 1051px) {
+  .decant-invoices-hub-body.management .perfume-bottles-table-wrap,
+  .decant-invoices-hub-body.management .perfume-batches-table-wrap {
+    overflow-x: auto;
+    scrollbar-gutter: stable both-edges;
+  }
+
+  .decant-invoices-hub-body.management .perfume-bottles-table {
+    min-width: 560px !important;
+  }
+
+  .decant-invoices-hub-body.management .perfume-batches-table {
+    min-width: 820px !important;
+  }
+
+  .decant-invoices-hub-body.management :is(.perfume-bottles-table,.perfume-batches-table) th,
+  .decant-invoices-hub-body.management :is(.perfume-bottles-table,.perfume-batches-table) td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .decant-invoices-hub-body.management :is(.perfume-bottles-table,.perfume-batches-table) td:last-child {
+    overflow: visible;
   }
 }
 

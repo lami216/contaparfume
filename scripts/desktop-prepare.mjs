@@ -1,13 +1,51 @@
-import {access, cp, lstat, mkdir, readdir, readlink, realpath, rm, writeFile} from "node:fs/promises";
+import {access, cp, lstat, mkdir, readFile, readdir, readlink, realpath, rm, writeFile} from "node:fs/promises";
 import {createRequire} from "node:module";
 import path from "node:path";
 
 const repositoryRoot = await realpath(process.cwd());
-const output = path.join(repositoryRoot, "desktop-dist", "app");
+const desktopOutput = path.join(repositoryRoot, "desktop-dist");
+const output = path.join(desktopOutput, "app");
+const shellOutput = path.join(desktopOutput, "shell");
 
-await rm(path.dirname(output), {recursive: true, force: true});
+await rm(desktopOutput, {recursive: true, force: true});
 await mkdir(output, {recursive: true});
-await cp(path.join(repositoryRoot, ".next", "standalone"), output, {recursive: true});
+await mkdir(shellOutput, {recursive: true});
+
+// Package only the lightweight Electron shell. The full Next.js runtime is
+// copied as an authoritative external resource by electron-after-pack.cjs.
+// Keeping a separate app directory with only a tiny marker dependency prevents
+// electron-builder from falling back to the repository dependency tree and
+// compressing the production runtime a second time into app.asar.
+const repositoryPackage = JSON.parse(await readFile(path.join(repositoryRoot, "package.json"), "utf8"));
+const shellMarkerName = "alkarna-shell-runtime-marker";
+const shellPackage = {
+  name: repositoryPackage.name,
+  version: repositoryPackage.version,
+  description: repositoryPackage.description,
+  author: repositoryPackage.author,
+  private: true,
+  main: "desktop/main.cjs",
+  dependencies: {[shellMarkerName]: "1.0.0"},
+};
+await cp(path.join(repositoryRoot, "desktop"), path.join(shellOutput, "desktop"), {recursive: true});
+await writeFile(path.join(shellOutput, "package.json"), `${JSON.stringify(shellPackage, null, 2)}\n`);
+const shellMarkerOutput = path.join(shellOutput, "node_modules", shellMarkerName);
+await mkdir(shellMarkerOutput, {recursive: true});
+await writeFile(path.join(shellMarkerOutput, "package.json"), `${JSON.stringify({name: shellMarkerName, version: "1.0.0", private: true, main: "index.cjs"}, null, 2)}\n`);
+await writeFile(path.join(shellMarkerOutput, "index.cjs"), "module.exports = Object.freeze({shell: true});\n");
+await writeFile(path.join(shellOutput, "package-lock.json"), `${JSON.stringify({
+  name: shellPackage.name,
+  version: shellPackage.version,
+  lockfileVersion: 3,
+  requires: true,
+  packages: {
+    "": {name: shellPackage.name, version: shellPackage.version, dependencies: shellPackage.dependencies},
+    [`node_modules/${shellMarkerName}`]: {version: "1.0.0"},
+  },
+}, null, 2)}\n`);
+// Materialize traced links so staging also works without Windows symlink privileges.
+// The external aliases below are then replaced with relocatable local shims.
+await cp(path.join(repositoryRoot, ".next", "standalone"), output, {recursive: true, dereference: true});
 await mkdir(path.join(output, ".next"), {recursive: true});
 await cp(path.join(repositoryRoot, ".next", "static"), path.join(output, ".next", "static"), {recursive: true});
 await cp(path.join(repositoryRoot, "public"), path.join(output, "public"), {recursive: true});
@@ -64,13 +102,12 @@ for (const packageName of aliases) {
   if (!replaced.has(packageName)) throw new Error(`Next standalone output has no traced ${packageName} alias below ${aliasRoot}`);
 }
 
-for (const relative of [
-  "node_modules/better-sqlite3",
-  "node_modules/better-sqlite3/build/Release/better_sqlite3.node",
-]) {
-  const physical = await realpath(path.join(output, relative));
-  if (!insideOutput(physical)) {
-    throw new Error(`Staged runtime path escapes the app: ${relative} -> ${physical}`);
-  }
-  console.log(`Staged physical path: ${physical}`);
+// better-sqlite3 13 uses N-API prebuilds instead of the old build/Release ABI artifact.
+// desktop:rebuild-native replaces the traced package with a full physical package copy;
+// here we only assert that the staged package itself stays contained inside the app.
+const nativeModule = path.join(output, "node_modules", "better-sqlite3");
+const physicalNativeModule = await realpath(nativeModule);
+if (!insideOutput(physicalNativeModule)) {
+  throw new Error(`Staged runtime path escapes the app: node_modules/better-sqlite3 -> ${physicalNativeModule}`);
 }
+console.log(`Staged physical path: ${physicalNativeModule}`);

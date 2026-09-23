@@ -1,5 +1,5 @@
 import type { SqliteSession as ClientSession, SqliteDatabase as Db } from "./sqlite.ts";
-export const SEQUENCED_DOCUMENT_KINDS = ["sale", "purchase", "expense", "decant-sale", "decant-purchase"] as const;
+export const SEQUENCED_DOCUMENT_KINDS = ["sale", "purchase", "expense"] as const;
 export type SequencedDocumentKind = typeof SEQUENCED_DOCUMENT_KINDS[number];
 const counterId = (kind: SequencedDocumentKind) => `documentSequence:${kind}`;
 export async function nextDocumentSequence(db: Db, kind: SequencedDocumentKind, session?: ClientSession) {
@@ -11,6 +11,18 @@ export async function nextDocumentSequence(db: Db, kind: SequencedDocumentKind, 
 export async function peekNextDocumentSequence(db: Db, kind: SequencedDocumentKind) {
   const counter = await db.collection<{ _id: string; value: number }>("counters").findOne({ _id: counterId(kind) });
   return Number(counter?.value ?? 0) + 1;
+}
+/** Allocate the lowest free positive numbers without assuming that existing rows are contiguous. */
+export function allocateAvailableSequences(usedValues: Iterable<number>, count: number) {
+  const used = new Set([...usedValues].filter(value => Number.isSafeInteger(value) && value > 0));
+  const allocated: number[] = [];
+  let candidate = 1;
+  while (allocated.length < count) {
+    while (used.has(candidate)) candidate++;
+    allocated.push(candidate);
+    used.add(candidate++);
+  }
+  return allocated;
 }
 const preferred = (value: unknown) => { const raw=String(value??"").trim(); if(!/^\d+$/.test(raw))return null;const n=Number(raw);return Number.isSafeInteger(n)&&n>0?n:null; };
 /** Additive/idempotent compatibility migration used by startup, restore and import. */
