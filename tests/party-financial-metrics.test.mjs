@@ -5,7 +5,7 @@ import { calculatePartyFinancialSummaries } from "../app/party-metrics.ts";
 
 const line = grossProfit => ({ grossProfit });
 const doc = (kind, partyId, total, { status="posted", grossProfit=null }={}) => ({ kind, partyId, total, status, lines:[line(grossProfit)] });
-const movement = (partyId, direction, amount) => ({ partyId, direction, amount });
+const movement = (partyId, direction, amount, extra={}) => ({ partyId, direction, amount, ...extra });
 const summary = (documents, movements, partyId) => calculatePartyFinancialSummaries(documents, movements).find(value => value.partyId === partyId);
 
 test("customer cash sale counts trade and actual cash", () => {
@@ -17,6 +17,10 @@ test("customer credit and later cash flows remain independent", () => {
   assert.equal(credit.customerTradeTotal,1000); assert.equal(credit.cashIn,0);
   const later=summary([doc("sale","customer",1000,{grossProfit:300})],[movement("customer","in",400),movement("customer","out",75)],"customer");
   assert.equal(later.cashIn,400); assert.equal(later.cashOut,75);
+});
+test("reversed and reversal audit movements never re-enter party cash totals", () => {
+  const value=summary([], [movement("customer","in",100),movement("customer","out",100,{status:"reversed"}),movement("customer","out",100,{isReversal:true})], "customer");
+  assert.equal(value.cashIn,100); assert.equal(value.cashOut,0);
 });
 test("legacy return records preserve historical customer totals and represented gross profit, while voids and legacy missing profit are safe", () => {
   const value=summary([doc("sale","customer",1000,{grossProfit:300}),doc("return","customer",250,{grossProfit:80}),doc("sale","customer",900,{status:"voided",grossProfit:400}),doc("sale","customer",10)],[],"customer");
@@ -37,6 +41,6 @@ test("bootstrap exposes aggregate summaries with party view while retaining raw 
   const source=readFileSync(new URL("../app/api/bootstrap/route.ts",import.meta.url),"utf8");
   assert.match(source,/partyFinancialSummaries=partyAdmin\?/);
   assert.match(source,/customers\.view/); assert.match(source,/suppliers\.view/);
-  assert.match(source,/financialMovements:bankAccess\?clean\(financialMovements\):\[\]/);
+  assert.match(source,/financialMovements:bankAccess\?clean\(effectiveFinancialMovements\):\[\]/);
   assert.doesNotMatch(source,/financialMovements:partyAdmin/);
 });

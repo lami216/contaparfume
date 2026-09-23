@@ -25,7 +25,7 @@ async function packagedRuntime() {
   }
   const relocatedTree = join(relocatedPackageDirectory, preferred[0].name);
   await cp(tree, relocatedTree, {recursive: true, dereference: true});
-  const executable = (await readdir(relocatedTree)).find((file) => file === 'الكرنة للعطور.exe');
+  const executable = (await readdir(relocatedTree)).find((file) => file === 'AlKarnaPerfume.exe');
   if (!executable) throw new Error(`Packaged Electron executable missing from ${relocatedTree}`);
   console.log(`PACKAGED relocated win-unpacked: ${relocatedTree}`);
   return {root: join(relocatedTree, 'resources', RUNTIME_DIRECTORY), electronExecutable: join(relocatedTree, executable)};
@@ -48,10 +48,12 @@ const runtime = packaged
 const root = await realpath(runtime.root);
 const entry = join(root, 'server.js');
 const runtimeRequire = createRequire(entry);
+const nativeRelative = `node_modules/better-sqlite3/prebuilds/${process.platform}-x64.node`;
+const nativeSpecifier = join(root, nativeRelative);
 const requiredLocalFiles = [
   'node_modules/better-sqlite3/package.json',
   'node_modules/better-sqlite3/lib/index.js',
-  'node_modules/better-sqlite3/build/Release/better_sqlite3.node',
+  nativeRelative,
   'node_modules/sql.js/package.json',
   'node_modules/sql.js/dist/sql-wasm.wasm',
 ];
@@ -61,7 +63,7 @@ for (const file of requiredLocalFiles) {
 }
 console.log(`${packaged ? 'PACKAGED' : 'STAGED'} local dependency existence: passed`);
 const resolvedDependencies = new Map();
-for (const specifier of ['better-sqlite3', 'better-sqlite3/build/Release/better_sqlite3.node', 'sql.js']) {
+for (const specifier of ['better-sqlite3', nativeSpecifier, 'sql.js']) {
   const resolved = await realpath(runtimeRequire.resolve(specifier));
   if (!isPathInside(root, resolved)) throw new Error(`${packaged ? 'Packaged' : 'Staged'} resolution escaped runtime: ${specifier} -> ${resolved}`);
   resolvedDependencies.set(specifier, resolved);
@@ -100,7 +102,7 @@ for (const item of await readdir(join(root, '.next', 'node_modules'), {withFileT
 const label = packaged ? 'PACKAGED' : 'STAGED';
 console.log(`${label} SERVER CONTEXT`);
 console.log(`${label} resolved better-sqlite3: ${resolvedDependencies.get('better-sqlite3')}`);
-console.log(`${label} better_sqlite3.node realpath: ${resolvedDependencies.get('better-sqlite3/build/Release/better_sqlite3.node')}`);
+console.log(`${label} better_sqlite3.node realpath: ${resolvedDependencies.get(nativeSpecifier)}`);
 console.log(`${label} resolved sql.js: ${resolvedDependencies.get('sql.js')}`);
 console.log(`${label} sql-wasm.wasm realpath: ${wasm}`);
 console.log(`${label} dependency link containment: passed`);
@@ -125,7 +127,7 @@ let probeScript = join(repositoryRoot, 'scripts', 'electron-runtime-probe.cjs');
 if (packaged) {
   probeScript = join(relocatedPackageDirectory, 'electron-runtime-probe.cjs');
   await copyFile(join(repositoryRoot, 'scripts', 'path-containment.cjs'), join(relocatedPackageDirectory, 'path-containment.cjs'));
-  await writeFile(probeScript, `const assert=require('node:assert/strict');const fs=require('node:fs');const os=require('node:os');const path=require('node:path');const {createRequire}=require('node:module');const {isPathInside}=require('./path-containment.cjs');const root=fs.realpathSync(process.argv[2]);const runtimeRequire=createRequire(path.join(root,'server.js'));const packagePath=fs.realpathSync(runtimeRequire.resolve('better-sqlite3'));const nativePath=fs.realpathSync(runtimeRequire.resolve('better-sqlite3/build/Release/better_sqlite3.node'));assert.ok(isPathInside(root,packagePath),'package escaped runtime: '+packagePath);assert.ok(isPathInside(root,nativePath),'native escaped runtime: '+nativePath);console.log('PACKAGED Electron version: '+process.versions.electron);console.log('PACKAGED Electron module ABI: '+process.versions.modules);console.log('PACKAGED resolved better-sqlite3 package path: '+packagePath);console.log('PACKAGED better_sqlite3.node realpath: '+nativePath);const temporaryDirectory=fs.mkdtempSync(path.join(os.tmpdir(),'alkarna-runtime-probe-'));const database=new (runtimeRequire('better-sqlite3'))(path.join(temporaryDirectory,'probe.sqlite'));try{database.exec('CREATE TABLE probe (value TEXT NOT NULL)');database.prepare('INSERT INTO probe VALUES (?)').run('ok');assert.equal(database.prepare('SELECT value FROM probe').get().value,'ok');console.log('PACKAGED native SQLite CREATE/INSERT/SELECT: passed')}finally{database.close();fs.rmSync(temporaryDirectory,{recursive:true,force:true})}`);
+  await writeFile(probeScript, `const assert=require('node:assert/strict');const fs=require('node:fs');const os=require('node:os');const path=require('node:path');const {createRequire}=require('node:module');const {isPathInside}=require('./path-containment.cjs');const root=fs.realpathSync(process.argv[2]);const runtimeRequire=createRequire(path.join(root,'server.js'));const packagePath=fs.realpathSync(runtimeRequire.resolve('better-sqlite3'));const nativePath=fs.realpathSync(path.join(root,'node_modules','better-sqlite3','prebuilds',process.platform+'-x64.node'));assert.ok(isPathInside(root,packagePath),'package escaped runtime: '+packagePath);assert.ok(isPathInside(root,nativePath),'native escaped runtime: '+nativePath);console.log('PACKAGED Electron version: '+process.versions.electron);console.log('PACKAGED Electron module ABI: '+process.versions.modules);console.log('PACKAGED resolved better-sqlite3 package path: '+packagePath);console.log('PACKAGED better_sqlite3.node realpath: '+nativePath);const temporaryDirectory=fs.mkdtempSync(path.join(os.tmpdir(),'alkarna-runtime-probe-'));const database=new (runtimeRequire('better-sqlite3'))(path.join(temporaryDirectory,'probe.sqlite'));try{database.exec('CREATE TABLE probe (value TEXT NOT NULL)');database.prepare('INSERT INTO probe VALUES (?)').run('ok');assert.equal(database.prepare('SELECT value FROM probe').get().value,'ok');console.log('PACKAGED native SQLite CREATE/INSERT/SELECT: passed')}finally{database.close();fs.rmSync(temporaryDirectory,{recursive:true,force:true})}`);
 }
 const probe = spawnSync(runtime.electronExecutable, [probeScript, root, packaged ? 'PACKAGED' : 'STAGED'], {
   cwd: root,

@@ -12,6 +12,18 @@ export async function peekNextDocumentSequence(db: Db, kind: SequencedDocumentKi
   const counter = await db.collection<{ _id: string; value: number }>("counters").findOne({ _id: counterId(kind) });
   return Number(counter?.value ?? 0) + 1;
 }
+/** Allocate the lowest free positive numbers without assuming that existing rows are contiguous. */
+export function allocateAvailableSequences(usedValues: Iterable<number>, count: number) {
+  const used = new Set([...usedValues].filter(value => Number.isSafeInteger(value) && value > 0));
+  const allocated: number[] = [];
+  let candidate = 1;
+  while (allocated.length < count) {
+    while (used.has(candidate)) candidate++;
+    allocated.push(candidate);
+    used.add(candidate++);
+  }
+  return allocated;
+}
 const preferred = (value: unknown) => { const raw=String(value??"").trim(); if(!/^\d+$/.test(raw))return null;const n=Number(raw);return Number.isSafeInteger(n)&&n>0?n:null; };
 /** Additive/idempotent compatibility migration used by startup, restore and import. */
 export async function backfillDocumentSequences(db: Db) {

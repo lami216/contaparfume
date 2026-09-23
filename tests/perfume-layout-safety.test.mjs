@@ -16,6 +16,7 @@ test("perfume management layout keeps dense controls inside their cards", async 
   assert.match(safety, /"split batches"[\s\S]*"bottles batches"[\s\S]*"error error"/);
   assert.match(safety, /perfume-bottle-adjust[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\)/);
   assert.match(safety, /perfume-recombine-control[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\)/);
-  assert.match(safety, /max-width:\s*1280px[\s\S]*perfume-bottle-create[\s\S]*repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(safety, /max-width:\s*1320px[\s\S]*perfume-bottle-create[\s\S]*repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(safety, /perfume-bottles-card[\s\S]*overflow:\s*hidden[\s\S]*grid-template-rows:\s*auto auto minmax\(0, 1fr\)/);
   assert.match(divisions, /perfume-local-error/);
 });

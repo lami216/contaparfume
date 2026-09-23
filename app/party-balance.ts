@@ -12,7 +12,8 @@ export function normalizePartyNet(value: number) {
 }
 
 /** receive decreases party net; pay increases it, regardless of party type. */
-export function partyCashDelta(direction: "receive" | "pay", amount: number) {
+export function partyCashDelta(direction: string, amount: number) {
+  if (direction !== "receive" && direction !== "pay") throw new TypeError("Party cash direction must be receive or pay");
   if (!Number.isFinite(amount) || amount <= 0) throw new TypeError("Amount must be positive and finite");
   return direction === "receive" ? -amount : amount;
 }

@@ -8,7 +8,7 @@ const between = (start, end) => source.slice(source.indexOf(start), source.index
 
 test("general invoice records open details before offering an explicit edit action", () => {
   assert.match(source, /view === "records" && <Records data=\{data\} openDoc=\{openDoc\}/);
-  assert.doesNotMatch(source, /<Records data=\{data\} openDoc=\{id => editInvoice\(id\)\}/);
+  assert.doesNotMatch(source, /<Records[^>]*openDoc=\{id => editInvoice\(id\)\}/);
 
   const detail = between("function DocumentDetail", "function InvoiceQuickBrowser");
   assert.match(detail, /onEdit\?: \(\) => void/);
@@ -21,14 +21,17 @@ test("top-level invoice edit eligibility includes document and permission checks
   assert.match(modal, /!doc\.legacyKey/);
   assert.match(modal, /doc\.kind === "sale" \? can\("pos\.edit"\)/);
   assert.match(modal, /doc\.kind === "purchase" \? can\("purchases\.edit"\) : false/);
-  assert.match(modal, /\? \(\) => editInvoice\(doc\.id\) : undefined/);
+  assert.match(modal, /\? \(\) => void editInvoice\(doc\.id\) : undefined/);
 });
 
 test("editInvoice routes sales and purchases to their existing editors", () => {
   const edit = between("const editInvoice", "useEffect(() => {");
   assert.match(edit, /document\.status !== "posted" \|\| document\.legacyKey \|\| !\["sale", "purchase"\]\.includes\(document\.kind\)/);
-  assert.match(edit, /document\.kind === "sale"[\s\S]*setSaleEditRequest\(id\); setView\("pos"\)/);
-  assert.match(edit, /setPurchaseEditRequest\(id\); setView\("purchases"\)/);
+  assert.match(edit, /const target:View=document\.kind==="sale"\?"pos":"purchases"/);
+  assert.match(edit, /navigate\(target,\{replaceEditor:true\}\)/);
+  assert.match(edit, /document\.kind === "sale"\) setSaleEditRequest\(id\)/);
+  assert.match(edit, /else setPurchaseEditRequest\(id\)/);
+  assert.doesNotMatch(edit, /setView\("pos"\)|setView\("purchases"\)/);
 });
 
 test("embedded POS and purchase histories still load documents directly", () => {

@@ -8,7 +8,7 @@ const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8")
 const reports = app.slice(app.indexOf("function Reports"), app.indexOf("function PrintableDocument"));
 
 test("dated reports keep apply inside the shared compact date control", () => {
-  const normalToolbar = reports.slice(reports.lastIndexOf('return <section className="reports-workspace"'));
+  const normalToolbar = reports.slice(reports.lastIndexOf('<section className="reports-workspace"'));
   assert.match(normalToolbar, /showDates&&<CompactDateRange[^>]*onApply=\{\(\)=>void applyDraftPeriod\(\)\}[^>]*onAllTime=\{\(\)=>void applyAllTime\(\)\}/);
   assert.match(normalToolbar, /!showDates&&<button className="primary"[^>]*>عرض<\/button>/);
   assert.doesNotMatch(normalToolbar, /showDates&&<CompactDateRange[^>]*\/>\}<button className="primary"[^>]*>عرض<\/button>/);
