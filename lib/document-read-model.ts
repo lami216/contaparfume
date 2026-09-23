@@ -43,6 +43,7 @@ export function canReadDocumentKind(kind: string, access: Pick<DocumentReadAcces
   if (access.can("records.view")) return true;
   if (kind === "sale") return canAny(access.can, saleAccess) || canAny(access.can, customerAccess);
   if (kind === "purchase") return canAny(access.can, purchaseAccess) || canAny(access.can, supplierAccess);
+  if (kind === "decant-sale" || kind === "decant-purchase") return access.can("perfume.divisions.view") || access.can("perfume.divisions.manage");
   if (kind === "expense") return canAny(access.can, expenseAccess);
   if (kind === "transfer") return canAny(access.can, transferAccess);
   if (kind === "adjustment") return canAny(access.can, adjustmentAccess);
@@ -62,6 +63,7 @@ export function canReadDocument(document: ReadModelDocument, access: DocumentRea
 
   if (kind === "sale") return canAny(access.can, saleAccess) || (customerParty && canAny(access.can, customerAccess));
   if (kind === "purchase") return canAny(access.can, purchaseAccess) || (supplierParty && canAny(access.can, supplierAccess));
+  if (kind === "decant-sale" || kind === "decant-purchase") return access.can("perfume.divisions.view") || access.can("perfume.divisions.manage");
   if (kind === "expense") return canAny(access.can, expenseAccess);
   if (kind === "transfer") return canAny(access.can, transferAccess);
   if (kind === "adjustment") return canAny(access.can, adjustmentAccess);
