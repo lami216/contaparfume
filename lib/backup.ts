@@ -5,16 +5,9 @@ import { EJSON } from "bson";
 import { resolvePartyType } from "../app/domain.ts";
 
 export const BACKUP_SCHEMA_VERSION = 1;
-<<<<<<< /tmp/tmpx966esg6/ours
-export const BACKUP_COLLECTIONS = ["parties", "warehouses", "products", "productCategories", "documents", "stockMovements", "financialMovements", "paymentAccounts", "recurringExpenses", "accountTransfers", "counters", "auditEvents", "appSettings", "users"] as const;
-export const MAX_BACKUP_ITEMS = 500_000;
-export const MAX_BACKUP_BYTES = 50 * 1024 * 1024;
-=======
 export const BACKUP_COLLECTIONS = ["parties", "warehouses", "products", "productCategories", "documents", "stockMovements", "financialMovements", "paymentAccounts", "recurringExpenses", "accountTransfers", "counters", "auditEvents", "appSettings", "users", "importMappings"] as const;
 // Backups are local, user-selected files. Do not impose an artificial size or record-count cap;
-// validation below still enforces the accounting and reference invariants before restore.
->>>>>>> /tmp/tmpx966esg6/theirs
-type BackupCollection = typeof BACKUP_COLLECTIONS[number];
+// validation below still enforces the accounting and reference invariants before restore.type BackupCollection = typeof BACKUP_COLLECTIONS[number];
 export type ContaBackup = { format: "conta-backup"; schemaVersion: 1; createdAt: string; appVersion: string; encoding: "json-v2"|"mongodb-extended-json-v2"; collections: Record<BackupCollection, Document[]>; counts: Record<BackupCollection, number> };
 
 export async function createNativeBackup(db: Db): Promise<ContaBackup> {
@@ -32,13 +25,9 @@ export function parseAndValidateBackup(input: string): ContaBackup {
   // Backups created before product categories existed have no productCategories collection.
   // Normalize them to an empty collection so old customer backups remain restorable.
   if (!Array.isArray(b.collections.productCategories)) b.collections.productCategories = [];
-<<<<<<< /tmp/tmpx966esg6/ours
-=======
   // Import mappings were added after the first native-backup format shipped.
   // Old backups stay valid, while new restores replace stale mappings atomically.
-  if (!Array.isArray(b.collections.importMappings)) b.collections.importMappings = [];
->>>>>>> /tmp/tmpx966esg6/theirs
-  const keys = Object.keys(b.collections);
+  if (!Array.isArray(b.collections.importMappings)) b.collections.importMappings = [];  const keys = Object.keys(b.collections);
   if (keys.some(k => !BACKUP_COLLECTIONS.includes(k as BackupCollection))) throw new Error("تحتوي النسخة على collection غير مسموح");
   for (const name of BACKUP_COLLECTIONS) if (!Array.isArray(b.collections[name])) throw new Error(`collection مفقود: ${name}`);
   validateInvariants(b as ContaBackup); return b as ContaBackup;
@@ -46,14 +35,6 @@ export function parseAndValidateBackup(input: string): ContaBackup {
 const nonempty = (v: unknown) => typeof v === "string" && v.length > 0;
 function unique(rows: Document[], field: string, label: string, optional = false) { const seen = new Set<string>(); for (const row of rows) { const v = row[field]; if (optional && !nonempty(v)) continue; if (!nonempty(v) || seen.has(v)) throw new Error(`${label} مكرر أو غير صالح`); seen.add(v); } return seen; }
 export function validateInvariants(b: ContaBackup) {
-<<<<<<< /tmp/tmpx966esg6/ours
-  const products = unique(b.collections.products, "id", "معرف المنتج"), categories = unique(b.collections.productCategories ?? [], "id", "معرف الفئة"), warehouses = new Set(b.collections.warehouses.map(w => String(w._id ?? w.id))), accounts = unique(b.collections.paymentAccounts, "id", "معرف الحساب");
-  if (b.collections.warehouses.filter(w => w.isSalesDefault === true).length !== 1) throw new Error("يجب أن تحتوي النسخة على مخزن بيع افتراضي واحد");
-  unique(b.collections.products, "sku", "رمز المنتج"); unique(b.collections.products, "barcode", "باركود المنتج", true); unique(b.collections.documents, "id", "معرف الفاتورة"); unique(b.collections.documents, "number", "رقم الفاتورة");
-  for (const p of b.collections.products) { if (p.categoryId && !categories.has(String(p.categoryId))) throw new Error("منتج يشير إلى فئة غير موجودة"); for (const key of Object.keys((p.stocks ?? {}) as object)) if (!warehouses.has(key)) throw new Error("مخزون يشير إلى مخزن غير موجود"); }
-  const saleSequences = new Set<string>();
-  for (const d of b.collections.documents) { if (d.warehouseId && !warehouses.has(String(d.warehouseId))) throw new Error("فاتورة تشير إلى مخزن غير موجود"); if (d.paymentMethod && d.paymentMethod !== "note" && !accounts.has(String(d.paymentMethod)) && !b.collections.paymentAccounts.some(a => a.code === d.paymentMethod)) throw new Error("فاتورة تشير إلى حساب غير موجود"); if (d.kind === "sale" && d.businessDate && d.dailySequence != null) { const sequence = `${d.businessDate}:${d.dailySequence}`; if (saleSequences.has(sequence)) throw new Error("تسلسل البيع اليومي مكرر"); saleSequences.add(sequence); } for (const l of Array.isArray(d.lines) ? d.lines : []) if (l.productId && !products.has(String(l.productId))) throw new Error("فاتورة تشير إلى منتج غير موجود"); }
-=======
   const products=unique(b.collections.products,"id","معرف المنتج"),categories=unique(b.collections.productCategories??[],"id","معرف الفئة"),warehouses=new Set(b.collections.warehouses.map(w=>String(w._id??w.id))),accounts=unique(b.collections.paymentAccounts,"id","معرف الحساب");
   const accountKeys=new Set([...accounts,...b.collections.paymentAccounts.map(account=>String(account.code??"")).filter(Boolean)]);
   const parties=new Set(b.collections.parties.map(party=>String(party.id??party._id??"")).filter(Boolean));
@@ -78,9 +59,7 @@ export function validateInvariants(b: ContaBackup) {
     if(mappingKeys.has(sourceKey))throw new Error("خريطة استيراد مكررة");mappingKeys.add(sourceKey);
     const type=String(mapping.targetEntityType??""),targetId=String(mapping.targetId??""),targets=mappingTargets[type];
     if(targets&&targetId&&!targets.has(targetId))throw new Error("خريطة استيراد تشير إلى سجل غير موجود");
-  }
->>>>>>> /tmp/tmpx966esg6/theirs
-}
+  }}
 export async function restoreNativeBackup(db: Db, backup: ContaBackup, session: ClientSession) {
   validateInvariants(backup);
   for (const name of BACKUP_COLLECTIONS) {
