@@ -1,9 +1,11 @@
 {
-  "name": "alkarna-desktop",
-  "version": "0.1.4",
+  "name": "alkarna-perfume-desktop",
+  "version": "0.1.9",
+  "description": "Offline desktop accounting and inventory application.",
+  "author": "lami216",
   "private": true,
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22.12.0 <23"
   },
   "scripts": {
     "dev": "next dev",
@@ -24,16 +26,15 @@
     "desktop:test-packaged": "node scripts/desktop-test-server.mjs --packaged"
   },
   "dependencies": {
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "13.0.3",
     "bson": "^6.10.4",
     "lucide-react": "^0.468.0",
-    "next": "16.2.6",
+    "next": "16.3.4",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "sql.js": "^1.13.0"
   },
   "devDependencies": {
-    "@electron/rebuild": "^3.7.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "22.19.19",
@@ -41,10 +42,10 @@
     "@types/react-dom": "19.2.3",
     "@types/sql.js": "^1.4.9",
     "concurrently": "^9.2.0",
-    "electron": "^37.2.6",
-    "electron-builder": "^26.0.12",
+    "electron": "44.3.0",
+    "electron-builder": "26.16.1",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "16.3.4",
     "png-to-ico": "^3.0.1",
     "tailwindcss": "4.2.1",
     "tsx": "^4.23.12",
@@ -64,9 +65,11 @@
     ],
     "files": [
       "desktop/main.cjs",
-      "desktop/close-flow.cjs"
+      "desktop/close-flow.cjs",
+      "desktop/preload.cjs"
     ],
     "directories": {
+      "app": "desktop-dist/shell",
       "output": "dist"
     },
     "win": {
@@ -78,7 +81,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "executableName": "AlKarna-Perfume"
     },
     "nsis": {
       "oneClick": false,

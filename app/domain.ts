@@ -13,7 +13,9 @@ export type DocumentKind =
   | "expense"
   | "payment"
   | "offset"
-  | "settlement";
+  | "settlement"
+  | "account-transfer"
+  | "account-adjustment";
 export type PartyType = "customer" | "supplier";
 export interface Party {
   id: string;
@@ -23,6 +25,8 @@ export interface Party {
   receivable: number;
   payable: number;
   net: number;
+  isArchived?: boolean;
+  archivedAt?: string | null;
 }
 /** Single compatibility authority: pre-role parties were suppliers in Conta. */
 export function resolvePartyType(party: unknown): PartyType {
@@ -39,17 +43,30 @@ export function activeWarehouses<T extends Pick<Warehouse, "isArchived">>(wareho
 export interface ProductCategory {
   id: string;
   name: string;
+<<<<<<< /tmp/tmp06qyduiy/ours
 }
 
+=======
+  createdAt?: string;
+}
+>>>>>>> /tmp/tmp06qyduiy/theirs
 export interface Product {
   id: string;
   name: string;
   sku: string;
   barcode: string;
+  /** Editable product-card purchase price; never an accounting cost authority by itself. */
   pieceCost: number | null;
-  /** Cost from the newest posted purchase; manual pieceCost is never authoritative. */
+  /** Effective accounting cost: newest posted purchase, otherwise an opening-cost fallback. */
   lastPurchaseCost?: number | null;
   lastPurchaseAt?: string | null;
+  lastPurchaseCostSource?: "purchase" | "opening" | "legacy-opening" | "adjustment" | null;
+  /** Native opening balance metadata. Historical movement replay remains authoritative for consumed quantity. */
+  openingStock?: number | null;
+  openingCost?: number | null;
+  openingWarehouseId?: string | null;
+  /** Imported DataAcc cost fallback. The imported stock row is a snapshot, not an editable native opening balance. */
+  legacyOpeningCost?: number | null;
   piecePrice: number | null;
   /** Optional wholesale selling price per individual unit. */
   wholesalePrice: number | null;
@@ -57,6 +74,7 @@ export interface Product {
   expiryDate?: string | null;
   note?: string | null;
   categoryId?: string | null;
+<<<<<<< /tmp/tmp06qyduiy/ours
   perfumeForm?: PerfumeForm | null;
   parentProductId?: string | null;
   decantSizeMl?: number | null;
@@ -64,6 +82,8 @@ export interface Product {
   partialRemainingParts?: number | null;
   partialOriginalParts?: number | null;
   perfumeLots?: PerfumeLot[];
+=======
+>>>>>>> /tmp/tmp06qyduiy/theirs
   stocks: Record<string, number>;
   isArchived?: boolean;
   archivedAt?: string | null;
@@ -88,11 +108,16 @@ export interface DocumentLine {
   lineTotal: number;
   costAtSale?: number | null;
   grossProfit?: number | null;
+<<<<<<< /tmp/tmp06qyduiy/ours
   perfumeAllocations?: PerfumeAllocation[];
   bottleProductId?: string | null;
   bottleProductName?: string | null;
   bottleUnitCost?: number | null;
   bottleQuantity?: number | null;
+=======
+  balanceBefore?: number;
+  balanceAfter?: number;
+>>>>>>> /tmp/tmp06qyduiy/theirs
 }
 export interface DocumentRecord {
   id: string;
@@ -102,20 +127,31 @@ export interface DocumentRecord {
   kind: DocumentKind;
   partyId: string | null;
   partyName: string | null;
+  partyNameOriginal?: string | null;
+  partyNameSnapshot?: string | null;
   warehouseId: string | null;
   warehouseName: string | null;
   destinationWarehouseId: string | null;
   destinationWarehouseName: string | null;
   parentDocumentId: string | null;
   paymentMethod: string | null;
+  fromAccountId?: string | null;
+  toAccountId?: string | null;
   status: string;
   title: string | null;
+  /** Opening-stock audit metadata for initial balances and later corrections. */
+  openingCorrection?: boolean;
+  openingStockBefore?: number | null;
+  openingStockAfter?: number | null;
+  openingCostBefore?: number | null;
+  openingCostAfter?: number | null;
   total: number;
   dueTotal: number;
   paidTotal: number;
   /** Actual cash moved; legacy documents fall back to paidTotal. */
   cashAmount?: number;
   partyCashDirection?: "receive" | "pay";
+  accountAdjustmentDirection?: "deposit" | "withdrawal";
   partyBalanceBefore?: number;
   partyBalanceDelta?: number;
   partyBalanceAfter?: number;
@@ -143,6 +179,7 @@ export interface Movement {
   balanceBefore: number;
   balanceAfter: number;
   occurredAt: string;
+  documentRevision?: number;
 }
 export interface BootstrapData {
   principal: { principalType: "local" | "owner" | "user"; name: string; permissions: string[] };
@@ -160,12 +197,27 @@ export interface BootstrapData {
   financialMovements: FinancialMovement[];
   partyFinancialSummaries: PartyFinancialSummary[];
   paymentAccounts: PaymentAccount[];
-  accountTransfers: Array<{ id: string; number: string; fromAccountId: string; toAccountId: string; amount: number; note: string; occurredAt: string }>;
+  accountTransfers: AccountTransferRecord[];
+}
+export interface AccountTransferRecord {
+  id: string;
+  documentId?: string;
+  number: string;
+  fromAccountId: string;
+  toAccountId: string;
+  amount: number;
+  note: string | null;
+  occurredAt: string;
+  status?: "posted" | "voided";
+  revision?: number;
+  updatedAt?: string;
+  voidedAt?: string;
 }
 export const invoiceFonts = ["tahoma", "arial", "segoe-ui", "times-new-roman"] as const;
 export type InvoiceFont = typeof invoiceFonts[number];
 export type InvoiceBrandingSettings = {
   storeName: string;
+  storeLogoDataUrl: string;
   storePhone: string;
   storeAddress: string;
   registrationNumber: string;
@@ -211,10 +263,18 @@ export interface FinancialMovement {
   documentNumber: string;
   partyId: string | null;
   partyName: string | null;
+  partyNameOriginal?: string | null;
   type: string;
   occurredAt: string;
   transferId?: string | null;
   note?: string | null;
+  status?: "posted" | "reversed";
+  revision?: number;
+  isReversal?: boolean;
+  reversedAt?: string;
+  reversalMovementId?: string;
+  reversalReason?: string;
+  reversalOfMovementId?: string;
   delta?: number;
   balanceBefore?: number;
   balanceAfter?: number;
@@ -244,6 +304,8 @@ export const kindLabels: Record<DocumentKind, string> = {
   payment: "سداد",
   offset: "مقاصة",
   settlement: "تسوية يدوية للرصيد",
+  "account-transfer": "تحويل بين الحسابات",
+  "account-adjustment": "سحب / إيداع",
 };
 /** Current document kinds offered by user-facing filters. */
 export const visibleDocumentKindLabels = Object.fromEntries(
@@ -256,7 +318,7 @@ export function western(value: number | string) {
 }
 const DISPLAY_LOCALE = "fr-FR-u-nu-latn";
 const numberFormatter = new Intl.NumberFormat(DISPLAY_LOCALE, {
-  maximumFractionDigits: 0,
+  maximumFractionDigits: 3,
   numberingSystem: "latn",
 });
 
@@ -273,6 +335,7 @@ export function formatMoney(value: number) {
 export function displayDocumentNumber(document: Pick<DocumentRecord, "number" | "sequence" | "kind">) {
   return ["sale", "purchase", "expense", "decant-sale", "decant-purchase"].includes(document.kind) && Number.isSafeInteger(Number(document.sequence)) && Number(document.sequence) > 0 ? String(document.sequence) : document.number;
 }
+<<<<<<< /tmp/tmp06qyduiy/ours
 /** Presentation-only inventory valuation; it does not change accounting cost policy. */
 export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "pieceCost" | "perfumeForm" | "perfumeLots">) {
   if (product.perfumeForm === "decant" && product.perfumeLots?.length) {
@@ -280,6 +343,11 @@ export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "p
     if (remaining > 0) return product.perfumeLots.reduce((sum, lot) => sum + Number(lot.remainingQuantity ?? 0) * Number(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0), 0) / remaining;
   }
   return product.lastPurchaseCost ?? product.pieceCost ?? 0;
+=======
+/** Accounting-backed inventory valuation. Manual pieceCost never silently becomes historical cost. */
+export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "openingCost" | "legacyOpeningCost">) {
+  return product.lastPurchaseCost ?? product.openingCost ?? product.legacyOpeningCost ?? 0;
+>>>>>>> /tmp/tmp06qyduiy/theirs
 }
 export function formatDate(
   value: Date | string | number,

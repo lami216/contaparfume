@@ -1,11 +1,18 @@
 export type ReportType = "overview" | "sales" | "purchases" | "product-sales" | "stock" | "profit" | "debts" | "party-ledger" | "financial" | "expenses";
 export type ReportGroup = "invoice" | "product";
+<<<<<<< /tmp/tmpcf82fow2/ours
 export interface ReportFilters { type: ReportType; from?: string; to?: string; allTime?: boolean; unpaged?: boolean; partyId?: string; productId?: string; categoryId?: string; warehouseId?: string; paymentAccountId?: string; movementType?: string; direction?: "in" | "out"; groupBy?: ReportGroup; sortBy?: "quantity" | "sales" | "name" | "profit"; debtSide?: "receivable" | "payable" | "clear"; search?: string; expenseType?: "once" | "recurring"; page: number; pageSize: number }
+=======
+export interface ReportFilters { type: ReportType; from?: string; to?: string; allTime?: boolean; unpaged?: boolean; partyId?: string; productId?: string; categoryId?: string; warehouseId?: string; paymentAccountId?: string; movementType?: string; direction?: "in" | "out"; groupBy?: ReportGroup; sortBy?: "quantity" | "sales" | "name" | "profit"; sortKey?: string; sortDirection?: "asc" | "desc"; debtSide?: "receivable" | "payable" | "clear"; search?: string; expenseType?: "once" | "recurring"; page: number; pageSize: number }
+>>>>>>> /tmp/tmpcf82fow2/theirs
 export interface ReportMeta { page: number; pageSize: number; totalRows: number; totalPages: number; accountTotals?: Array<{ account: string; incoming: number; outgoing: number; net: number }> }
 export interface OverviewInvoiceRow extends ReportRow { id: string; documentId: string; kind: "sale" | "decant-sale" | "purchase" | "decant-purchase" | "expense"; type: string; number: string; sequence: number | null; occurredAt: string; invoiceValue: number; cost: number; profit: number | null }
 export interface OverviewBankAccount { id: string; name: string; balance: number }
 export interface OverviewWarehouseValue { id: string; name: string; value: number; archived?: boolean }
-export interface ReportResponse<Row = ReportRow> { report: ReportType; from: string | null; to: string | null; summary: Record<string, number | string | boolean>; rows: Row[]; meta: ReportMeta; invoices?: OverviewInvoiceRow[]; parties?: ReportRow[]; bankAccounts?: OverviewBankAccount[]; warehouseValues?: OverviewWarehouseValue[] }
+export interface OverviewBreakdownRow { id:string; documentId:string; number:string; occurredAt:string; kind:"sale"|"return"|"purchase"|"expense"; value:number }
+export interface OverviewProfitBreakdownRow extends OverviewBreakdownRow { revenue:number; cost:number; profit:number }
+export interface OverviewDetails { sales:OverviewBreakdownRow[]; purchases:OverviewBreakdownRow[]; expenses:OverviewBreakdownRow[]; salesProfit:OverviewProfitBreakdownRow[] }
+export interface ReportResponse<Row = ReportRow> { report: ReportType; from: string | null; to: string | null; summary: Record<string, number | string | boolean>; rows: Row[]; meta: ReportMeta; invoices?: OverviewInvoiceRow[]; parties?: ReportRow[]; bankAccounts?: OverviewBankAccount[]; warehouseValues?: OverviewWarehouseValue[]; overviewDetails?: OverviewDetails }
 export interface ReportRow { id?: string; documentId?: string; partyId?: string; [key: string]: string | number | boolean | null | undefined }
 export type SalesReportRow = ReportRow & { documentId: string; number: string; occurredAt: string; party: string; paymentMethod: string; total: number; cost: number; profit: number; margin: number; paid: number; due: number };
 export type ProductSalesReportRow = ReportRow & { productId: string; sku: string; product: string; soldQuantity: number; netSales: number; averagePrice: number };
@@ -34,6 +41,6 @@ export function reportDateQuery(allTime: boolean, from: string, to: string) {
 }
 
 /** Columns remain presentation metadata before a query has returned rows. */
-export function reportTableModel(columns: Array<[string, string]>, result: ReportResponse | null) {
+export function reportTableModel<Column extends [string, string, ...unknown[]]>(columns: Column[], result: ReportResponse | null) {
   return { columns, rows: result?.rows ?? [] };
 }

@@ -3,7 +3,7 @@ import type { DocumentRecord, FinancialMovement, PartyFinancialSummary, PartyTyp
 /** Builds historical party totals without exposing the underlying cash movements. */
 export function calculatePartyFinancialSummaries(
   documents: Array<Pick<DocumentRecord, "kind" | "status" | "partyId" | "total" | "lines">>,
-  movements: Array<Pick<FinancialMovement, "partyId" | "direction" | "amount">>,
+  movements: Array<Pick<FinancialMovement, "partyId" | "direction" | "amount"> & { status?: string; isReversal?: boolean }>,
 ) {
   const summaries = new Map<string, PartyFinancialSummary>();
   const summary = (partyId: string) => {
@@ -14,7 +14,7 @@ export function calculatePartyFinancialSummaries(
     return created;
   };
   for (const movement of movements) {
-    if (!movement.partyId) continue;
+    if (!movement.partyId || movement.status === "reversed" || movement.isReversal === true) continue;
     const value = Number(movement.amount);
     if (!Number.isFinite(value)) continue;
     if (movement.direction === "in") summary(movement.partyId).cashIn += value;
