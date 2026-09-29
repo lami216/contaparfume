@@ -213,6 +213,67 @@ async function transferPerfumeLots(db: Db, session: ClientSession, product: Reco
   await savePerfumeLots(db, session, product, lots);
 }
 
+const PRODUCT_ARCHIVE_STOCK_ZERO_REASON = "تصفير المخزون المرتبط بأرشفة المنتج";
+function productStockUnitCost(product: Record<string, unknown>) {
+  for (const value of [product.lastPurchaseCost, product.openingCost, product.legacyOpeningCost, product.pieceCost]) {
+    const cost = Number(value);
+    if (Number.isFinite(cost) && cost >= 0) return cost;
+  }
+  return 0;
+}
+function productArchiveStockEntries(product: Record<string, unknown>) {
+  const visible = (product.stocks ?? {}) as Record<string, unknown>;
+  const lots = perfumeLots(product);
+  const ids = new Set<string>(Object.keys(visible));
+  for (const lot of lots) for (const warehouseId of Object.keys(lot.stocks ?? {})) ids.add(warehouseId);
+  const entries: Array<{warehouseId:string;visible:number;lot:number}> = [];
+  for (const warehouseId of ids) {
+    const visibleQuantity = Number(visible[warehouseId] ?? 0);
+    if (!Number.isFinite(visibleQuantity)) throw new CommandError("مخزون المنتج يحتوي قيمة غير صالحة", 409);
+    let lotQuantity = 0;
+    for (const lot of lots) {
+      const quantity = Number(lot.stocks?.[warehouseId] ?? 0);
+      if (!Number.isFinite(quantity)) throw new CommandError("مخزون دفعات التقسيمات يحتوي قيمة غير صالحة", 409);
+      lotQuantity += quantity;
+    }
+    if (Math.abs(visibleQuantity) > 1e-9 || Math.abs(lotQuantity) > 1e-9) entries.push({ warehouseId, visible: visibleQuantity, lot: lotQuantity });
+  }
+  return { entries, lots };
+}
+async function zeroProductStockForArchive(db: Db, session: ClientSession, product: Record<string, unknown>) {
+  const {entries,lots} = productArchiveStockEntries(product);
+  for (const entry of entries) {
+    const warehouse = await warehouses(db).findOne({ _id: entry.warehouseId }, { session });
+    if (!warehouse) throw new CommandError("تعذر تصفير المخزون لأن أحد المخازن المرتبطة بالمنتج غير موجود", 409);
+    const doc = {
+      ...baseDocument("adjustment", "ADJ"), revision: 0, productArchiveStockClearance: true,
+      partyId: null, partyName: null, warehouseId: entry.warehouseId, warehouseName: warehouse.name,
+      destinationWarehouseId: null, destinationWarehouseName: null, parentDocumentId: null,
+      paymentMethod: null, title: PRODUCT_ARCHIVE_STOCK_ZERO_REASON,
+      total: 0, dueTotal: 0, paidTotal: 0, lines: [] as Record<string, unknown>[],
+    };
+    if (Math.abs(entry.visible) > 1e-9) await changeStock(db, session, product, warehouse, -entry.visible, doc, "adjustment");
+    for (const lot of lots) if (Object.prototype.hasOwnProperty.call(lot.stocks ?? {}, entry.warehouseId)) {
+      lot.stocks = { ...(lot.stocks ?? {}), [entry.warehouseId]: 0 };
+    }
+    doc.lines.push({
+      id: id("line"), productId: String(product.id),
+      description: `${String(product.name)} — ${PRODUCT_ARCHIVE_STOCK_ZERO_REASON} (قبل ${entry.visible}، بعد 0)`,
+      quantity: -entry.visible, unitPrice: productStockUnitCost(product), lineTotal: 0,
+      balanceBefore: entry.visible, balanceAfter: 0, perfumeLotStockBefore: entry.lot, perfumeLotStockAfter: 0,
+    });
+    await db.collection("documents").insertOne(doc, { session });
+  }
+  if (product.perfumeForm === "decant" && lots.length) {
+    for (const lot of lots) {
+      lot.stocks = Object.fromEntries(Object.keys(lot.stocks ?? {}).map(warehouseId => [warehouseId, 0]));
+      lot.remainingQuantity = 0;
+    }
+    await savePerfumeLots(db, session, product, lots);
+  }
+  return entries.length;
+}
+
 
 export async function execute(db: Db, session: ClientSession, body: Input) {
   const type = text(body.type);
@@ -252,7 +313,19 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
   if (type === "product.delete") {
     const productId = text(body.id), product = await db.collection("products").findOne({ id: productId }, { session });
     if (!product) throw new CommandError("المنتج غير موجود", 404);
-    await db.collection("products").updateOne({ id: productId }, { $set: { isArchived: true, archivedAt: new Date() } }, { session });
+    if (product.isArchived === true) throw new CommandError("المنتج مؤرشف بالفعل", 409);
+    const {entries} = productArchiveStockEntries(product);
+    if (entries.length && body.zeroStock !== true) throw new CommandError("المنتج يحتوي مخزونًا. أكد تصفير المخزون قبل الأرشفة.", 409);
+    if (entries.length) await zeroProductStockForArchive(db, session, product);
+    const archived = await db.collection("products").updateOne({ id: productId, isArchived: { $ne: true } }, { $set: { isArchived: true, archivedAt: new Date(), updatedAt: new Date() } }, { session });
+    if (!archived.matchedCount) throw new CommandError("تغير المنتج أثناء العملية، أعد المحاولة", 409);
+    return productId;
+  }
+  if (type === "product.stock-zero") {
+    const productId = text(body.id), product = await db.collection("products").findOne({ id: productId }, { session });
+    if (!product) throw new CommandError("المنتج غير موجود", 404);
+    if (product.isArchived !== true) throw new CommandError("تصفير المخزون بهذه العملية متاح للمنتج المؤرشف فقط", 409);
+    await zeroProductStockForArchive(db, session, product);
     return productId;
   }
   if (type === "product.restore") {
