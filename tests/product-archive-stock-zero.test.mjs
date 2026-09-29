@@ -62,7 +62,7 @@ test("legacy archived perfume product can clear lot-only stock and stays archive
 
 test("perfume clearance rollback restores visible stock and perfumeLots together on invalid warehouse",async()=>{
   await insertProduct({stocks:{a:4,missing:1},lots:[lot("l1",{a:2,missing:3},5)]});
-  await assert.rejects(command({type:"product.delete",id:"p",zeroStock:true}),/المخزن/);
+  await assert.rejects(command({type:"product.delete",id:"p",zeroStock:true}),/تعذر تصفير المخزون/);
   const product=await db.collection("products").findOne({id:"p"});
   assert.equal(product.isArchived,false);
   assert.deepEqual(product.stocks,{a:4,missing:1});
