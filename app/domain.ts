@@ -105,6 +105,8 @@ export interface DocumentLine {
   bottleProductName?: string | null;
   bottleUnitCost?: number | null;
   bottleQuantity?: number | null;
+  perfumeLotStockBefore?: number;
+  perfumeLotStockAfter?: number;
   balanceBefore?: number;
   balanceAfter?: number;
 }
@@ -134,6 +136,8 @@ export interface DocumentRecord {
   openingStockAfter?: number | null;
   openingCostBefore?: number | null;
   openingCostAfter?: number | null;
+  /** Final inventory correction generated while archiving/cleaning an archived product. */
+  productArchiveStockClearance?: boolean;
   total: number;
   dueTotal: number;
   paidTotal: number;
