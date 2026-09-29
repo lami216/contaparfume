@@ -72,6 +72,11 @@ test("stock operations collapse idle search and edit a serial ERP draft", () => 
   const form = between("function MultiStockForm", "function Transfer");
   assert.match(form, /collapseResultsWhenIdle/);
   assert.match(form, /<StockDraftTable/);
+  assert.match(form, /const stockSearchActive=!lockedAdjustmentProducts&&Boolean\(q\.trim\(\)\)/);
+  assert.match(form, /\{!stockSearchActive&&<StockDraftTable/);
+  assert.match(form, /stock-operation-panel\$\{stockSearchActive \? " searching" : ""\}/);
+  assert.match(css, /\.stock-workspace\s*\{[^}]*grid-template-columns:\s*minmax\(410px,\s*44fr\)\s+minmax\(0,\s*56fr\)/s);
+  assert.match(css, /\.stock-operation-panel\.searching\s*\{[^}]*grid-template-rows:\s*auto minmax\(0,\s*1fr\) auto auto/s);
   const table = between("function StockDraftTable", "function MultiStockForm");
   for (const heading of ["الكمية للتحويل", "الكمية الفعلية"]) assert.match(table, new RegExp(heading));
   assert.doesNotMatch(table, /تكلفة الوحدة|purchaseCost/);
@@ -92,7 +97,7 @@ test("POS checkout, records, scoped stock, and document print retain explicit st
   assert.match(picker, /stockScope === "selected-warehouse" \? stockInWarehouse/);
   assert.match(app, /function PrintableDocument/);
   assert.match(css, /@page invoice\s*\{\s*size:\s*A4 portrait/);
-  assert.match(css, /@page report\s*\{\s*size:\s*A4 landscape/);
+  assert.match(css, /@page report\s*\{\s*size:\s*A4 portrait/);
 });
 
 test("focused banking and transaction editor regressions stay explicit", () => {

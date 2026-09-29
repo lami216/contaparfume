@@ -25,6 +25,8 @@ test("opening-stock movement classification repairs current and historical corre
   const oldAdd = { kind: "adjustment", number: "OPEN-OLD-2", title: "إضافة رصيد افتتاحي" };
   const initial = { kind: "adjustment", number: "OPEN-1", title: "رصيد بداية", openingStockAfter: 10 };
   assert.equal(classifyStockMovementType("unknown", current), "opening-correction");
+  assert.equal(classifyStockMovementType("opening-correction-edit", current), "opening-correction-edit");
+  assert.equal(classifyStockMovementType("opening-correction-void", current), "opening-correction-void");
   assert.equal(classifyStockMovementType("opening", oldAdd), "opening-correction");
   assert.equal(classifyStockMovementType("unknown", initial), "opening");
   assert.equal(isOpeningStockCorrectionDocument(oldAdd), true);
@@ -32,6 +34,8 @@ test("opening-stock movement classification repairs current and historical corre
   assert.equal(stockMovementMatchesFilter("sale-edit", "sale"), true);
   assert.equal(stockMovementMatchesFilter("purchase-void", "purchase"), true);
   assert.equal(stockMovementMatchesFilter("opening-correction", "opening"), false);
+  assert.equal(stockMovementMatchesFilter("opening-correction-edit", "adjustment"), true);
+  assert.equal(stockMovementMatchesFilter("opening-correction-void", "adjustment"), true);
 });
 
 test("stock report finds historical opening edits even when their stored movement type was not canonical", async () => {

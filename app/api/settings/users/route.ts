@@ -23,6 +23,6 @@ export async function POST(request:Request){
   const now=new Date(),user={id:crypto.randomUUID(),username,usernameNormalized,name:String(body.name??username).trim()||username,passwordHash:hashPassword(password),isActive:true,permissions:userPermissions,owner:false,createdAt:now,updatedAt:now};
   await db.collection("users").insertOne(user);
   const headers=firstUser?{"Set-Cookie":`${SESSION_COOKIE}=${createSession({principalType:"user",userId:user.id})}; ${sessionCookieOptions}`}:undefined;
-  return Response.json({user:safe(user)},{status:201,headers});
+  return Response.json({user:safe(user),sessionStarted:firstUser},{status:201,headers});
  }catch(error){return Response.json({error:error instanceof Error?error.message:"بيانات المستخدم غير صالحة"},{status:400})}
 }

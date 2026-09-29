@@ -4,6 +4,7 @@ import { getPrincipalFromRequest, hasCapability, type Capability } from "../../.
 import { canReadDocument, canReadDocumentKind, resolveCurrentPartyName } from "../../../lib/document-read-model.ts";
 import { resolvePartyType } from "../../domain.ts";
 import { validateRequiredDateRange } from "../../date-range-validation.ts";
+import { collapseLegacyStockEditMovements } from "../../stock-movement.ts";
 
 const bounded = (value:string|null, fallback:number, max:number) => {
   const parsed=Number(value);return Number.isInteger(parsed)&&parsed>0?Math.min(parsed,max):fallback;
@@ -49,6 +50,11 @@ export async function GET(request:Request){
    const visible=search?authorized.filter(document=>[document.number,document.sequence,document.legacyBillCode,document.partyName,document.title,document.kind,document.status].map(value=>String(value??"")).join(" ").toLocaleLowerCase().includes(search)):authorized;
    const total=visible.length,rows=visible.slice((page-1)*pageSize,page*pageSize);
    return Response.json({resource,page,pageSize,total,totalPages:Math.ceil(total/pageSize),rows:rows.map(({_id,...row})=>({id:row.id??String(_id),...row}))});
+ }
+ if(resource==="stockMovements"){
+   const candidates=await collection.find(query).sort({occurredAt:-1,id:-1}).toArray(),presented=collapseLegacyStockEditMovements(candidates.map(({_id,...row})=>({id:row.id??String(_id),...row})));
+   const total=presented.length,rows=presented.slice((page-1)*pageSize,page*pageSize);
+   return Response.json({resource,page,pageSize,total,totalPages:Math.ceil(total/pageSize),rows});
  }
  const total=await collection.countDocuments(query),rows=await collection.find(query).sort({occurredAt:-1,id:-1}).skip((page-1)*pageSize).limit(pageSize).toArray();
  return Response.json({resource,page,pageSize,total,totalPages:Math.ceil(total/pageSize),rows:rows.map(({_id,...row})=>({id:row.id??String(_id),...row}))});

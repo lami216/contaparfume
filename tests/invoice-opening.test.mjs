@@ -16,7 +16,7 @@ test("general invoice records open details before offering an explicit edit acti
 });
 
 test("top-level invoice edit eligibility includes document and permission checks", () => {
-  const modal = source.match(/\{doc && <div className="modal-overlay"[\s\S]*?<DocumentDetail[^\n]+/)?.[0] ?? "";
+  const modal = source.match(/\{doc && createPortal\(<div className="modal-overlay document-modal-overlay"[\s\S]*?<DocumentDetail[^\n]+/)?.[0] ?? "";
   assert.match(modal, /doc\.status === "posted"/);
   assert.match(modal, /!doc\.legacyKey/);
   assert.match(modal, /doc\.kind === "sale" \? can\("pos\.edit"\)/);

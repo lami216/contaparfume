@@ -13,13 +13,15 @@ export type PrintSettings = {
   profile: PrintProfile;
 };
 
-export type PrintResult = { ok: true } | { ok: false; error: string };
+export type PrintResult = { ok: true; filePath?: string } | { ok: false; error?: string; canceled?: boolean };
 
 type PrintingBridge = {
   list: () => Promise<PrinterInfo[]>;
   getSettings: () => Promise<PrintSettings>;
   saveSettings: (settings: PrintSettings) => Promise<PrintSettings>;
   print: (options: PrintSettings & { silent: boolean; paperHeightMicrons?: number }) => Promise<PrintResult>;
+  pdf: (options: PrintSettings & { suggestedName: string; paperHeightMicrons?: number }) => Promise<PrintResult>;
+  saveExport: (options: { format: "xlsx"; suggestedName: string; data: Uint8Array }) => Promise<PrintResult>;
 };
 
 declare global {
@@ -59,9 +61,15 @@ export async function savePrintSettings(settings: PrintSettings): Promise<PrintS
 
 const nextFrame = () => new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
 
-async function waitForPrintAssets() {
+async function waitForPrintAssets(targetSelector: string) {
+  // React portals are committed asynchronously. Give the target two layout frames
+  // before resolving fonts/images so Chromium snapshots the final printable DOM.
+  await nextFrame();
+  await nextFrame();
+  const target = document.querySelector<HTMLElement>(targetSelector);
+  if (!target) throw new Error("print-target-not-ready");
   try { await document.fonts?.ready; } catch {}
-  const images = [...document.querySelectorAll<HTMLImageElement>(".document-print-portal img")];
+  const images = [...target.querySelectorAll<HTMLImageElement>("img")];
   await Promise.all(images.map(image => image.complete ? Promise.resolve() : new Promise<void>(resolve => {
     const done = () => resolve();
     image.addEventListener("load", done, { once: true });
@@ -148,29 +156,89 @@ async function browserPrintFallback() {
   });
 }
 
+async function withPreparedTarget<T>(settings: PrintSettings, modeClass: string, targetSelector: string, action: (normalized: PrintSettings) => Promise<T>): Promise<T> {
+  const normalized = normalizePrintSettings(settings);
+  const root = document.documentElement;
+  const previousProfile = root.dataset.printProfile;
+  root.dataset.printProfile = normalized.profile;
+  root.classList.add(modeClass);
+  try {
+    await waitForPrintAssets(targetSelector);
+    return await action(normalized);
+  } finally {
+    root.classList.remove(modeClass);
+    if (previousProfile) root.dataset.printProfile = previousProfile;
+    else delete root.dataset.printProfile;
+  }
+}
+
+async function printPreparedTarget(settings: PrintSettings, silent: boolean, modeClass: string, targetSelector: string): Promise<void> {
+  await withPreparedTarget(settings, modeClass, targetSelector, async normalized => {
+    if (window.alkarnaPrinting) {
+      const paperHeightMicrons = modeClass === "print-document-mode" ? thermalPaperHeightMicrons(normalized.profile) : undefined;
+      const result = await window.alkarnaPrinting.print({ ...normalized, silent, ...(paperHeightMicrons ? { paperHeightMicrons } : {}) });
+      if (!result.ok) throw new Error(result.error || "print-failed");
+    } else {
+      await browserPrintFallback();
+    }
+  });
+}
+
+async function savePreparedTargetPdf(settings: PrintSettings, modeClass: string, targetSelector: string, suggestedName: string): Promise<PrintResult> {
+  return withPreparedTarget(settings, modeClass, targetSelector, async normalized => {
+    if (!window.alkarnaPrinting?.pdf) return { ok: false, error: "pdf-export-desktop-only" };
+    const paperHeightMicrons = modeClass === "print-document-mode" ? thermalPaperHeightMicrons(normalized.profile) : undefined;
+    return window.alkarnaPrinting.pdf({ ...normalized, suggestedName, ...(paperHeightMicrons ? { paperHeightMicrons } : {}) });
+  });
+}
+
 /**
  * Prints the already-rendered `.document-print-portal` using one shared lifecycle.
  * Automatic printing may be silent in Electron; browser fallback always uses the
  * browser/system dialog. Callers must save business data before invoking this.
  */
 export async function printPreparedDocument(settings: PrintSettings, silent: boolean): Promise<void> {
-  const normalized = normalizePrintSettings(settings);
-  const root = document.documentElement;
-  const previousProfile = root.dataset.printProfile;
-  root.dataset.printProfile = normalized.profile;
-  root.classList.add("print-document-mode");
-  try {
-    await waitForPrintAssets();
-    if (window.alkarnaPrinting) {
-      const paperHeightMicrons = thermalPaperHeightMicrons(normalized.profile);
-      const result = await window.alkarnaPrinting.print({ ...normalized, silent, ...(paperHeightMicrons ? { paperHeightMicrons } : {}) });
-      if (!result.ok) throw new Error(result.error || "print-failed");
-    } else {
-      await browserPrintFallback();
-    }
-  } finally {
-    root.classList.remove("print-document-mode");
-    if (previousProfile) root.dataset.printProfile = previousProfile;
-    else delete root.dataset.printProfile;
-  }
+  await printPreparedTarget(settings, silent, "print-document-mode", ".document-print-portal");
+}
+
+/**
+ * Reports are always A4 portrait. Preserve an explicitly configured A4 printer,
+ * but do not route a report to a thermal printer merely because receipts use one.
+ */
+export async function printPreparedReport(): Promise<void> {
+  const preferred = await loadPrintSettings();
+  const settings: PrintSettings = { deviceName: preferred.profile === "a4" ? preferred.deviceName : null, profile: "a4" };
+  await printPreparedTarget(settings, false, "print-report-mode", ".report-print-portal");
+}
+
+/** Print a dedicated A4 workspace portal (inventory, movement details, overview). */
+export async function printPreparedWorkspace(): Promise<void> {
+  const preferred = await loadPrintSettings();
+  const settings: PrintSettings = { deviceName: preferred.profile === "a4" ? preferred.deviceName : null, profile: "a4" };
+  await printPreparedTarget(settings, false, "print-workspace-mode", ".workspace-print-portal");
+}
+
+export async function savePreparedDocumentPdf(settings: PrintSettings, suggestedName: string): Promise<PrintResult> {
+  return savePreparedTargetPdf(settings, "print-document-mode", ".document-print-portal", suggestedName);
+}
+
+export async function savePreparedReportPdf(suggestedName: string): Promise<PrintResult> {
+  const preferred = await loadPrintSettings();
+  const settings: PrintSettings = { deviceName: preferred.profile === "a4" ? preferred.deviceName : null, profile: "a4" };
+  return savePreparedTargetPdf(settings, "print-report-mode", ".report-print-portal", suggestedName);
+}
+
+export async function savePreparedWorkspacePdf(suggestedName: string): Promise<PrintResult> {
+  const preferred = await loadPrintSettings();
+  const settings: PrintSettings = { deviceName: preferred.profile === "a4" ? preferred.deviceName : null, profile: "a4" };
+  return savePreparedTargetPdf(settings, "print-workspace-mode", ".workspace-print-portal", suggestedName);
+}
+
+export async function saveExcelFile(suggestedName: string, data: Uint8Array): Promise<PrintResult> {
+  if (window.alkarnaPrinting?.saveExport) return window.alkarnaPrinting.saveExport({ format: "xlsx", suggestedName, data });
+  const blob = new Blob([data as BlobPart], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob), anchor = document.createElement("a");
+  anchor.href = url; anchor.download = suggestedName.toLowerCase().endsWith(".xlsx") ? suggestedName : `${suggestedName}.xlsx`; anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return { ok: true };
 }

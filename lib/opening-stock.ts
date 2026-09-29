@@ -44,7 +44,7 @@ export async function deriveOpeningStockState(db: Db, session: ClientSession | u
   // Replay insertion order. Edits/voids retain the invoice's original occurredAt,
   // so sorting by that date would move today's correction into the past.
   const movements = await db.collection("stockMovements").find({ productId }, { session }).toArray();
-  const hasNativeOpening = movements.some(movement => movement.type === "opening" || movement.type === "opening-correction");
+  const hasNativeOpening = movements.some(movement => movement.type === "opening" || movement.type === "opening-void" || String(movement.type ?? "").startsWith("opening-correction"));
   const hasStockHistory = movements.length > 0;
   const legacySnapshot = movements.some(movement => movement.type === "legacy-opening") || positive(product.legacyOpeningCost) !== null;
   const openingDocumentIds = [...new Set(movements.filter(movement => movement.type === "opening").map(movement => String(movement.documentId ?? "")).filter(Boolean))];
@@ -60,10 +60,15 @@ export async function deriveOpeningStockState(db: Db, session: ClientSession | u
 
   const allocations: Record<string, number> = {};
   const consumedBySale = new Map<string, Array<{ opening: number; other: number }>>();
-  const transferredByDocument = new Map<string, number>();
+  const adjustmentCreated = new Map<string, Record<string, number>>();
+  const adjustmentConsumed = new Map<string, Record<string, number>>();
+  const processedTransferEvents = new Set<string>();
   let total = 0;
   let inferredCost: number | null = null;
   let firstWarehouseId: string | null = null;
+
+  const transferLike = (type: string) => type === "transfer-out" || type === "transfer-in" || type === "transfer-edit" || type === "transfer-void";
+  const adjustmentLike = (type: string) => type === "adjustment" || type.startsWith("adjustment-");
 
   for (const movement of movements) {
     const warehouseId = String(movement.warehouseId ?? "");
@@ -85,7 +90,7 @@ export async function deriveOpeningStockState(db: Db, session: ClientSession | u
       }
       continue;
     }
-    if (type === "opening-correction") {
+    if (type === "opening-void" || type === "opening-correction" || type.startsWith("opening-correction-")) {
       if (delta > 0) add(allocations, warehouseId, delta);
       else take(allocations, warehouseId, -delta);
       total += delta;
@@ -93,18 +98,34 @@ export async function deriveOpeningStockState(db: Db, session: ClientSession | u
     }
     if (type === "legacy-opening" || type === "purchase" || type === "purchase-edit" || type === "purchase-void") continue;
 
-    if (type === "transfer-out" && delta < 0) {
-      const moved = take(allocations, warehouseId, -delta);
-      transferredByDocument.set(documentId, Number(transferredByDocument.get(documentId) ?? 0) + moved);
+    if (transferLike(type)) {
+      const revision = Number.isFinite(Number(movement.documentRevision)) ? Number(movement.documentRevision) : 0;
+      const eventKey = `${documentId}\u0000${revision}\u0000transfer`;
+      if (processedTransferEvents.has(eventKey)) continue;
+      processedTransferEvents.add(eventKey);
+      const group = movements.filter(candidate => {
+        const candidateType = String(candidate.type ?? "");
+        const candidateRevision = Number.isFinite(Number(candidate.documentRevision)) ? Number(candidate.documentRevision) : 0;
+        return String(candidate.documentId ?? "") === documentId && candidateRevision === revision && transferLike(candidateType);
+      });
+      let movingOpening = 0;
+      for (const item of group) {
+        const sourceWarehouseId = String(item.warehouseId ?? "");
+        const quantity = finite(item.quantityDelta) ?? 0;
+        if (sourceWarehouseId && quantity < 0) movingOpening += take(allocations, sourceWarehouseId, -quantity);
+      }
+      let remainingOpening = movingOpening;
+      for (const item of group) {
+        const destinationWarehouseId = String(item.warehouseId ?? "");
+        const quantity = finite(item.quantityDelta) ?? 0;
+        if (!destinationWarehouseId || quantity <= 0 || remainingOpening <= 0) continue;
+        const restored = Math.min(quantity, remainingOpening);
+        add(allocations, destinationWarehouseId, restored);
+        remainingOpening -= restored;
+      }
       continue;
     }
-    if (type === "transfer-in" && delta > 0) {
-      const pending = Math.max(0, Number(transferredByDocument.get(documentId) ?? 0));
-      const moved = Math.min(delta, pending);
-      add(allocations, warehouseId, moved);
-      transferredByDocument.set(documentId, pending - moved);
-      continue;
-    }
+
     if ((type === "sale" || type === "sale-edit") && delta < 0) {
       const used = take(allocations, warehouseId, -delta);
       const segments = consumedBySale.get(documentId) ?? [];
@@ -130,8 +151,38 @@ export async function deriveOpeningStockState(db: Db, session: ClientSession | u
       }
       continue;
     }
-    // Inventory corrections and any future stock outflow consume opening units first.
-    // Positive non-opening movements never create opening provenance.
+
+    if (adjustmentLike(type)) {
+      const created = adjustmentCreated.get(documentId) ?? {};
+      const consumed = adjustmentConsumed.get(documentId) ?? {};
+      adjustmentCreated.set(documentId, created);
+      adjustmentConsumed.set(documentId, consumed);
+      if (delta > 0) {
+        const restorableOpening = Math.min(delta, Math.max(0, Number(consumed[warehouseId] ?? 0)));
+        if (restorableOpening > 0) {
+          add(allocations, warehouseId, restorableOpening);
+          consumed[warehouseId] = Math.max(0, Number(consumed[warehouseId] ?? 0) - restorableOpening);
+        }
+        const createdQuantity = delta - restorableOpening;
+        if (createdQuantity > 0) created[warehouseId] = Math.max(0, Number(created[warehouseId] ?? 0)) + createdQuantity;
+      } else {
+        let removing = -delta;
+        const createdAvailable = Math.max(0, Number(created[warehouseId] ?? 0));
+        const removeCreated = Math.min(removing, createdAvailable);
+        if (removeCreated > 0) {
+          created[warehouseId] = createdAvailable - removeCreated;
+          removing -= removeCreated;
+        }
+        if (removing > 0) {
+          const usedOpening = take(allocations, warehouseId, removing);
+          if (usedOpening > 0) consumed[warehouseId] = Math.max(0, Number(consumed[warehouseId] ?? 0)) + usedOpening;
+        }
+      }
+      continue;
+    }
+
+    // Any future stock outflow that is not explicitly provenance-aware consumes
+    // opening units first. Positive non-opening movements never create opening provenance.
     if (delta < 0) take(allocations, warehouseId, -delta);
   }
 

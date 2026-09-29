@@ -6,3 +6,21 @@ test("archived warehouses are excluded from active selectors",()=>assert.deepEqu
 test("inventory period quantities are selected-warehouse scoped",()=>{const docs=[doc("purchase","w1","2026-08-01",4),doc("purchase","w2","2026-08-01",9),doc("sale","w1","2026-08-02",2),doc("sale","w1","2025-01-01",8)];assert.equal(periodQuantity(docs,"p","w1","purchase","2026-08-01","2026-08-31"),4);assert.equal(periodQuantity(docs,"p","w1","sale","2026-08-01","2026-08-31"),2)});
 test("inventory requires an explicit scoped or all-time request and warehouse changes invalidate it",()=>{const source=normalizePresentationSource(readFileSync(new URL("../app/conta-app.tsx",import.meta.url),"utf8")),inventory=source.slice(source.indexOf("function Warehouses"),source.indexOf("function ProductMovementPanel")),admin=source.slice(source.indexOf("function WarehouseAdmin"),source.indexOf("function Warehouses"));assert.match(inventory,/hasInventoryView.*useState\(false\)/);assert.match(inventory,/commitPeriod=.*setCommittedPeriod.*setHasInventoryView\(true\)/);assert.match(inventory,/showAllInventory=.*setCommittedPeriod\(null\).*setHasInventoryView\(true\)/);assert.match(inventory,/chooseWarehouse.*setHasInventoryView\(false\)/);assert.match(inventory,/hasInventoryView\?<div className="inventory-browser"/);assert.match(admin,/warehouse\.default/)});
 test("warehouse sales wording distinguishes the disabled selection from its action",()=>{const source=normalizePresentationSource(readFileSync(new URL("../app/conta-app.tsx",import.meta.url),"utf8")),admin=source.slice(source.indexOf("function WarehouseAdmin"),source.indexOf("function Warehouses"));assert.match(admin,/warehouse\.isSalesDefault\?"مخزن البيع":"نشط"/);assert.match(admin,/disabled=\{warehouse\.isSalesDefault\}/);assert.match(admin,/warehouse\.isSalesDefault\?"مخزن البيع":"تعيين للبيع"/);assert.match(admin,/type:"warehouse\.default"/);assert.match(admin,/"تم تعيين مخزن البيع"/);assert.doesNotMatch(admin,/تعيين كافتراضي|مخزن البيع الافتراضي/)});
+
+test("inventory product details are driven by stock movements so operation names match the audit records",()=>{
+  const source=normalizePresentationSource(readFileSync(new URL("../app/conta-app.tsx",import.meta.url),"utf8"));
+  const panel=source.slice(source.indexOf("function ProductMovementPanel"),source.indexOf("function Products"));
+  assert.match(panel,/data\.movements\.filter/);
+  assert.match(panel,/stockMovementPresentationType\(type,delta\)/);
+  assert.match(panel,/movementLabel\(movement\.type,movement\.quantityDelta\)/);
+  assert.match(panel,/formatDateTime\(movement\.occurredAt\)/);
+  assert.doesNotMatch(panel,/filteredMovementDocs|fallbackMovements|operationLabel\(document\)/);
+});
+
+test("document details opened from inventory are rendered above the product movement dialog",()=>{
+  const source=normalizePresentationSource(readFileSync(new URL("../app/conta-app.tsx",import.meta.url),"utf8"));
+  const css=readFileSync(new URL("../app/globals.css",import.meta.url),"utf8");
+  assert.match(source,/doc\s*&&\s*createPortal\(<div className="modal-overlay document-modal-overlay"/);
+  assert.match(source,/document\.body\)/);
+  assert.match(css,/\.document-modal-overlay\s*\{\s*z-index:\s*180;\s*\}/);
+});

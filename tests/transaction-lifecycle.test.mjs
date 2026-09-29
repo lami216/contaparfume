@@ -65,6 +65,113 @@ test("party cash update and void keep one document identity and reconcile party 
   assert.ok(movements.some(row => row.isReversal === true));
 });
 
+
+test("legacy deletion settlement from the old party-delete flow can be safely voided", async () => {
+  await insertCustomer(-17000);
+  const documentId = "settlement-old-delete";
+  await db.collection("documents").insertOne({
+    id: documentId, number: "WRITEOFF-DEL-OLD", kind: "settlement", status: "posted",
+    occurredAt: "2026-09-21T00:41:24.213Z", partyId: "c", partyName: "Customer",
+    paymentMethod: null, title: "شطب الرصيد قبل حذف الطرف", total: 17000, paidTotal: 0, dueTotal: 0, lines: [],
+    partyBalanceBefore: 17000, partyBalanceDelta: -17000, partyBalanceAfter: 0,
+    settledReceivable: 17000, settledPayable: 0, partyDeletionSettlement: true, partyDeletionWriteOff: true,
+  });
+
+  await command({ type: "legacy-party-document.void", documentId });
+
+  const party = await db.collection("parties").findOne({ id: "c" });
+  const document = await db.collection("documents").findOne({ id: documentId });
+  assert.deepEqual([party.receivable, party.payable, party.net], [0, 0, 0]);
+  assert.deepEqual([document.status, document.revision, document.legacyVoid], ["voided", 1, true]);
+});
+
+test("legacy manual settlement without audit delta infers and reverses its old balance side", async () => {
+  await insertCustomer(60);
+  const documentId = "settlement-old-manual";
+  await db.collection("documents").insertOne({
+    id: documentId, number: "SET-OLD", kind: "settlement", status: "posted",
+    occurredAt: "2026-09-10T00:00:00.000Z", partyId: "c", partyName: "Customer",
+    paymentMethod: null, title: "الطرف دفع لنا", total: 40, paidTotal: 40, dueTotal: 0, lines: [],
+  });
+
+  await command({ type: "legacy-party-document.void", documentId });
+
+  const party = await db.collection("parties").findOne({ id: "c" });
+  assert.deepEqual([party.receivable, party.payable, party.net], [100, 0, 100]);
+});
+
+test("legacy payment without partyCashDirection reverses both party and financial account effects", async () => {
+  await insertCustomer(60);
+  const documentId = "payment-old";
+  await db.collection("documents").insertOne({
+    id: documentId, number: "PAY-OLD", kind: "payment", status: "posted",
+    occurredAt: "2026-09-10T00:00:00.000Z", partyId: "c", partyName: "Customer",
+    paymentMethod: "cash", title: "الطرف دفع لنا", total: 40, paidTotal: 40, dueTotal: 0, lines: [],
+  });
+  await db.collection("paymentAccounts").updateOne({ id: "cash" }, { $set: { balance: 140 } });
+  await db.collection("financialMovements").insertOne({
+    id: "fin-old", documentId, documentNumber: "PAY-OLD", paymentMethod: "cash",
+    direction: "in", amount: 40, type: "party-receipt", partyId: "c", partyName: "Customer",
+    occurredAt: "2026-09-10T00:00:00.000Z", status: "posted",
+  });
+
+  await command({ type: "legacy-party-document.void", documentId });
+
+  const party = await db.collection("parties").findOne({ id: "c" });
+  const account = await db.collection("paymentAccounts").findOne({ id: "cash" });
+  const movements = await db.collection("financialMovements").find({ documentId }).toArray();
+  assert.deepEqual([party.receivable, party.payable, party.net], [100, 0, 100]);
+  assert.equal(account.balance, 100);
+  assert.equal(activeFinancial(movements).length, 0);
+  assert.ok(movements.some(row => row.isReversal === true));
+});
+
+test("legacy offset can be retired without changing the current net balance", async () => {
+  await insertCustomer(20);
+  const documentId = "offset-old";
+  await db.collection("documents").insertOne({
+    id: documentId, number: "OFF-OLD", kind: "offset", status: "posted",
+    occurredAt: "2026-09-10T00:00:00.000Z", partyId: "c", partyName: "Customer",
+    paymentMethod: null, title: "مقاصة قديمة", total: 30, paidTotal: 30, dueTotal: 0, lines: [],
+  });
+
+  await command({ type: "legacy-party-document.void", documentId });
+
+  const party = await db.collection("parties").findOne({ id: "c" });
+  const document = await db.collection("documents").findOne({ id: documentId });
+  assert.equal(party.net, 20);
+  assert.equal(document.status, "voided");
+});
+
+test("orphaned legacy settlement can be voided after its old party was physically deleted", async () => {
+  const documentId = "settlement-orphan";
+  await db.collection("documents").insertOne({
+    id: documentId, number: "WRITEOFF-ORPHAN", kind: "settlement", status: "posted",
+    occurredAt: "2026-09-10T00:00:00.000Z", partyId: "gone", partyName: "Deleted Customer",
+    paymentMethod: null, title: "شطب الرصيد قبل حذف الطرف", total: 50, paidTotal: 0, dueTotal: 0, lines: [],
+    partyBalanceDelta: -50,
+  });
+
+  await command({ type: "legacy-party-document.void", documentId });
+
+  const document = await db.collection("documents").findOne({ id: documentId });
+  assert.equal(document.status, "voided");
+});
+
+test("externally imported legacy party records stay read-only", async () => {
+  await insertCustomer(60);
+  const documentId = "settlement-imported";
+  await db.collection("documents").insertOne({
+    id: documentId, number: "SET-IMPORTED", kind: "settlement", status: "posted",
+    occurredAt: "2026-09-10T00:00:00.000Z", partyId: "c", partyName: "Customer",
+    paymentMethod: null, title: "الطرف دفع لنا", total: 40, paidTotal: 40, dueTotal: 0, lines: [],
+    legacyKey: "dataacc:settlement:1",
+  });
+
+  await assert.rejects(command({ type: "legacy-party-document.void", documentId }), /المرحلة من نظام خارجي/);
+  assert.equal((await db.collection("documents").findOne({ id: documentId })).status, "posted");
+});
+
 test("command lifecycle and operational read model stay in lockstep across update and void", async () => {
   await insertCustomer(80);
   const documentId = await command({ type: "party-cash.post", partyId: "c", direction: "receive", amount: 20, paymentMethod: "cash", note: "initial" });
@@ -88,7 +195,7 @@ test("command lifecycle and operational read model stay in lockstep across updat
   assert.ok(auditRows.some(row => row.isReversal === true));
 });
 
-test("stock transfer update and void preserve the document id and exact inventory", async () => {
+test("stock transfer update records only the net edit and keeps the latest document authoritative", async () => {
   await insertProduct();
   const documentId = await command({ type: "transfer.post", fromWarehouseId: "a", toWarehouseId: "b", lines: [{ productId: "p", quantity: 5 }] });
   assert.deepEqual((await db.collection("products").findOne({ id: "p" })).stocks, { a: 5, b: 5 });
@@ -97,11 +204,19 @@ test("stock transfer update and void preserve the document id and exact inventor
   assert.deepEqual((await db.collection("products").findOne({ id: "p" })).stocks, { a: 7, b: 3 });
   let document = await db.collection("documents").findOne({ id: documentId });
   assert.deepEqual([document.status, document.revision, document.lines[0].quantity], ["posted", 1, 3]);
+  let editRows=(await db.collection("stockMovements").find({documentId,type:"transfer-edit"}).toArray()).map(row=>[row.warehouseId,row.quantityDelta]);
+  assert.deepEqual(editRows.sort((a,b)=>String(a[0]).localeCompare(String(b[0]))),[["a",2],["b",-2]]);
+  assert.equal(await db.collection("stockMovements").countDocuments({documentId,type:"transfer-edit-reversal"}),0);
+
+  await command({ type: "transfer.update", documentId, fromWarehouseId: "a", toWarehouseId: "b", lines: [{ productId: "p", quantity: 4 }] });
+  document = await db.collection("documents").findOne({ id: documentId });
+  assert.deepEqual([document.revision,document.lines[0].quantity],[2,4]);
+  assert.deepEqual((await db.collection("products").findOne({ id: "p" })).stocks, { a: 6, b: 4 });
 
   await command({ type: "transfer.void", documentId });
   assert.deepEqual((await db.collection("products").findOne({ id: "p" })).stocks, { a: 10, b: 0 });
   document = await db.collection("documents").findOne({ id: documentId });
-  assert.deepEqual([document.status, document.revision], ["voided", 2]);
+  assert.deepEqual([document.status, document.revision], ["voided", 3]);
 });
 
 test("stock transfer edit rolls back completely when destination stock was consumed", async () => {
@@ -114,15 +229,32 @@ test("stock transfer edit rolls back completely when destination stock was consu
   assert.deepEqual([transfer.status, transfer.revision ?? 0, transfer.lines[0].quantity], ["posted", 0, 5]);
 });
 
-test("inventory adjustment update replays the historical delta and void restores the pre-adjustment quantity", async () => {
+test("inventory adjustment edits apply only the net difference instead of stacking reversal corrections", async () => {
   await insertProduct();
   await establishOpeningCost();
   const documentId = await command({ type: "adjustment.post", warehouseId: "a", reason: "count", lines: [{ productId: "p", actualQuantity: 12 }] });
   assert.equal((await db.collection("products").findOne({ id: "p" })).stocks.a, 12);
+
   await command({ type: "adjustment.update", documentId, reason: "corrected count", lines: [{ productId: "p", actualQuantity: 11 }] });
   assert.equal((await db.collection("products").findOne({ id: "p" })).stocks.a, 11);
   let document = await db.collection("documents").findOne({ id: documentId });
   assert.deepEqual([document.revision, document.lines[0].balanceBefore, document.lines[0].balanceAfter, document.lines[0].quantity], [1, 10, 11, 1]);
+  let edits=await db.collection("stockMovements").find({documentId,type:"adjustment-edit"}).toArray();
+  assert.deepEqual(edits.map(row=>[row.quantityDelta,row.balanceBefore,row.balanceAfter]),[[-1,12,11]]);
+  assert.equal(await db.collection("stockMovements").countDocuments({documentId,type:"adjustment-edit-reversal"}),0);
+
+  await command({ type: "adjustment.update", documentId, reason: "second correction", lines: [{ productId: "p", actualQuantity: 13 }] });
+  assert.equal((await db.collection("products").findOne({ id: "p" })).stocks.a, 13);
+  document = await db.collection("documents").findOne({ id: documentId });
+  assert.deepEqual([document.revision,document.lines[0].balanceBefore,document.lines[0].balanceAfter,document.lines[0].quantity],[2,10,13,3]);
+  edits=await db.collection("stockMovements").find({documentId,type:"adjustment-edit"}).sort({occurredAt:1}).toArray();
+  assert.deepEqual(edits.map(row=>row.quantityDelta),[-1,2]);
+
+  const movementCount=await db.collection("stockMovements").countDocuments({documentId});
+  await command({ type: "adjustment.update", documentId, reason: "reason only", lines: [{ productId: "p", actualQuantity: 13 }] });
+  assert.equal(await db.collection("stockMovements").countDocuments({documentId}),movementCount);
+  assert.equal((await db.collection("documents").findOne({id:documentId})).revision,3);
+
   await command({ type: "adjustment.void", documentId });
   assert.equal((await db.collection("products").findOne({ id: "p" })).stocks.a, 10);
   document = await db.collection("documents").findOne({ id: documentId });
@@ -218,4 +350,49 @@ test("party cash update may keep its original archived payment account but rejec
   await assert.rejects(command({ type: "party-cash.update", documentId, direction: "pay", amount: 130, paymentMethod: "party-other", note: "rejected" }), /وسيلة دفع صالحة/);
   const unchanged = await db.collection("documents").findOne({ id: documentId });
   assert.deepEqual([unchanged.paymentMethod, unchanged.total, unchanged.revision], ["party-old", 120, 1]);
+});
+
+
+test("sale edit and void keep one invoice identity while stock audit records the return explicitly", async () => {
+  await insertProduct();
+  const documentId = await command({ type: "sale.post", warehouseId: "a", paymentMethod: "cash", lines: [{ productId: "p", quantity: 4, piecePrice: 10 }] });
+  const original = await db.collection("documents").findOne({ id: documentId });
+  assert.equal((await db.collection("products").findOne({ id: "p" })).stocks.a, 6);
+
+  assert.equal(await command({ type: "sale.update", documentId, warehouseId: "a", paymentMethod: "cash", lines: [{ productId: "p", quantity: 2, piecePrice: 10 }] }), documentId);
+  let document = await db.collection("documents").findOne({ id: documentId });
+  assert.deepEqual([document.id, document.number, document.sequence, document.revision, document.lines[0].quantity], [documentId, original.number, original.sequence, 1, 2]);
+  assert.equal((await db.collection("products").findOne({ id: "p" })).stocks.a, 8);
+  let movements = await db.collection("stockMovements").find({ documentId }).sort({ occurredAt: 1 }).toArray();
+  assert.deepEqual(movements.map(row => [row.type, row.quantityDelta]), [["sale", -4], ["sale-edit", 2]]);
+
+  await command({ type: "sale.void", documentId });
+  document = await db.collection("documents").findOne({ id: documentId });
+  assert.deepEqual([document.id, document.number, document.sequence, document.status, document.revision], [documentId, original.number, original.sequence, "voided", 2]);
+  assert.equal(await db.collection("documents").countDocuments({ kind: "sale" }), 1);
+  assert.equal((await db.collection("products").findOne({ id: "p" })).stocks.a, 10);
+  movements = await db.collection("stockMovements").find({ documentId }).sort({ occurredAt: 1 }).toArray();
+  assert.deepEqual(movements.map(row => [row.type, row.quantityDelta]), [["sale", -4], ["sale-edit", 2], ["sale-void", 2]]);
+});
+
+test("purchase reduction and void preserve identity and distinguish supplier-return stock effects", async () => {
+  await insertProduct();
+  const documentId = await command({ type: "purchase.post", warehouseId: "a", paymentMethod: "cash", lines: [{ productId: "p", quantity: 4, unitPrice: 5 }] });
+  const original = await db.collection("documents").findOne({ id: documentId });
+  assert.equal((await db.collection("products").findOne({ id: "p" })).stocks.a, 14);
+
+  await command({ type: "purchase.update", documentId, warehouseId: "a", paymentMethod: "cash", lines: [{ productId: "p", quantity: 2, unitPrice: 5 }] });
+  let document = await db.collection("documents").findOne({ id: documentId });
+  assert.deepEqual([document.number, document.sequence, document.revision, document.lines[0].quantity], [original.number, original.sequence, 1, 2]);
+  assert.equal((await db.collection("products").findOne({ id: "p" })).stocks.a, 12);
+  let movements = await db.collection("stockMovements").find({ documentId }).sort({ occurredAt: 1 }).toArray();
+  assert.deepEqual(movements.map(row => [row.type, row.quantityDelta]), [["purchase", 4], ["purchase-edit", -2]]);
+
+  await command({ type: "purchase.void", documentId });
+  document = await db.collection("documents").findOne({ id: documentId });
+  assert.deepEqual([document.number, document.sequence, document.status, document.revision], [original.number, original.sequence, "voided", 2]);
+  assert.equal(await db.collection("documents").countDocuments({ kind: "purchase" }), 1);
+  assert.equal((await db.collection("products").findOne({ id: "p" })).stocks.a, 10);
+  movements = await db.collection("stockMovements").find({ documentId }).sort({ occurredAt: 1 }).toArray();
+  assert.deepEqual(movements.map(row => [row.type, row.quantityDelta]), [["purchase", 4], ["purchase-edit", -2], ["purchase-void", -2]]);
 });

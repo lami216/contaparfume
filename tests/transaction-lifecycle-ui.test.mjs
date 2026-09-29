@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const source = await readFile(new URL("../app/conta-app.tsx", import.meta.url), "utf8");
+const openingHistory = await readFile(new URL("../app/opening-stock-history.tsx", import.meta.url), "utf8");
 
 const expectedCommands = [
   "party-cash.update",
   "party-cash.void",
+  "legacy-party-document.void",
   "transfer.update",
   "transfer.void",
   "adjustment.update",
@@ -49,9 +51,30 @@ test("lifecycle row actions reuse the current visual system and shared confirmat
   assert.doesNotMatch(source, /window\.alert\s*\(/);
 });
 
-test("opening-stock history remains outside ordinary adjustment edit and delete", () => {
+test("opening-stock history has its own latest-correction edit and delete lifecycle", () => {
   assert.match(source, /document\.kind === "adjustment" && !isOpeningStockDocument\(document\)/);
-  assert.match(source, /<OpeningStockHistory/);
+  assert.match(source, /<OpeningStockHistory[\s\S]*run=\{p\.run\}[\s\S]*canEdit=\{canEdit\}[\s\S]*canDelete=\{canDelete\}/);
+  assert.match(openingHistory, /"opening-stock-correction\.update"/);
+  assert.match(openingHistory, /"opening-stock-correction\.void"/);
+  assert.match(openingHistory, /"opening-stock-initial\.void"/);
+  assert.match(openingHistory, /latestCorrectionByProduct/);
+  assert.doesNotMatch(openingHistory, /document\.openingCorrection === true/);
+  assert.match(openingHistory, /isOpeningStockCorrectionDocument\(document\)/);
+  assert.match(openingHistory, /openOpeningSource\(productId\)/);
+  assert.match(source, /productSourceRequest/);
+  assert.match(source, /<Products[\s\S]*sourceRequest=\{productSourceRequest\}/);
+  assert.match(source, /<OpeningStockHistory[\s\S]*openOpeningSource=\{p\.openOpeningSource\}/);
+  assert.match(openingHistory, /useAppConfirm\(\)/);
+  assert.match(openingHistory, /OPENING_CORRECTION_BLOCKED/);
+  assert.match(openingHistory, /function OpeningCorrectionBlockers/);
+  assert.match(openingHistory, /الانتقال إلى المصدر/);
+  assert.match(openingHistory, /openSource\(blocker\.documentId\)/);
+  assert.match(openingHistory, /عرض حركات المنتج/);
+  assert.match(openingHistory, /openProductMovements\(payload\.productId\)/);
+  assert.match(source, /inventoryProductSourceRequest/);
+  assert.match(source, /<Warehouses[\s\S]*sourceRequest=\{inventoryProductSourceRequest\}/);
+  assert.match(source, /<OpeningStockHistory[\s\S]*openSource=\{p\.openSource\}/);
+  assert.match(source, /<OpeningStockHistory[\s\S]*openProductMovements=\{p\.openProductMovements\}/);
 });
 
 test("product movement view derives the current document effect instead of selecting one audit movement", () => {
@@ -73,6 +96,18 @@ test("bank edit actions release the old fixed 124px action column and allow tran
   assert.match(css,/\.transfer-detail-row,\.adjustment-detail-row\{grid-template-columns:110px minmax\(0,1fr\)\}/);
   assert.match(css,/\.transfer-detail-row>\.party-row-actions,\.adjustment-detail-row>\.party-row-actions\{grid-column:1\/-1;justify-content:flex-end;flex-wrap:wrap;white-space:normal\}/);
   assert.doesNotMatch(css,/transfer-detail-row,\.adjustment-detail-row\{grid-template-columns:110px minmax\(0,1fr\) 124px\}/);
+});
+
+
+test("native legacy party records expose a safe delete lifecycle without re-enabling old creation flows", () => {
+  assert.match(source, /function isNativeLegacyPartyDocument/);
+  assert.match(source, /document\.kind === "settlement"/);
+  assert.match(source, /document\.kind === "offset"/);
+  assert.match(source, /document\.kind === "payment" && !document\.partyCashDirection/);
+  assert.match(source, /\["sale","return","payment","settlement","offset"\]/);
+  assert.match(source, /legacy-party-document\.void/);
+  assert.match(source, /legacyParty\.deleteOldTransaction/);
+  assert.match(source, /onVoid=\{canVoidLegacyPartyDocument\(doc\)/);
 });
 
 test("party payment buttons use complete translated labels instead of concatenating fragments", () => {

@@ -2,7 +2,7 @@ import { requireValidLicense } from "../../../lib/license.ts";
 import type { SqliteSession as ClientSession, SqliteDatabase as Db } from "../../../lib/sqlite.ts";
 import { getDatabase } from "../../../lib/sqlite.ts";
 import { log } from "../../../lib/log.ts";
-import { requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
+import { getPrincipalFromRequest, hasCapability, requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
 import { isProductExpired, resolvePartyType } from "../../domain.ts";
 import { normalizePartyNet, partyNet } from "../../party-balance.ts";
 import { nextDocumentSequence, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
@@ -14,7 +14,15 @@ type Input = Record<string, unknown>;
 type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; costAtSale?: number | null; grossProfit?: number | null };
 type WarehouseDoc = { _id: string; name: string; isSalesDefault?: boolean; [key: string]: unknown };
 const warehouses = (db: Db) => db.collection<WarehouseDoc>("warehouses");
-class CommandError extends Error { status: number; constructor(message: string, status = 400) { super(message); this.status = status; } }
+class CommandError extends Error {
+  status: number;
+  details?: Record<string, unknown>;
+  constructor(message: string, status = 400, details?: Record<string, unknown>) {
+    super(message);
+    this.status = status;
+    this.details = details;
+  }
+}
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const text = (v: unknown) => typeof v === "string" ? v.trim() : "";
 const num = (v: unknown) => typeof v === "number" ? v : Number(v);
@@ -231,10 +239,260 @@ async function changeStock(db: Db, session: ClientSession, product: Record<strin
   return { before, after };
 }
 
+function openingCorrectionProductId(document: Record<string, unknown>) {
+  const documentLines = Array.isArray(document.lines) ? document.lines as Record<string, unknown>[] : [];
+  return text(documentLines[0]?.productId);
+}
+function finiteOpeningAudit(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+function isOpeningCorrectionRecord(document: Record<string, unknown> | null | undefined) {
+  if (!document || text(document.kind) !== "adjustment") return false;
+  const number = text(document.number), title = text(document.title);
+  return document.openingCorrection === true
+    || number.startsWith("OPEN-COR")
+    || title === "تصحيح رصيد البداية"
+    || title === "إضافة رصيد افتتاحي"
+    || (Object.prototype.hasOwnProperty.call(document, "openingStockBefore") && Object.prototype.hasOwnProperty.call(document, "openingStockAfter"));
+}
+function isInitialOpeningRecord(document: Record<string, unknown> | null | undefined) {
+  if (!document || text(document.kind) !== "adjustment" || isOpeningCorrectionRecord(document)) return false;
+  const number = text(document.number), title = text(document.title);
+  return title === "رصيد بداية"
+    || (/^OPEN(?:-|$)/.test(number) && !number.startsWith("OPEN-COR"))
+    || (Object.prototype.hasOwnProperty.call(document, "openingStockAfter") && !Object.prototype.hasOwnProperty.call(document, "openingStockBefore"));
+}
+function isOpeningCorrectionMovementType(type: unknown) {
+  const current = text(type);
+  return current === "opening" || current.startsWith("opening-correction");
+}
+async function requireLatestProductOpeningCorrection(db: Db, session: ClientSession, documentId: string) {
+  const original = await db.collection("documents").findOne({ id: documentId, kind: "adjustment", status: "posted" }, { session });
+  if (!original || !isOpeningCorrectionRecord(original)) throw new CommandError("تصحيح رصيد البداية غير موجود أو ملغى", 404);
+  const productId = openingCorrectionProductId(original);
+  if (!productId) throw new CommandError("تصحيح رصيد البداية لا يحتوي منتجًا صالحًا", 409);
+  const product = await db.collection("products").findOne({ id: productId }, { session });
+  if (!product) throw new CommandError("المنتج المرتبط بتصحيح رصيد البداية غير موجود", 409);
+  const activeAdjustments = await db.collection("documents").find({ kind: "adjustment", status: "posted" }, { session }).sort({ occurredAt: -1, updatedAt: -1, id: -1 }).toArray();
+  const latest = activeAdjustments.find(document => isOpeningCorrectionRecord(document) && openingCorrectionProductId(document) === productId);
+  if (!latest || String(latest.id) !== String(original.id)) throw new CommandError("يمكن تعديل أو إلغاء آخر تصحيح رصيد بداية للمنتج فقط", 409);
+  const state = await deriveOpeningStockState(db, session, product);
+  const movements = await db.collection("stockMovements").find({ documentId }, { session }).toArray();
+  const netOpeningDelta = movements
+    .filter(movement => isOpeningCorrectionMovementType(movement.type))
+    .reduce((sum, movement) => sum + Number(movement.quantityDelta ?? 0), 0);
+  const explicitAfter = finiteOpeningAudit(original.openingStockAfter);
+  const after = explicitAfter ?? state.total;
+  const explicitBefore = finiteOpeningAudit(original.openingStockBefore);
+  const before = explicitBefore ?? after - netOpeningDelta;
+  const productOpening = finiteOpeningAudit(product.openingStock);
+  if (!Number.isFinite(before) || !Number.isFinite(after) || Math.abs(state.total - after) > 1e-9 || (productOpening !== null && Math.abs(productOpening - after) > 1e-9)) throw new CommandError("تسلسل تصحيحات رصيد البداية لا يسمح بهذه العملية", 409);
+  const line = (Array.isArray(original.lines) ? original.lines as Record<string, unknown>[] : []).find(item => text(item.productId) === productId);
+  const afterCost = finiteOpeningAudit(original.openingCostAfter) ?? state.cost ?? finiteOpeningAudit(line?.unitPrice);
+  const beforeCost = finiteOpeningAudit(original.openingCostBefore) ?? afterCost;
+  return { original, product, productId, state, before, after, beforeCost, afterCost, legacy: original.openingCorrection !== true };
+}
+async function applyProductOpeningTarget(
+  db: Db,
+  session: ClientSession,
+  context: Awaited<ReturnType<typeof requireLatestProductOpeningCorrection>>,
+  desiredTotal: number,
+  desiredCost: number | null,
+  targetWarehouseId: string | null,
+  relocateOpeningStock: boolean,
+  movementType: "opening-correction-edit" | "opening-correction-void",
+  revision: number,
+) {
+  let plan;
+  try { plan = planOpeningStockCorrection(context.state, desiredTotal, targetWarehouseId, relocateOpeningStock); }
+  catch (error) { throw new CommandError(error instanceof Error ? error.message : "رصيد البداية غير صالح", 409); }
+  const audit = { ...context.original, revision, occurredAt: new Date().toISOString() };
+  let targetWarehouse: WarehouseDoc | null = targetWarehouseId ? await warehouses(db).findOne({ _id: targetWarehouseId }, { session }) ?? null : null;
+  for (const item of plan.deltas) {
+    const warehouse = await warehouses(db).findOne({ _id: item.warehouseId, ...(item.delta > 0 ? { isArchived: { $ne: true } } : {}) }, { session });
+    if (!warehouse) throw new CommandError(item.delta > 0 ? "مخزن رصيد البداية غير متاح" : "تعذر تحديد مخزن رصيد البداية", 409);
+    try { await changeStock(db, session, context.product, warehouse, item.delta, audit, movementType); }
+    catch (error) { if (error instanceof CommandError && /المخزون غير كاف/.test(error.message)) throw new CommandError("تعذر تعديل تصحيح رصيد البداية لأن جزءًا من المخزون الناتج عنه تم التصرف فيه.", 409); throw error; }
+    if (String(warehouse._id) === targetWarehouseId) targetWarehouse = warehouse;
+  }
+  const openingWarehouseId = desiredTotal > context.state.consumed
+    ? (targetWarehouse?._id ?? targetWarehouseId ?? context.state.warehouseId)
+    : (context.state.warehouseId ?? targetWarehouse?._id ?? targetWarehouseId ?? null);
+  await db.collection("products").updateOne(
+    { id: context.productId },
+    { $set: { openingStock: desiredTotal, openingCost: desiredCost, openingWarehouseId, updatedAt: new Date() } },
+    { session },
+  );
+  context.product.openingStock = desiredTotal;
+  context.product.openingCost = desiredCost;
+  context.product.openingWarehouseId = openingWarehouseId;
+  await recomputePurchaseCosts(db, session, [context.productId]);
+  return { plan, targetWarehouse, openingWarehouseId };
+}
+async function currentOpeningCorrectionLines(db: Db, session: ClientSession, documentId: string, productId: string, productName: string, openingCost: number | null) {
+  const movements = await db.collection("stockMovements").find({ documentId }, { session }).toArray();
+  const grouped = new Map<string, { warehouseName: string; quantity: number }>();
+  for (const movement of movements) {
+    if (!isOpeningCorrectionMovementType(movement.type)) continue;
+    const warehouseId = String(movement.warehouseId ?? "");
+    if (!warehouseId) continue;
+    const current = grouped.get(warehouseId) ?? { warehouseName: String(movement.warehouseName ?? warehouseId), quantity: 0 };
+    current.quantity += Number(movement.quantityDelta ?? 0);
+    grouped.set(warehouseId, current);
+  }
+  const lines = [...grouped.entries()].filter(([, value]) => Math.abs(value.quantity) > 1e-9).map(([warehouseId, value]) => ({
+    id: id("line"), productId, description: `${productName} — ${value.warehouseName}`, quantity: value.quantity, unitPrice: openingCost ?? 0, lineTotal: 0, warehouseId,
+  }));
+  return lines.length ? lines : [{ id: id("line"), productId, description: `${productName} — تصحيح تكلفة رصيد البداية`, quantity: 0, unitPrice: openingCost ?? 0, lineTotal: 0 }];
+}
+
+async function openingStockBlockingOperations(
+  db: Db,
+  session: ClientSession,
+  productId: string,
+  sourceDocumentId: string,
+) {
+  const productMovements = await db.collection("stockMovements").find({ productId }, { session }).toArray();
+  let firstCorrectionMovement = -1;
+  for (let index = 0; index < productMovements.length; index++) {
+    const movement = productMovements[index];
+    if (String(movement.documentId ?? "") === sourceDocumentId && isOpeningCorrectionMovementType(movement.type)) {
+      firstCorrectionMovement = index;
+      break;
+    }
+  }
+  const subsequent = firstCorrectionMovement >= 0 ? productMovements.slice(firstCorrectionMovement + 1) : [];
+  const grouped = new Map<string, {
+    documentId: string;
+    documentNumber: string;
+    occurredAt: string;
+    movementTypes: Set<string>;
+    effects: Map<string, { warehouseName: string; quantityDelta: number }>;
+  }>();
+  for (const movement of subsequent) {
+    const documentId = String(movement.documentId ?? "");
+    if (!documentId || documentId === sourceDocumentId) continue;
+    const warehouseId = String(movement.warehouseId ?? "");
+    const quantityDelta = Number(movement.quantityDelta ?? 0);
+    if (!warehouseId || !Number.isFinite(quantityDelta) || quantityDelta === 0) continue;
+    const current = grouped.get(documentId) ?? {
+      documentId,
+      documentNumber: String(movement.documentNumber ?? ""),
+      occurredAt: String(movement.occurredAt ?? ""),
+      movementTypes: new Set<string>(),
+      effects: new Map<string, { warehouseName: string; quantityDelta: number }>(),
+    };
+    current.documentNumber ||= String(movement.documentNumber ?? "");
+    current.occurredAt = String(movement.occurredAt ?? current.occurredAt);
+    current.movementTypes.add(String(movement.type ?? ""));
+    const effect = current.effects.get(warehouseId) ?? { warehouseName: String(movement.warehouseName ?? warehouseId), quantityDelta: 0 };
+    effect.quantityDelta += quantityDelta;
+    current.effects.set(warehouseId, effect);
+    grouped.set(documentId, current);
+  }
+  const relevant = [...grouped.values()].filter(item => [...item.effects.values()].some(effect => effect.quantityDelta < -1e-9));
+  if (!relevant.length) return [];
+  const documents = await db.collection("documents").find({ id: { $in: relevant.map(item => item.documentId) } }, { session }).toArray();
+  const documentMap = new Map(documents.map(document => [String(document.id), document]));
+  return relevant.map(item => {
+    const document = documentMap.get(item.documentId);
+    return {
+      documentId: item.documentId,
+      documentNumber: String(document?.number ?? item.documentNumber),
+      kind: String(document?.kind ?? ""),
+      title: String(document?.title ?? ""),
+      status: String(document?.status ?? ""),
+      occurredAt: String(document?.updatedAt ?? item.occurredAt ?? document?.occurredAt ?? ""),
+      movementTypes: [...item.movementTypes].filter(Boolean),
+      warehouses: [...item.effects.entries()]
+        .map(([warehouseId, effect]) => ({ warehouseId, warehouseName: effect.warehouseName, quantityDelta: effect.quantityDelta }))
+        .filter(effect => Math.abs(effect.quantityDelta) > 1e-9),
+    };
+  });
+}
+
+
+async function requireInitialOpeningDocument(db: Db, session: ClientSession, documentId: string) {
+  const original = await db.collection("documents").findOne({ id: documentId, kind: "adjustment", status: "posted" }, { session });
+  if (!original || !isInitialOpeningRecord(original)) throw new CommandError("سجل رصيد البداية غير موجود أو ملغى", 404);
+  const productId = openingCorrectionProductId(original);
+  if (!productId) throw new CommandError("سجل رصيد البداية لا يحتوي منتجًا صالحًا", 409);
+  const product = await db.collection("products").findOne({ id: productId }, { session });
+  if (!product) throw new CommandError("المنتج المرتبط برصيد البداية غير موجود", 409);
+  const activeAdjustments = await db.collection("documents").find({ kind: "adjustment", status: "posted" }, { session }).sort({ occurredAt: -1, updatedAt: -1, id: -1 }).toArray();
+  const activeCorrection = activeAdjustments.find(document => isOpeningCorrectionRecord(document) && openingCorrectionProductId(document) === productId);
+  if (activeCorrection) throw new CommandError("احذف آخر تصحيح لرصيد البداية أولًا ثم أعد محاولة حذف رصيد البداية الأصلي.", 409, { code: "OPENING_INITIAL_HAS_CORRECTION", productId, correctionDocumentId: String(activeCorrection.id) });
+  const state = await deriveOpeningStockState(db, session, product);
+  return { original, product, productId, state };
+}
+
 export async function execute(db: Db, session: ClientSession, body: Input) {
   const type = text(body.type);
   const lifecycle = await executeLifecycleCommand(db, session, body);
   if (lifecycle.handled) return lifecycle.result;
+  if (type === "opening-stock-initial.void") {
+    const documentId = text(body.documentId), context = await requireInitialOpeningDocument(db, session, documentId);
+    const state = context.state;
+    if (state.total <= 0) throw new CommandError("رصيد البداية ملغى بالفعل", 409);
+    let plan;
+    try { plan = planOpeningStockCorrection(state, 0, state.warehouseId, false); }
+    catch (error) {
+      const blockers = await openingStockBlockingOperations(db, session, context.productId, documentId);
+      throw new CommandError(
+        error instanceof Error ? error.message : "لا يمكن حذف رصيد البداية لأن جزءًا من الكمية تم التصرف فيه.",
+        409,
+        {
+          code: "OPENING_STOCK_BLOCKED",
+          productId: context.productId,
+          productName: String(context.product.name ?? ""),
+          consumedOpening: state.consumed,
+          restoredOpening: 0,
+          deficits: [],
+          blockers,
+        },
+      );
+    }
+    const audit = { ...context.original, revision: Number(context.original.revision ?? 0) + 1, occurredAt: new Date().toISOString() };
+    for (const item of plan.deltas) {
+      if (!item.delta) continue;
+      const warehouse = await warehouses(db).findOne({ _id: item.warehouseId }, { session });
+      if (!warehouse) throw new CommandError("تعذر تحديد مخزن رصيد البداية", 409);
+      try { await changeStock(db, session, context.product, warehouse, item.delta, audit, "opening-void"); }
+      catch (error) {
+        if (error instanceof CommandError && /المخزون غير كاف/.test(error.message)) {
+          const blockers = await openingStockBlockingOperations(db, session, context.productId, documentId);
+          throw new CommandError("لا يمكن حذف رصيد البداية لأن جزءًا من الكمية تم التصرف فيه.", 409, {
+            code: "OPENING_STOCK_BLOCKED",
+            productId: context.productId,
+            productName: String(context.product.name ?? ""),
+            consumedOpening: state.consumed,
+            restoredOpening: 0,
+            deficits: [{ warehouseId: item.warehouseId, required: Math.abs(item.delta), available: Number((context.product.stocks as Record<string, number> | undefined)?.[item.warehouseId] ?? 0), missing: Math.max(0, Math.abs(item.delta) - Number((context.product.stocks as Record<string, number> | undefined)?.[item.warehouseId] ?? 0)) }],
+            blockers,
+          });
+        }
+        throw error;
+      }
+    }
+    await db.collection("products").updateOne(
+      { id: context.productId },
+      { $set: { openingStock: 0, openingCost: null, openingWarehouseId: null, updatedAt: new Date() } },
+      { session },
+    );
+    context.product.openingStock = 0;
+    context.product.openingCost = null;
+    context.product.openingWarehouseId = null;
+    await recomputePurchaseCosts(db, session, [context.productId]);
+    const now = new Date();
+    await db.collection("documents").updateOne(
+      { id: documentId, status: "posted" },
+      { $set: { status: "voided", voidedAt: now, updatedAt: now, revision: Number(context.original.revision ?? 0) + 1, openingStockAfter: Number(context.original.openingStockAfter ?? state.total), openingCostAfter: context.original.openingCostAfter ?? state.cost ?? null } },
+      { session },
+    );
+    return documentId;
+  }
   if (type === "product.delete") {
     const productId = text(body.id), product = await db.collection("products").findOne({ id: productId }, { session });
     if (!product) throw new CommandError("المنتج غير موجود", 404);
@@ -244,6 +502,102 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
   if (type === "product.restore") {
     const productId=text(body.id),result=await db.collection("products").updateOne({id:productId,isArchived:true},{$set:{isArchived:false,archivedAt:null}},{session});
     if(!result.matchedCount)throw new CommandError("المنتج المحذوف غير موجود",404);return productId;
+  }
+  if (type === "opening-stock-correction.update") {
+    const documentId = text(body.documentId), context = await requireLatestProductOpeningCorrection(db, session, documentId);
+    const desiredTotal = num(body.newOpeningStock ?? body.openingStock);
+    if (!Number.isInteger(desiredTotal) || desiredTotal < 0) throw new CommandError("رصيد البداية غير صالح");
+    const desiredCost = desiredTotal > 0 ? (body.openingCost === "" || body.openingCost == null ? context.state.cost : optionalNumber(body.openingCost, "تكلفة رصيد البداية")) : null;
+    if (desiredTotal > 0 && (!desiredCost || desiredCost <= 0)) throw new CommandError("تكلفة رصيد البداية مطلوبة");
+    const targetWarehouseId = text(body.openingWarehouseId) || context.state.warehouseId;
+    const relocateOpeningStock = body.relocateOpeningStock === true;
+    let preview;
+    try { preview = planOpeningStockCorrection(context.state, desiredTotal, targetWarehouseId, relocateOpeningStock); }
+    catch (error) {
+      const message = error instanceof Error ? error.message : "رصيد البداية غير صالح";
+      if (desiredTotal < context.state.consumed || /تم التصرف/.test(message)) {
+        const blockers = await openingStockBlockingOperations(db, session, context.productId, documentId);
+        throw new CommandError(message, 409, {
+          code: "OPENING_CORRECTION_BLOCKED",
+          productId: context.productId,
+          productName: String(context.product.name ?? ""),
+          consumedOpening: context.state.consumed,
+          restoredOpening: desiredTotal,
+          deficits: [],
+          blockers,
+        });
+      }
+      throw new CommandError(message, 409);
+    }
+    const costChanged = Number(context.state.cost ?? 0) !== Number(desiredCost ?? 0);
+    const warehouseChanged = relocateOpeningStock && targetWarehouseId !== context.state.warehouseId;
+    if (!preview.deltas.length && !costChanged && !warehouseChanged) throw new CommandError("لا توجد تغييرات على تصحيح رصيد البداية");
+    const revision = Number(context.original.revision ?? 0) + 1;
+    const applied = await applyProductOpeningTarget(db, session, context, desiredTotal, desiredCost, targetWarehouseId, relocateOpeningStock, "opening-correction-edit", revision);
+    const revisedLines = await currentOpeningCorrectionLines(db, session, documentId, context.productId, String(context.product.name ?? context.productId), desiredCost);
+    await db.collection("documents").updateOne(
+      { id: documentId, status: "posted" },
+      { $set: { openingCorrection: true, title: "تصحيح رصيد البداية", openingStockBefore: context.before, openingStockAfter: desiredTotal, openingCostBefore: context.beforeCost, openingCostAfter: desiredCost, destinationWarehouseId: applied.targetWarehouse?._id ?? targetWarehouseId ?? null, destinationWarehouseName: applied.targetWarehouse?.name ?? null, lines: revisedLines, updatedAt: new Date(), revision } },
+      { session },
+    );
+    return documentId;
+  }
+  if (type === "opening-stock-correction.void") {
+    const documentId = text(body.documentId), context = await requireLatestProductOpeningCorrection(db, session, documentId);
+    const desiredTotal = context.before, desiredCost = desiredTotal > 0 ? context.beforeCost : null;
+    if (desiredTotal > 0 && (!desiredCost || desiredCost <= 0)) throw new CommandError("تعذر استعادة تكلفة رصيد البداية السابقة", 409);
+    const revision = Number(context.original.revision ?? 0) + 1, audit = { ...context.original, revision, occurredAt: new Date().toISOString() };
+    const movements = await db.collection("stockMovements").find({ documentId }, { session }).toArray();
+    const netByWarehouse = new Map<string, number>();
+    for (const movement of movements) {
+      if (!isOpeningCorrectionMovementType(movement.type)) continue;
+      const warehouseId = String(movement.warehouseId ?? "");
+      if (!warehouseId) continue;
+      netByWarehouse.set(warehouseId, Number(netByWarehouse.get(warehouseId) ?? 0) + Number(movement.quantityDelta ?? 0));
+    }
+    const deficits = [...netByWarehouse.entries()]
+      .filter(([, net]) => net > 1e-9)
+      .map(([warehouseId, required]) => {
+        const available = Number((context.product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0);
+        return { warehouseId, required, available, missing: Math.max(0, required - available) };
+      })
+      .filter(item => item.missing > 1e-9);
+    const consumedBeyondOriginalOpening = context.state.consumed > desiredTotal + 1e-9;
+    if (consumedBeyondOriginalOpening || deficits.length) {
+      const blockers = await openingStockBlockingOperations(db, session, context.productId, documentId);
+      throw new CommandError(
+        "لا يمكن حذف تصحيح رصيد البداية لأن جزءًا من المخزون الناتج عنه تم التصرف فيه.",
+        409,
+        {
+          code: "OPENING_CORRECTION_BLOCKED",
+          productId: context.productId,
+          productName: String(context.product.name ?? ""),
+          consumedOpening: context.state.consumed,
+          restoredOpening: desiredTotal,
+          deficits,
+          blockers,
+        },
+      );
+    }
+    for (const [warehouseId, net] of netByWarehouse) {
+      if (Math.abs(net) < 1e-9) continue;
+      const warehouse = await warehouses(db).findOne({ _id: warehouseId }, { session });
+      if (!warehouse) throw new CommandError("تعذر تحديد مخزن رصيد البداية السابق", 409);
+      await changeStock(db, session, context.product, warehouse, -net, audit, "opening-correction-void");
+    }
+    const restoredWarehouseId = text(context.original.warehouseId) || context.state.warehouseId || null;
+    await db.collection("products").updateOne({ id: context.productId }, { $set: { openingStock: desiredTotal, openingCost: desiredCost, openingWarehouseId: restoredWarehouseId, updatedAt: new Date() } }, { session });
+    context.product.openingStock = desiredTotal;
+    context.product.openingCost = desiredCost;
+    context.product.openingWarehouseId = restoredWarehouseId;
+    await recomputePurchaseCosts(db, session, [context.productId]);
+    const now = new Date();
+    await db.collection("documents").updateOne(
+      { id: documentId, status: "posted" },
+      { $set: { openingCorrection: true, title: "تصحيح رصيد البداية", openingStockBefore: context.before, openingStockAfter: context.after, openingCostBefore: context.beforeCost, openingCostAfter: context.afterCost, status: "voided", voidedAt: now, updatedAt: now, revision } },
+      { session },
+    );
+    return documentId;
   }
   if (type === "party.create") {
     const name = text(body.name), phone = text(body.phone), partyType = text(body.partyType); if (!name) throw new CommandError("اسم الحساب مطلوب");
@@ -556,7 +910,7 @@ export async function POST(request: Request) {const licenseDenied=await requireV
   let type = "unknown";
   try {
     const body = await request.json() as Input; type = text(body.type);
-    const map:Record<string,Capability>={"product.delete":"products.delete","product.restore":"products.edit","product-category.create":"products.create","product-category.update":"products.edit","product-category.delete":"products.delete","product.create":"products.create","product.update":"products.edit","warehouse.create":"warehouses.create","warehouse.update":"warehouses.edit","warehouse.default":"warehouses.edit","warehouse.delete":"warehouses.delete","sale.post":"pos.create","sale.update":"pos.edit","sale.void":"pos.delete","purchase.post":"purchases.create","purchase.update":"purchases.edit","purchase.void":"purchases.delete","transfer.post":"warehouses.transfer","transfer.update":"warehouses.transfer.edit","transfer.void":"warehouses.transfer.delete","adjustment.post":"warehouses.adjust","adjustment.update":"warehouses.adjust.edit","adjustment.void":"warehouses.adjust.delete","party-cash.post":text(body.partyType)==="supplier"?"suppliers.pay":"customers.collect","party-cash.update":"customers.collect.edit","party-cash.void":"customers.collect.delete","expense.post":"expenses.create","expense.update":"expenses.edit","expense.void":"expenses.delete","payment-account.create":"banks.create","payment-account.update":"banks.edit","payment-account.delete":"banks.delete","payment-account.restore":"banks.edit","account-adjustment.post":"banks.deposit_withdraw","account-adjustment.update":"banks.deposit_withdraw.edit","account-adjustment.void":"banks.deposit_withdraw.delete","account-transfer.post":"banks.transfer","account-transfer.update":"banks.transfer.edit","account-transfer.void":"banks.transfer.delete","account-opening-balance-correction.post":"banks.balance_correct","account-opening-balance-correction.update":"banks.balance_correct.edit","account-opening-balance-correction.void":"banks.balance_correct.delete","party.create":body.partyType==="customer"?"customers.create":"suppliers.create","party.update":"customers.edit","party.delete":"customers.delete","party.restore":"customers.edit"};
+    const map:Record<string,Capability>={"product.delete":"products.delete","product.restore":"products.edit","product-category.create":"products.create","product-category.update":"products.edit","product-category.delete":"products.delete","product.create":"products.create","product.update":"products.edit","warehouse.create":"warehouses.create","warehouse.update":"warehouses.edit","warehouse.default":"warehouses.edit","warehouse.delete":"warehouses.delete","sale.post":"pos.create","sale.update":"pos.edit","sale.void":"pos.delete","purchase.post":"purchases.create","purchase.update":"purchases.edit","purchase.void":"purchases.delete","transfer.post":"warehouses.transfer","transfer.update":"warehouses.transfer.edit","transfer.void":"warehouses.transfer.delete","adjustment.post":"warehouses.adjust","adjustment.update":"warehouses.adjust.edit","adjustment.void":"warehouses.adjust.delete","opening-stock-correction.update":"warehouses.adjust.edit","opening-stock-correction.void":"warehouses.adjust.delete","opening-stock-initial.void":"warehouses.adjust.delete","party-cash.post":text(body.partyType)==="supplier"?"suppliers.pay":"customers.collect","party-cash.update":"customers.collect.edit","party-cash.void":"customers.collect.delete","legacy-party-document.void":"customers.collect.delete","expense.post":"expenses.create","expense.update":"expenses.edit","expense.void":"expenses.delete","payment-account.create":"banks.create","payment-account.update":"banks.edit","payment-account.delete":"banks.delete","payment-account.restore":"banks.edit","account-adjustment.post":"banks.deposit_withdraw","account-adjustment.update":"banks.deposit_withdraw.edit","account-adjustment.void":"banks.deposit_withdraw.delete","account-transfer.post":"banks.transfer","account-transfer.update":"banks.transfer.edit","account-transfer.void":"banks.transfer.delete","account-opening-balance-correction.post":"banks.balance_correct","account-opening-balance-correction.update":"banks.balance_correct.edit","account-opening-balance-correction.void":"banks.balance_correct.delete","party.create":body.partyType==="customer"?"customers.create":"suppliers.create","party.update":"customers.edit","party.delete":"customers.delete","party.restore":"customers.edit"};
     let capability=map[type];
     if(["party-cash.post","party.update","party.delete","party.restore"].includes(type)){
       const party=await getDatabase().collection("parties").findOne({id:text(body.partyId??body.id)});
@@ -566,6 +920,17 @@ export async function POST(request: Request) {const licenseDenied=await requireV
       const database=await getDatabase(),document=await database.collection("documents").findOne({id:text(body.documentId),kind:"payment"});
       const party=document?.partyId?await database.collection("parties").findOne({id:String(document.partyId)}):null;
       if(party){const supplier=resolvePartyType(party)==="supplier",editing=type==="party-cash.update";capability=supplier?(editing?"suppliers.pay.edit":"suppliers.pay.delete"):(editing?"customers.collect.edit":"customers.collect.delete");}
+    }
+    if(type==="legacy-party-document.void"){
+      const database=await getDatabase(),document=await database.collection("documents").findOne({id:text(body.documentId),kind:{$in:["payment","settlement","offset"]}});
+      const party=document?.partyId?await database.collection("parties").findOne({id:String(document.partyId)}):null;
+      const historical=!party&&document?.partyId?await database.collection("documents").findOne({partyId:String(document.partyId),kind:{$in:["purchase","sale"]}}):null;
+      if(party)capability=resolvePartyType(party)==="supplier"?"suppliers.pay.delete":"customers.collect.delete";
+      else if(historical)capability=historical.kind==="purchase"?"suppliers.pay.delete":"customers.collect.delete";
+      else{
+        const principal=await getPrincipalFromRequest(request);
+        capability=hasCapability(principal,"suppliers.pay.delete")?"suppliers.pay.delete":"customers.collect.delete";
+      }
     }
     if(!capability)return Response.json({error:"العملية غير مدعومة"},{status:400});const denied=await requireCapability(request,capability);if(denied)return denied;
     if((type==="product.update"&&body.replaceOpeningStock===true)||(type==="product.create"&&Number(body.openingStock??0)>0)){const stockDenied=await requireCapability(request,"warehouses.adjust");if(stockDenied)return stockDenied;}
@@ -585,5 +950,9 @@ export async function POST(request: Request) {const licenseDenied=await requireV
     });}
     catch(error){if((error as {code?:number}).code===11000){const duplicate=await receipts.findOne({_id:idempotencyKey as never});if(duplicate?.fingerprint!==fingerprint)return Response.json({error:"مفتاح العملية مستخدم لطلب مختلف"},{status:409});if(duplicate?.status==="committed")return Response.json(duplicate.result);return Response.json({error:"العملية قيد التنفيذ"},{status:409});}throw error;}
     log("info","api.command.completed",{commandType:type,entityId:result});return Response.json(response);
-  }catch(error){const status=error instanceof CommandError||error instanceof LifecycleCommandError?error.status:500;log("error","api.command.failed",{commandType:type,error});return Response.json({error:error instanceof CommandError||error instanceof LifecycleCommandError?error.message:"تعذر تنفيذ العملية"},{status});}
+  }catch(error){
+    const known=error instanceof CommandError||error instanceof LifecycleCommandError,status=known?error.status:500;
+    log("error","api.command.failed",{commandType:type,error});
+    return Response.json({error:known?error.message:"تعذر تنفيذ العملية",...(error instanceof CommandError&&error.details?error.details:{})},{status});
+  }
 }

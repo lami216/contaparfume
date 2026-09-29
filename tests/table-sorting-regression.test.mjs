@@ -85,7 +85,7 @@ test("sorting-enabled screens keep the shared sorter while reports use global se
   assert.match(source, /stock:\[\[\"occurredAt\",tr\(\"التاريخ\"\),\"date\"\][\s\S]{0,900}\[\"documentNumber\",tr\(\"المستند\"\),\"text\"\]/);
   assert.match(source, /party-ledger\":\[\[\"occurredAt\",tr\(\"التاريخ\"\),\"date\"\][\s\S]{0,900}\[\"documentNumber\",tr\(\"رقم المستند\"\),\"text\"\]/);
   assert.match(source, /financial:\[\[\"occurredAt\",tr\(\"التاريخ\"\),\"date\"\][\s\S]{0,900}\[\"documentNumber\",tr\(\"المستند\"\),\"text\"\]/);
-  assert.match(source, /movementColumns=useMemo\(\(\)=>\[[\s\S]*?key:\"number\",type:\"number\" as const[\s\S]*?useSortableRows\(filteredMovementDocs,movementColumns\)/);
+  assert.match(source, /function ProductMovementPanel[\s\S]*?movementColumns=useMemo\(\(\)=>\[[\s\S]*?key:\"number\",type:\"text\" as const[\s\S]*?useSortableRows\(movements,movementColumns\)/);
   assert.match(source, /transferColumns=useMemo\(\(\)=>\[[\s\S]*?key:\"number\",type:\"number\" as const[\s\S]*?useSortableRows\(transfers,transferColumns\)/);
   assert.match(source, /key:\"reference\",type:\"text\" as const[\s\S]*?useSortableRows\(transfers,transferColumns\)/);
   assert.match(source, /key:\"document\",type:\"text\" as const[\s\S]*?useSortableRows\(movements,movementColumns\)/);

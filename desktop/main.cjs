@@ -22,6 +22,8 @@ const normalizePrintSettings=value=>{const source=value&&typeof value==='object'
 const printingSettingsPath=()=>join(app.getPath('userData'),'printing-settings.json');
 async function getPrintingSettings(){try{return normalizePrintSettings(JSON.parse(await readFile(printingSettingsPath(),'utf8')))}catch{return{...DEFAULT_PRINT_SETTINGS}}}
 async function savePrintingSettings(value){const settings=normalizePrintSettings(value),path=printingSettingsPath();mkdirSync(app.getPath('userData'),{recursive:true});await writeFile(path,JSON.stringify(settings,null,2),'utf8');return settings}
+const safeExportName=(value,extension)=>{const base=String(value||'export').replace(/[<>:"/\\|?*\u0000-\u001f]/g,'_').trim().replace(/[. ]+$/,'')||'export';return base.toLowerCase().endsWith(extension)?base:`${base}${extension}`};
+async function chooseExportPath(owner,suggestedName,extension,filterName){const result=await dialog.showSaveDialog(owner,{title:PRODUCT_NAME,defaultPath:safeExportName(suggestedName,extension),filters:[{name:filterName,extensions:[extension.slice(1)]}]});return result.canceled||!result.filePath?null:result.filePath}
 let printingHandlersRegistered=false;
 function registerPrintingHandlers(){if(printingHandlersRegistered)return;printingHandlersRegistered=true;
  ipcMain.handle('alkarna:printing:list',async event=>(await event.sender.getPrintersAsync()).map(printer=>({name:printer.name,displayName:printer.displayName||printer.name,description:printer.description||'',status:printer.status,isDefault:Boolean(printer.isDefault)})));
@@ -32,12 +34,27 @@ function registerPrintingHandlers(){if(printingHandlersRegistered)return;printin
   if(settings.deviceName&&!printers.some(printer=>printer.name===settings.deviceName))return{ok:false,error:'printer-not-found'};
   const thermalWidth=THERMAL_PAPER_WIDTH_MICRONS[settings.profile],rawHeight=Number(value?.paperHeightMicrons),thermalHeight=Number.isFinite(rawHeight)?Math.max(50000,Math.min(1000000,Math.round(rawHeight))):null;
   const baseOptions={silent,printBackground:true,deviceName:settings.deviceName||undefined};
-  const options=settings.profile==='a4'?{...baseOptions,pageSize:'A4'}:thermalWidth&&thermalHeight?{...baseOptions,pageSize:{width:thermalWidth,height:thermalHeight},margins:{marginType:'none'},landscape:false}:{...baseOptions,usePrinterDefaultPageSize:true};
+  const options=settings.profile==='a4'?{...baseOptions,pageSize:'A4',landscape:false}:thermalWidth&&thermalHeight?{...baseOptions,pageSize:{width:thermalWidth,height:thermalHeight},margins:{marginType:'none'},landscape:false}:{...baseOptions,usePrinterDefaultPageSize:true};
   const runPrint=printOptions=>new Promise(resolve=>event.sender.print(printOptions,(success,failureReason)=>{stamp(`print profile=${settings.profile} printer=${settings.deviceName||'windows-default'} silent=${silent} success=${success}${failureReason?` reason=${failureReason}`:''}`);resolve(success?{ok:true}:{ok:false,error:failureReason||'print-failed'})}));
   const result=await runPrint(options);
   if(result.ok||!thermalWidth||!thermalHeight||!/invalid printer settings/i.test(result.error))return result;
   stamp(`retry print profile=${settings.profile} with printer default page size`);
   return runPrint({...baseOptions,usePrinterDefaultPageSize:true});
+ });
+ ipcMain.handle('alkarna:printing:pdf',async(event,value)=>{
+  const settings=normalizePrintSettings(value),thermalWidth=THERMAL_PAPER_WIDTH_MICRONS[settings.profile],rawHeight=Number(value?.paperHeightMicrons),thermalHeight=Number.isFinite(rawHeight)?Math.max(50000,Math.min(1000000,Math.round(rawHeight))):null;
+  const filePath=await chooseExportPath(BrowserWindow.fromWebContents(event.sender),value?.suggestedName||'export','.pdf','PDF');
+  if(!filePath)return{ok:false,canceled:true};
+  const options=settings.profile==='a4'?{pageSize:'A4',landscape:false,printBackground:true,preferCSSPageSize:true}:thermalWidth&&thermalHeight?{pageSize:{width:thermalWidth/25400,height:thermalHeight/25400},landscape:false,printBackground:true,preferCSSPageSize:false}:{pageSize:'A4',landscape:false,printBackground:true,preferCSSPageSize:true};
+  try{const pdf=await event.sender.printToPDF(options);await writeFile(filePath,pdf);stamp(`pdf export path=${filePath}`);return{ok:true,filePath}}catch(error){stamp(`pdf export failed: ${error?.stack||error}`);return{ok:false,error:error instanceof Error?error.message:'pdf-export-failed'}}
+ });
+ ipcMain.handle('alkarna:export:save',async(event,value)=>{
+  const format=value?.format==='xlsx'?'xlsx':null;if(!format)return{ok:false,error:'unsupported-export-format'};
+  const raw=value?.data;if(!(raw instanceof Uint8Array)&&!Buffer.isBuffer(raw))return{ok:false,error:'invalid-export-data'};
+  const bytes=Buffer.from(raw);if(bytes.length>50*1024*1024)return{ok:false,error:'export-too-large'};
+  const filePath=await chooseExportPath(BrowserWindow.fromWebContents(event.sender),value?.suggestedName||'export','.xlsx','Excel');
+  if(!filePath)return{ok:false,canceled:true};
+  try{await writeFile(filePath,bytes);stamp(`xlsx export path=${filePath}`);return{ok:true,filePath}}catch(error){stamp(`xlsx export failed: ${error?.stack||error}`);return{ok:false,error:error instanceof Error?error.message:'xlsx-export-failed'}}
  });
 }
 const stopServer=()=>new Promise(resolve=>{if(!server||server.exitCode!==null)return resolve();const timer=setTimeout(()=>{server?.kill('SIGKILL');resolve()},5000);server.once('exit',()=>{clearTimeout(timer);resolve()});server.kill()});

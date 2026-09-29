@@ -166,14 +166,6 @@ async function updateTransfer(db: Db, session: ClientSession, body: Input) {
   const oldTo = await db.collection("warehouses").findOne({ _id: String(original.destinationWarehouseId) }, { session });
   if (!oldFrom || !oldTo) throw new LifecycleCommandError("تعذر تحديد مخازن التحويل الأصلية", 409);
   const oldFromWasArchived=oldFrom.isArchived===true,oldFromArchivedAt=oldFrom.archivedAt,oldToWasArchived=oldTo.isArchived===true,oldToArchivedAt=oldTo.archivedAt;
-  const oldLines = (original.lines ?? []) as Stored[], oldIds = oldLines.map(line => String(line.productId));
-  const oldProducts = await loadProducts(db, session, oldIds), revision = Number(original.revision ?? 0) + 1, audit = stockAuditDocument(original, revision);
-  for (const line of oldLines) {
-    const product = oldProducts.get(String(line.productId))!, quantity = Number(line.quantity ?? 0);
-    await changeStock(db, session, product, oldFrom, quantity, audit, "transfer-edit-reversal");
-    try { await changeStock(db, session, product, oldTo, -quantity, audit, "transfer-edit-reversal"); }
-    catch (error) { if (error instanceof LifecycleCommandError && /المخزون غير كاف/.test(error.message)) throw new LifecycleCommandError("لا يمكن تعديل التحويل لأن جزءًا من المخزون المحول تم التصرف فيه.", 409); throw error; }
-  }
   const input = parseTransferLines(body), fromId = text(body.fromWarehouseId), toId = text(body.toWarehouseId);
   if (!fromId || !toId || fromId === toId) throw new LifecycleCommandError("اختر مخزنين مختلفين");
   const [from, to] = await Promise.all([
@@ -181,15 +173,33 @@ async function updateTransfer(db: Db, session: ClientSession, body: Input) {
     db.collection("warehouses").findOne({ _id: toId, ...(toId===String(original.destinationWarehouseId)?{}:{isArchived:{ $ne:true }}) }, { session }),
   ]);
   if (!from || !to) throw new LifecycleCommandError("أحد المخازن غير موجود", 404);
-  const requestedIds=input.map(line=>line.productId),products=await loadProducts(db,session,requestedIds);
-  for(const product of products.values())if(product.isArchived===true&&!oldIds.includes(String(product.id)))throw new LifecycleCommandError("لا يمكن إضافة منتج محذوف إلى تحويل مخزون",409);
-  const lines: Stored[] = [];
-  for (const line of input) {
-    const product = products.get(line.productId)!;
-    await changeStock(db, session, product, from, -line.quantity, { ...audit, warehouseId: fromId, destinationWarehouseId: toId }, "transfer-edit");
-    await changeStock(db, session, product, to, line.quantity, { ...audit, warehouseId: fromId, destinationWarehouseId: toId }, "transfer-edit");
-    lines.push({ id: (oldLines.find(old => old.productId === line.productId)?.id as string | undefined) ?? id("line"), productId: line.productId, description: product.name, quantity: line.quantity, unitPrice: 0, lineTotal: 0 });
+
+  const oldLines = (original.lines ?? []) as Stored[], oldIds = oldLines.map(line => String(line.productId)), requestedIds=input.map(line=>line.productId);
+  const allIds=[...new Set([...oldIds,...requestedIds])],products=await loadProducts(db,session,allIds);
+  for(const productId of requestedIds){const product=products.get(productId)!;if(product.isArchived===true&&!oldIds.includes(productId))throw new LifecycleCommandError("لا يمكن إضافة منتج محذوف إلى تحويل مخزون",409)}
+  const revision = Number(original.revision ?? 0) + 1, audit = stockAuditDocument(original, revision);
+  const warehouseMap=new Map([[String(oldFrom._id),oldFrom],[String(oldTo._id),oldTo],[String(from._id),from],[String(to._id),to]]);
+  const deltas=new Map<string,{productId:string;warehouseId:string;delta:number}>();
+  const addDelta=(productId:string,warehouseId:string,delta:number)=>{const key=`${productId}\u0000${warehouseId}`,current=deltas.get(key);deltas.set(key,{productId,warehouseId,delta:(current?.delta??0)+delta})};
+
+  // Remove the old transfer effect and add the requested effect mathematically.
+  // The resulting movement is the edit's net stock change, not an artificial full reversal + replay.
+  for(const line of oldLines){const productId=String(line.productId),quantity=Number(line.quantity??0);addDelta(productId,String(oldFrom._id),quantity);addDelta(productId,String(oldTo._id),-quantity)}
+  for(const line of input){addDelta(line.productId,fromId,-line.quantity);addDelta(line.productId,toId,line.quantity)}
+
+  for(const {productId,warehouseId,delta} of deltas.values()){
+    if(!delta)continue;
+    const product=products.get(productId)!,current=Number(((product.stocks??{}) as Record<string,number>)[warehouseId]??0);
+    if(current+delta<0)throw new LifecycleCommandError("لا يمكن تعديل التحويل لأن جزءًا من المخزون المطلوب عكسه تم التصرف فيه.",409);
   }
+  for(const {productId,warehouseId,delta} of deltas.values()){
+    if(!delta)continue;
+    const warehouse=warehouseMap.get(warehouseId);
+    if(!warehouse)throw new LifecycleCommandError("تعذر تحديد مخزن مرتبط بالتعديل",409);
+    await changeStock(db,session,products.get(productId)!,warehouse,delta,audit,"transfer-edit");
+  }
+
+  const lines: Stored[] = input.map(line=>({ id: (oldLines.find(old => String(old.productId) === line.productId)?.id as string | undefined) ?? id("line"), productId: line.productId, description: products.get(line.productId)!.name, quantity: line.quantity, unitPrice: 0, lineTotal: 0 }));
   await db.collection("documents").updateOne({ id: documentId, status: "posted" }, { $set: { warehouseId: fromId, warehouseName: from.name, destinationWarehouseId: toId, destinationWarehouseName: to.name, lines, updatedAt: new Date(), revision } }, { session });
   await preserveHistoricalWarehouseArchiveIfEmpty(db,session,String(oldFrom._id),oldFromWasArchived,oldFromArchivedAt);
   await preserveHistoricalWarehouseArchiveIfEmpty(db,session,String(oldTo._id),oldToWasArchived,oldToArchivedAt);
@@ -236,19 +246,17 @@ async function updateAdjustment(db: Db, session: ClientSession, body: Input) {
   if (!warehouse) throw new LifecycleCommandError("مخزن التصحيح غير موجود", 409);
   const warehouseWasArchived=warehouse.isArchived===true,warehouseArchivedAt=warehouse.archivedAt;
   const products = await loadProducts(db, session, oldIds), revision = Number(original.revision ?? 0) + 1, audit = stockAuditDocument(original, revision);
-  for (const old of oldLines) {
-    const product = products.get(String(old.productId))!, oldDelta = Number(old.quantity ?? 0);
-    try { await changeStock(db, session, product, warehouse, -oldDelta, audit, "adjustment-edit-reversal"); }
-    catch (error) { if (error instanceof LifecycleCommandError && /المخزون غير كاف/.test(error.message)) throw new LifecycleCommandError("لا يمكن تعديل التصحيح لأن مخزونًا ناتجًا عنه تم التصرف فيه.", 409); throw error; }
-  }
   const revisedLines: Stored[] = [];
   for (const line of input) {
     const old = oldLines.find(item => String(item.productId) === line.productId)!;
-    const before = Number(old.balanceBefore);
-    if (!Number.isFinite(before)) throw new LifecycleCommandError("سند التصحيح القديم لا يحتوي بيانات كافية للتعديل الآمن", 409);
-    const delta = line.actualQuantity - before, product = products.get(line.productId)!;
-    if (delta) await changeStock(db, session, product, warehouse, delta, audit, "adjustment-edit");
-    revisedLines.push({ ...old, description: `${product.name} — ${reason} (قبل ${before}، بعد ${line.actualQuantity})`, quantity: delta, balanceBefore: before, balanceAfter: line.actualQuantity });
+    const baseline = Number(old.balanceBefore), oldDelta=Number(old.quantity??0);
+    if (!Number.isFinite(baseline)||!Number.isFinite(oldDelta)) throw new LifecycleCommandError("سند التصحيح القديم لا يحتوي بيانات كافية للتعديل الآمن", 409);
+    const revisedDelta = line.actualQuantity - baseline, editDelta = revisedDelta - oldDelta, product = products.get(line.productId)!;
+    if(editDelta){
+      try { await changeStock(db, session, product, warehouse, editDelta, audit, "adjustment-edit"); }
+      catch (error) { if (error instanceof LifecycleCommandError && /المخزون غير كاف/.test(error.message)) throw new LifecycleCommandError("لا يمكن تعديل التصحيح لأن المخزون الحالي لا يكفي لهذا التغيير.", 409); throw error; }
+    }
+    revisedLines.push({ ...old, description: `${product.name} — ${reason} (قبل ${baseline}، بعد ${line.actualQuantity})`, quantity: revisedDelta, balanceBefore: baseline, balanceAfter: line.actualQuantity });
   }
   await db.collection("documents").updateOne({ id: documentId, status: "posted" }, { $set: { title: reason, lines: revisedLines, updatedAt: new Date(), revision } }, { session });
   await preserveHistoricalWarehouseArchiveIfEmpty(db,session,String(warehouse._id),warehouseWasArchived,warehouseArchivedAt);
@@ -316,6 +324,54 @@ async function partyCashVoid(db: Db, session: ClientSession, body: Input) {
   if (!movement) throw new LifecycleCommandError("تعذر العثور على حركة الحساب المالي الأصلية", 409);
   await reverseFinancialMovement(db, session, movement, "إلغاء حركة طرف");
   await db.collection("documents").updateOne({ id: documentId, status: "posted" }, { $set: { status: "voided", voidedAt: new Date(), updatedAt: new Date(), revision: Number(original.revision ?? 0) + 1 } }, { session });
+  return documentId;
+}
+
+
+function finiteLegacyNumber(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function legacyPartyBalanceDelta(document: Stored, activeMovement: Stored | null = null) {
+  if (document.kind === "offset") return 0;
+  const explicit = finiteLegacyNumber(document.partyBalanceDelta);
+  if (explicit !== null) return explicit;
+  const before = finiteLegacyNumber(document.partyBalanceBefore), after = finiteLegacyNumber(document.partyBalanceAfter);
+  if (before !== null && after !== null) return after - before;
+  const settledReceivable = finiteLegacyNumber(document.settledReceivable), settledPayable = finiteLegacyNumber(document.settledPayable);
+  if ((settledReceivable ?? 0) !== 0 || (settledPayable ?? 0) !== 0) return -(settledReceivable ?? 0) + (settledPayable ?? 0);
+  const amount = finiteLegacyNumber(document.cashAmount ?? document.paidTotal ?? document.total) ?? 0;
+  if (activeMovement) return activeMovement.direction === "out" ? amount : -amount;
+  const title = text(document.title);
+  if (/استلام|دفع لنا|الطرف دفع لنا/.test(title)) return -amount;
+  if (/دفع للطرف|دفع لل|نحن دفعنا|صرف/.test(title)) return amount;
+  throw new LifecycleCommandError("تعذر تحديد أثر الحركة القديمة على رصيد الطرف بأمان", 409);
+}
+
+async function legacyPartyDocumentVoid(db: Db, session: ClientSession, body: Input) {
+  const documentId = text(body.documentId);
+  const original = await db.collection("documents").findOne({ id: documentId, status: "posted" }, { session });
+  if (!original || !["payment", "settlement", "offset"].includes(String(original.kind ?? ""))) throw new LifecycleCommandError("الحركة القديمة غير موجودة أو ملغاة بالفعل", 404);
+  if (original.legacyKey) throw new LifecycleCommandError("السجلات المرحلة من نظام خارجي متاحة للعرض فقط", 409);
+  if (original.kind === "payment" && (original.partyCashDirection === "receive" || original.partyCashDirection === "pay")) throw new LifecycleCommandError("استخدم حذف الحركة المالية الحالية لهذا المستند", 409);
+
+  const movement = original.kind === "payment"
+    ? await findActiveFinancialMovement(db, session, { documentId, type: { $in: ["party-receipt", "party-payment"] } })
+    : null;
+  const delta = legacyPartyBalanceDelta(original, movement);
+  const partyId = text(original.partyId);
+  const party = partyId ? await db.collection("parties").findOne({ id: partyId }, { session }) : null;
+  if (party && delta) await applyPartyNetDelta(db, session, partyId, -delta, true);
+
+  if (movement) await reverseFinancialMovement(db, session, movement, "إلغاء حركة طرف قديمة");
+  const now = new Date();
+  const changed = await db.collection("documents").updateOne(
+    { id: documentId, status: "posted" },
+    { $set: { status: "voided", voidedAt: now, updatedAt: now, revision: Number(original.revision ?? 0) + 1, legacyVoid: true } },
+    { session },
+  );
+  if (!changed.matchedCount) throw new LifecycleCommandError("تم تغيير الحركة القديمة أثناء العملية، أعد المحاولة", 409);
   return documentId;
 }
 
@@ -407,6 +463,7 @@ export async function executeLifecycleCommand(db: Db, session: ClientSession, bo
     case "party-cash.post": return { handled: true, result: await partyCashPost(db, session, body) };
     case "party-cash.update": return { handled: true, result: await partyCashUpdate(db, session, body) };
     case "party-cash.void": return { handled: true, result: await partyCashVoid(db, session, body) };
+    case "legacy-party-document.void": return { handled: true, result: await legacyPartyDocumentVoid(db, session, body) };
     case "transfer.update": return { handled: true, result: await updateTransfer(db, session, body) };
     case "transfer.void": return { handled: true, result: await voidTransfer(db, session, body) };
     case "adjustment.update": return { handled: true, result: await updateAdjustment(db, session, body) };

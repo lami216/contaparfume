@@ -5,7 +5,7 @@ type FindCursor<T> = ReturnType<Db["collection"]>["find"] extends (...args:any[]
 import type { ReportFilters, ReportResponse, ReportRow, ReportType } from "../app/report-types.ts";
 import { inventoryUnitCost, isProductExpired, resolvePartyType } from "../app/domain.ts";
 import { displayDocumentNumber } from "./document-sequences.ts";
-import { classifyStockMovementType, stockMovementMatchesFilter } from "../app/stock-movement.ts";
+import { classifyStockMovementType, collapseLegacyStockEditMovements, stockMovementMatchesFilter } from "../app/stock-movement.ts";
 
 const TYPES: ReportType[] = ["overview", "sales", "purchases", "product-sales", "stock", "profit", "debts", "party-ledger", "financial", "expenses"];
 const SALE_KINDS = ["sale", "decant-sale"] as const;
@@ -156,7 +156,7 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
     const query:Document=matchDate(f);if(constraint)query.productId=constraint;
     const stored=await db.collection("stockMovements").find(query).toArray() as Array<Record<string,unknown>>,documentIds=[...new Set(stored.map(row=>String(row.documentId??"")).filter(Boolean))];
     const documents=(documentIds.length?await db.collection("documents").find({id:{$in:documentIds}}).project({id:1,number:1,kind:1,title:1,openingCorrection:1,openingStockBefore:1,openingStockAfter:1}).toArray():[]) as Array<Record<string,unknown>>,documentMap=new Map(documents.map(document=>[String(document.id),document]));
-    const classified:Array<Record<string,unknown>&{type:string}>=stored.map(row=>({...row,type:classifyStockMovementType(row.type,documentMap.get(String(row.documentId??"")))})),all=f.movementType?classified.filter(row=>stockMovementMatchesFilter(row.type,f.movementType)):classified,ordered=[...all].sort((a,b)=>String(b.occurredAt).localeCompare(String(a.occurredAt)));
+    const classified:Array<Record<string,unknown>&{type:string}>=collapseLegacyStockEditMovements(stored.map(row=>({...row,type:classifyStockMovementType(row.type,documentMap.get(String(row.documentId??"")))}))),all=f.movementType?classified.filter(row=>stockMovementMatchesFilter(row.type,f.movementType)):classified,ordered=[...all].sort((a,b)=>String(b.occurredAt).localeCompare(String(a.occurredAt)));
     const products=await db.collection("products").find({id:{$in:ordered.map(row=>row.productId)}}).project({id:1,sku:1,name:1}).toArray(),identities=new Map(products.map(product=>[String(product.id),product]));
     const allRows:ReportRow[]=ordered.map(row=>({id:String(row.id),documentId:String(row.documentId),occurredAt:String(row.occurredAt),sku:String(identities.get(String(row.productId))?.sku??row.sku??"—")||"—",product:String(identities.get(String(row.productId))?.name??row.productName??"").trim()||"منتج غير متاح",warehouse:String(row.warehouseName),movementType:String(row.type),before:n(row.balanceBefore),change:n(row.quantityDelta),after:n(row.balanceAfter),documentNumber:String(row.documentNumber)})),rows=pageReportRows(sortReportRows(allRows,f),f),totalRows=allRows.length;
     return {report:f.type,from:f.from!,to:f.to!,summary:{movements:totalRows,expiredInventoryLoss:expiryLoss,incoming:all.reduce((sum,row)=>sum+Math.max(0,n(row.quantityDelta)),0),outgoing:all.reduce((sum,row)=>sum+Math.abs(Math.min(0,n(row.quantityDelta))),0),netChange:all.reduce((sum,row)=>sum+n(row.quantityDelta),0)},rows,meta:pagination(totalRows,f)};

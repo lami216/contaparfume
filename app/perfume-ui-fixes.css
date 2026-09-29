@@ -1,5 +1,421 @@
 /* Perfume edition UI corrections loaded after globals.css. */
 
+/* Base decant workspace styles live here instead of globals.css so syncing the
+   accounting core cannot silently remove the perfume edition's layout. */
+.section-decantInvoices {
+  --section-color: var(--color-invoices, #2563a9);
+  --section-soft: #e9f1fb;
+}
+
+.decant-invoices-hub {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 7px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.decant-invoices-hub > .decant-invoice-modebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 54px;
+  padding: 7px 9px;
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 9px;
+  background: var(--panel, #fff);
+  box-shadow: 0 3px 12px rgba(15, 23, 42, .04);
+}
+
+.decant-invoice-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  gap: 5px;
+  width: min(710px, 66%);
+  min-width: 500px;
+  padding: 3px;
+  border: 1px solid #cfe3df;
+  border-radius: 7px;
+  background: #f4faf9;
+}
+
+.decant-mode-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 5px;
+  color: #52605e;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.decant-mode-tab svg {
+  width: 16px;
+  height: 16px;
+}
+
+.decant-mode-tab.active {
+  color: #fff;
+  background: var(--section-color, #2563a9);
+  box-shadow: 0 2px 7px rgba(37, 99, 169, .18);
+}
+
+.decant-invoice-mode-help {
+  flex: 1;
+  margin: 0;
+  color: var(--muted, #667085);
+  font-size: 10px;
+  line-height: 1.45;
+  text-align: start;
+}
+
+.decant-invoices-hub-body {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.decant-invoice-page {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(145px, .42fr);
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.decant-invoice-editor,
+.decant-invoice-history {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.decant-invoice-editor {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  gap: 6px;
+  padding: 8px;
+}
+
+.decant-invoice-history {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 7px;
+}
+
+.decant-invoice-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.decant-invoice-heading :is(h2, h3) {
+  margin: 0;
+  font-size: 14px;
+}
+
+.decant-invoice-heading p {
+  margin: 2px 0 0;
+  color: var(--muted, #667085);
+  font-size: 9px;
+}
+
+.decant-invoice-heading > strong {
+  font-size: 16px;
+}
+
+.decant-invoice-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.decant-invoice-meta label,
+.decant-add-row label {
+  display: grid;
+  gap: 2px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.decant-invoice-meta select,
+.decant-add-row select {
+  height: 31px;
+  min-height: 31px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+}
+
+.decant-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 5px;
+}
+
+.decant-add-row button,
+.decant-invoice-actions button {
+  height: 31px;
+  min-height: 31px;
+  padding: 3px 10px;
+}
+
+.decant-lines-scroll,
+.decant-invoice-history-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border, #d0d5dd);
+}
+
+.decant-lines-table,
+.decant-invoice-history-table {
+  width: 100%;
+  min-width: 760px;
+  table-layout: fixed;
+}
+
+.decant-lines-table th,
+.decant-lines-table td,
+.decant-invoice-history-table th,
+.decant-invoice-history-table td {
+  height: 29px;
+  padding: 2px 4px;
+  font-size: 9px;
+}
+
+.decant-lines-table :is(input, select),
+.decant-invoice-history-table button {
+  height: 25px;
+  min-height: 25px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 9px;
+}
+
+.decant-invoice-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.danger-text {
+  color: #b42318 !important;
+}
+
+.perfume-divisions-page {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.perfume-divisions-card {
+  min-width: 0;
+  min-height: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border, #dfe3e8);
+  border-radius: 10px;
+  background: var(--panel, #fff);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, .045);
+  overflow: hidden;
+}
+
+.perfume-divisions-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+}
+
+.perfume-divisions-heading > div {
+  min-width: 0;
+}
+
+.perfume-divisions-heading h2 {
+  margin: 0 0 2px;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.perfume-divisions-heading p {
+  margin: 0;
+  color: var(--muted, #667085);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.perfume-split-action {
+  flex: 0 0 auto;
+  min-width: 185px;
+  min-height: 34px;
+  height: 34px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.perfume-divisions-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.perfume-divisions-form label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.perfume-divisions-form :is(input, select),
+.perfume-recombine-control input {
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+  padding: 3px 7px;
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 5px;
+  background: var(--panel, #fff);
+  color: inherit;
+  font-size: 11px;
+}
+
+.perfume-cost-preview {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  margin: 7px 0 0;
+}
+
+.perfume-cost-preview > div {
+  display: grid;
+  align-content: center;
+  gap: 1px;
+  min-height: 50px;
+  padding: 5px 7px;
+  border: 1px solid var(--border, #e4e7ec);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.perfume-cost-preview :is(span, small) {
+  color: var(--muted, #667085);
+  font-size: 9px;
+  line-height: 1.2;
+}
+
+.perfume-cost-preview strong {
+  font-size: 13px;
+  line-height: 1.15;
+}
+
+.perfume-bottles-card {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 5px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.perfume-bottle-create {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) minmax(95px, .7fr) minmax(120px, .8fr) auto;
+  align-items: end;
+  gap: 5px;
+}
+
+.perfume-bottle-create label {
+  display: grid;
+  gap: 2px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.perfume-bottle-create :is(input, button) {
+  height: 30px;
+  min-height: 30px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+}
+
+.perfume-bottles-table-wrap,
+.perfume-batches-table-wrap {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 5px;
+  background: #fff;
+}
+
+.perfume-bottles-table,
+.perfume-batches-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.perfume-bottles-table th,
+.perfume-bottles-table td,
+.perfume-batches-table th,
+.perfume-batches-table td {
+  height: 29px;
+  padding: 3px 5px;
+  font-size: 9px;
+  line-height: 1.25;
+}
+
+.perfume-batches-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 6px;
+  overflow: hidden;
+}
+
+.perfume-recombine-control {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.perfume-recombine-control small,
+.muted {
+  color: var(--muted, #667085);
+}
+
+.perfume-local-error {
+  margin: 0;
+}
+
 @media (min-width: 1051px) {
   :root {
     --app-nav-height: 102px;
@@ -408,8 +824,8 @@
 
 @media (max-width: 1050px) {
   .decant-invoices-hub { height: auto; min-height: 100%; overflow: visible; }
-  .decant-invoice-modebar { align-items: stretch; flex-direction: column; height: auto; }
-  .decant-invoice-mode-tabs { width: 100%; min-width: 0; grid-template-columns: 1fr; }
+  .decant-invoices-hub > .decant-invoice-modebar { display: flex; align-items: stretch; flex-direction: column; height: auto; gap: 7px; }
+  .decant-invoice-mode-tabs { width: 100%; min-width: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .decant-invoices-hub-body { overflow: visible; }
   .decant-invoices-hub .decant-invoice-page { height: auto; min-height: 100%; grid-template-columns: 1fr; grid-template-rows: auto auto; overflow: visible; }
   .decant-invoices-hub .decant-invoice-editor,
@@ -417,5 +833,22 @@
   .decant-lines-scroll,
   .decant-invoice-history-scroll { max-height: 55vh; }
   .perfume-divisions-page { height: auto; min-height: 100%; grid-template-columns: 1fr; grid-template-areas: "split" "bottles" "batches"; grid-template-rows: auto auto auto; overflow: visible; padding-bottom: max(28px, env(safe-area-inset-bottom)); }
+  .perfume-divisions-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .perfume-cost-preview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .perfume-bottle-create { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .perfume-bottle-create > button { grid-column: 1 / -1; }
+  .decant-invoice-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .perfume-bottle-adjust { grid-template-columns: 1fr 1fr; min-width: 0; }
+}
+
+@media (max-width: 620px) {
+  .decant-invoice-mode-tabs { grid-template-columns: 1fr; }
+  .perfume-divisions-heading { align-items: stretch; flex-direction: column; }
+  .perfume-split-action { width: 100%; min-width: 0; }
+  .perfume-divisions-form,
+  .perfume-bottle-create,
+  .decant-invoice-meta,
+  .decant-add-row { grid-template-columns: minmax(0, 1fr); }
+  .perfume-cost-preview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .decant-add-row button { width: 100%; }
 }

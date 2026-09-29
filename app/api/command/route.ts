@@ -2,7 +2,7 @@ import { requireValidLicense } from "../../../lib/license.ts";
 import type { SqliteSession as ClientSession, SqliteDatabase as Db } from "../../../lib/sqlite.ts";
 import { getDatabase } from "../../../lib/sqlite.ts";
 import { log } from "../../../lib/log.ts";
-import { requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
+import { getPrincipalFromRequest, hasCapability, requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
 import { PerfumeInvoiceCommandError } from "../../perfume-invoice-commands.ts";
 import { resolvePartyType } from "../../domain.ts";
 import { execute as executeBaseCommand } from "./base-route.ts";
@@ -60,7 +60,8 @@ export async function POST(request: Request) {
       "perfume-bottle.create":"perfume.divisions.manage","decant-sale.post":"perfume.divisions.manage","decant-sale.void":"perfume.divisions.manage","decant-purchase.post":"perfume.divisions.manage","decant-purchase.void":"perfume.divisions.manage","perfume-split.post":"perfume.divisions.manage","perfume-recombine.post":"perfume.divisions.manage",
       "transfer.post":"warehouses.transfer","transfer.update":"warehouses.transfer.edit","transfer.void":"warehouses.transfer.delete",
       "adjustment.post":"warehouses.adjust","adjustment.update":"warehouses.adjust.edit","adjustment.void":"warehouses.adjust.delete",
-      "party-cash.post":text(body.partyType)==="supplier"?"suppliers.pay":"customers.collect","party-cash.update":"customers.collect.edit","party-cash.void":"customers.collect.delete",
+      "opening-stock-correction.update":"warehouses.adjust.edit","opening-stock-correction.void":"warehouses.adjust.delete","opening-stock-initial.void":"warehouses.adjust.delete",
+      "party-cash.post":text(body.partyType)==="supplier"?"suppliers.pay":"customers.collect","party-cash.update":"customers.collect.edit","party-cash.void":"customers.collect.delete","legacy-party-document.void":"customers.collect.delete",
       "expense.post":"expenses.create","expense.update":"expenses.edit","expense.void":"expenses.delete",
       "payment-account.create":"banks.create","payment-account.update":"banks.edit","payment-account.delete":"banks.delete","payment-account.restore":"banks.edit",
       "account-adjustment.post":"banks.deposit_withdraw","account-adjustment.update":"banks.deposit_withdraw.edit","account-adjustment.void":"banks.deposit_withdraw.delete",
@@ -85,6 +86,18 @@ export async function POST(request: Request) {
       if (party) {
         const supplier = resolvePartyType(party) === "supplier", editing = type === "party-cash.update";
         capability = supplier ? (editing ? "suppliers.pay.edit" : "suppliers.pay.delete") : (editing ? "customers.collect.edit" : "customers.collect.delete");
+      }
+    }
+    if (type === "legacy-party-document.void") {
+      const database = await getDatabase();
+      const document = await database.collection("documents").findOne({ id: text(body.documentId), kind: { $in: ["payment", "settlement", "offset"] } });
+      const party = document?.partyId ? await database.collection("parties").findOne({ id: String(document.partyId) }) : null;
+      const historical = !party && document?.partyId ? await database.collection("documents").findOne({ partyId: String(document.partyId), kind: { $in: ["purchase", "sale"] } }) : null;
+      if (party) capability = resolvePartyType(party) === "supplier" ? "suppliers.pay.delete" : "customers.collect.delete";
+      else if (historical) capability = historical.kind === "purchase" ? "suppliers.pay.delete" : "customers.collect.delete";
+      else {
+        const principal = await getPrincipalFromRequest(request);
+        capability = hasCapability(principal, "suppliers.pay.delete") ? "suppliers.pay.delete" : "customers.collect.delete";
       }
     }
     if (!capability) return Response.json({ error: "العملية غير مدعومة" }, { status: 400 });
