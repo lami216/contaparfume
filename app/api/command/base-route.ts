@@ -264,7 +264,7 @@ async function zeroProductStockForArchive(db: Db, session: ClientSession, produc
     });
     await db.collection("documents").insertOne(doc, { session });
   }
-  if (product.perfumeForm === "decant" && lots.length) {
+  if (lots.length) {
     for (const lot of lots) {
       lot.stocks = Object.fromEntries(Object.keys(lot.stocks ?? {}).map(warehouseId => [warehouseId, 0]));
       lot.remainingQuantity = 0;
