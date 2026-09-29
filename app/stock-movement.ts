@@ -6,6 +6,7 @@ export type StockMovementDocumentHint = {
   openingCorrection?: unknown;
   openingStockBefore?: unknown;
   openingStockAfter?: unknown;
+  productArchiveStockClearance?: unknown;
 };
 
 const asText = (value: unknown) => typeof value === "string" ? value.trim() : "";
@@ -43,6 +44,10 @@ export function isOpeningStockInitialDocument(document: StockMovementDocumentHin
 
 export function isOpeningStockDocument(document: StockMovementDocumentHint | null | undefined) {
   return isOpeningStockCorrectionDocument(document) || isOpeningStockInitialDocument(document);
+}
+
+export function isProductArchiveStockClearanceDocument(document: StockMovementDocumentHint | null | undefined) {
+  return Boolean(document && asText(document.kind) === "adjustment" && document.productArchiveStockClearance === true);
 }
 
 export function classifyStockMovementType(type: unknown, document?: StockMovementDocumentHint | null) {
