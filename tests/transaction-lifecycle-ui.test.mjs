@@ -77,8 +77,10 @@ test("opening-stock history has its own latest-correction edit and delete lifecy
   assert.match(source, /<OpeningStockHistory[\s\S]*openProductMovements=\{p\.openProductMovements\}/);
 });
 
-test("product movement view derives the current document effect instead of selecting one audit movement", () => {
-  assert.ok(source.includes("documentProductQuantityEffect"));
+test("product movement view renders the complete stock audit trail instead of selecting one movement", () => {
+  assert.match(source, /const movements=data\.movements\.filter\(movement=>movement\.productId===product\.id/);
+  assert.match(source, /get:\(m:BootstrapData\["movements"\]\[number\]\)=>m\.quantityDelta/);
+  assert.match(source, /movementRows\.map\(movement=>/);
   assert.ok(!source.includes("data.movements.find(move => move.documentId === document.id"));
 });
 
