@@ -119,7 +119,7 @@ test("product codes are atomic, sequential, unique, and independent from barcode
   await assert.rejects(db.collection("products").insertOne({ id: "duplicate", name: "Duplicate", sku: "11", stocks: {} }), /duplicate key/i);
 });
 
-test("product deletion always archives, preserves stock and identity, and supports restore", async () => {
+test("product deletion archives zero stock, requires explicit stocked clearance, preserves identity, and supports restore", async () => {
   await db.collection("counters").insertOne({ _id: "productSequence", value: 20 });
   await command({ type: "product.delete", id: "p1" });
   assert.equal((await db.collection("products").findOne({ id: "p1" })).isArchived, true);
@@ -129,9 +129,13 @@ test("product deletion always archives, preserves stock and identity, and suppor
   await db.collection("documents").insertOne({ id:"old",number:"OLD",kind:"sale",lines:[{productId:"history"}] });
   await command({ type:"product.delete", id:"history" });
   assert.equal((await db.collection("products").findOne({id:"history"})).isArchived,true);
-  await command({ type:"product.delete",id:"stock" });
-  let stocked=await db.collection("products").findOne({id:"stock"});assert.equal(stocked.isArchived,true);assert.equal(stocked.stocks["wh-main"],2);
-  await command({type:"product.restore",id:"stock"});stocked=await db.collection("products").findOne({id:"stock"});assert.equal(stocked.isArchived,false);assert.equal(stocked.stocks["wh-main"],2);
+  await assert.rejects(command({ type:"product.delete",id:"stock" }),/أكد تصفير المخزون/);
+  let stocked=await db.collection("products").findOne({id:"stock"});assert.notEqual(stocked.isArchived,true);assert.equal(stocked.stocks["wh-main"],2);
+  await command({ type:"product.delete",id:"stock",zeroStock:true });
+  stocked=await db.collection("products").findOne({id:"stock"});assert.equal(stocked.isArchived,true);assert.equal(stocked.stocks["wh-main"],0);
+  const clearance=await db.collection("documents").findOne({productArchiveStockClearance:true,"lines.productId":"stock"});
+  assert.deepEqual([clearance.kind,clearance.title,clearance.lines[0].balanceBefore,clearance.lines[0].balanceAfter],["adjustment","تصفير المخزون المرتبط بأرشفة المنتج",2,0]);
+  await command({type:"product.restore",id:"stock"});stocked=await db.collection("products").findOne({id:"stock"});assert.equal(stocked.isArchived,false);assert.equal(stocked.stocks["wh-main"],0);
   await assert.rejects(command({type:"purchase.post",warehouseId:"wh-main",partyId:"party",paymentMethod:"note",lines:[{productId:"history",quantity:1,unitPrice:1}]}),/غير موجود/);
   assert.ok(await db.collection("documents").findOne({"lines.productId":"history"}),"historical documents remain queryable");
 });
