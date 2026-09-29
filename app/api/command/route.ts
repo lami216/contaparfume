@@ -41,7 +41,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     await db.collection("productCategories").deleteOne({ id: categoryId }, { session });
     return categoryId;
   }
-  const perfumeCommands = new Set(["perfume-bottle.create","decant-sale.post","decant-sale.void","decant-purchase.post","decant-purchase.void","perfume-split.post","perfume-recombine.post"]);
+  const perfumeCommands = new Set(["product.delete","product.stock-zero","perfume-bottle.create","decant-sale.post","decant-sale.void","decant-purchase.post","decant-purchase.void","perfume-split.post","perfume-recombine.post"]);
   return perfumeCommands.has(type) ? executeBaseCommand(db, session, body) : executeCoreCommand(db, session, body);
 }
 
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     const body = await request.json() as Input;
     type = text(body.type);
     const map: Record<string, Capability> = {
-      "product.delete":"products.delete","product.restore":"products.edit","product.create":"products.create","product.update":"products.edit",
+      "product.delete":"products.delete","product.stock-zero":"products.delete","product.restore":"products.edit","product.create":"products.create","product.update":"products.edit",
       "product-category.create":"products.create","product-category.update":"products.edit","product-category.delete":"products.delete",
       "warehouse.create":"warehouses.create","warehouse.update":"warehouses.edit","warehouse.default":"warehouses.edit","warehouse.delete":"warehouses.delete",
       "sale.post":"pos.create","sale.update":"pos.edit","sale.void":"pos.delete","purchase.post":"purchases.create","purchase.update":"purchases.edit","purchase.void":"purchases.delete",
