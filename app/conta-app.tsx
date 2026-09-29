@@ -74,7 +74,7 @@ import DecantInvoicesPage from "./decant-invoices-page";
 import ProductCategoryDialog from "./product-category-dialog";
 import { translateApiError } from "./i18n/api-errors";
 import OpeningStockHistory from "./opening-stock-history";
-import { isOpeningStockCorrectionDocument, isOpeningStockDocument, optionalFiniteNumber, periodStockMovementQuantity, stockMovementMatchesFilter, stockMovementPresentationType } from "./stock-movement";
+import { isOpeningStockCorrectionDocument, isOpeningStockDocument, isProductArchiveStockClearanceDocument, optionalFiniteNumber, periodStockMovementQuantity, stockMovementMatchesFilter, stockMovementPresentationType } from "./stock-movement";
 import { clearStockOperationDraft } from "./stock-operation-draft";
 import { adjustmentActualQuantity, canUseCapability } from "./transaction-ui";
 import { createXlsx, type ExcelSheet } from "./xlsx-export";
@@ -416,7 +416,7 @@ function ContaAppContent() {
     if(document.kind==="expense"){const edit=can("expenses.edit")&&document.status==="posted"&&!document.legacyKey;if(!await navigate("expenses",{replaceEditor:edit}))return;if(edit)setExpenseEditRequest(document.id);return}
     if(document.kind==="payment"&&document.partyId){const party=data.parties.find(item=>item.id===document.partyId);if(!party)return;const customer=resolvePartyType(party)==="customer",edit=document.status==="posted"&&!party.isArchived&&can(customer?"customers.collect.edit":"suppliers.pay.edit");if(!await navigate(customer?"customers":"suppliers",{replaceEditor:edit}))return;setPartyDetail(party);if(edit)setPartyPaymentEditRequest(document.id);return}
     if(document.kind==="transfer"){const edit=can("warehouses.transfer.edit")&&document.status==="posted";if(!await navigate("transfers",{replaceEditor:edit}))return;if(edit)setTransferEditRequest(document.id);return}
-    if(document.kind==="adjustment"){const edit=can("warehouses.adjust.edit")&&document.status==="posted";if(!await navigate("adjustments",{replaceEditor:edit}))return;if(edit)setAdjustmentEditRequest(document.id);return}
+    if(document.kind==="adjustment"){const edit=can("warehouses.adjust.edit")&&document.status==="posted"&&!isProductArchiveStockClearanceDocument(document);if(!await navigate("adjustments",{replaceEditor:edit}))return;if(edit)setAdjustmentEditRequest(document.id);return}
     if(document.kind==="account-transfer"){if(!can(bankTabCapability.transfers))return;const edit=can("banks.transfer.edit")&&document.status==="posted",replaceEditor=edit||effectiveBankTab!=="transfers";if(!await navigate("banks",{replaceEditor}))return;setBankTab("transfers");if(edit)setBankSourceRequest({kind:"transfer",documentId:document.id});return}
     if(document.kind==="account-adjustment"){if(!can(bankTabCapability.adjustment))return;const edit=can("banks.deposit_withdraw.edit")&&document.status==="posted",replaceEditor=edit||effectiveBankTab!=="adjustment";if(!await navigate("banks",{replaceEditor}))return;setBankTab("adjustment");if(edit)setBankSourceRequest({kind:"adjustment",documentId:document.id});return}
     if(document.partyId){const party=data.parties.find(item=>item.id===document.partyId);if(party){const target:View=resolvePartyType(party)==="customer"?"customers":"suppliers";if(await navigate(target))setPartyDetail(party);return}}
@@ -1339,6 +1339,18 @@ function ProductMovementPanel({ product, selectedWarehouseId, data, filter, setF
   </div>,document.body)}<FramedSection title={tr("تفاصيل المنتج وحركته")} className="product-movement-panel"><div className="movement-product-head"><strong>{product.name}</strong><button className="soft" disabled={printingMovement} onClick={()=>setMovementOutputOpen(true)}><Printer/>  {tr("طباعة")}</button><button className="icon" aria-label={tr("إغلاق التفاصيل")} onClick={close}><X /></button></div><div className="movement-summary"><span><small>{tr("الكمية في")} {scopeLabel}</small><b>{number(selectedQty)}</b></span><span><small>{tr("إجمالي الكمية")}</small><b>{number(current)}</b></span><span><small>{tr("تكلفة الوحدة")}</small><b>{money(inventoryUnitCost(product))}</b></span><span><small>{tr("القيمة في")} {scopeLabel}</small><b>{money(selectedQty * inventoryUnitCost(product))}</b></span></div><div className="movement-filters">{[["all",tr("الكل")],["purchase",tr("شراء")],["sale",tr("بيع")],["transfer",tr("تحويل")],["adjustment",tr("تصحيح")]].map(([id,label]) => <button key={id} className="choice selection-option" aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>)}</div><div className="erp-table-wrap movement-timeline"><table className="erp-table" aria-label={tr("سجل حركة المنتج")}><colgroup><col style={{width:"17%"}}/><col style={{width:"13%"}}/><col style={{width:"27%"}}/><col style={{width:"13%"}}/><col style={{width:"14%"}}/><col style={{width:"16%"}}/></colgroup><thead><tr><SortableTableHeader column="date" label={tr("التاريخ")} sort={movementSort} toggle={toggleMovementSort}/><SortableTableHeader column="kind" label={tr("العملية")} sort={movementSort} toggle={toggleMovementSort}/><SortableTableHeader column="party" label={tr("الطرف / المخزن")} sort={movementSort} toggle={toggleMovementSort}/><SortableTableHeader column="quantity" label={tr("الكمية")} sort={movementSort} toggle={toggleMovementSort}/><SortableTableHeader column="price" label={tr("السعر")} sort={movementSort} toggle={toggleMovementSort}/><SortableTableHeader column="number" label={tr("المستند")} sort={movementSort} toggle={toggleMovementSort}/></tr></thead><tbody>{movementRows.map(movement=>{const details=movementDetails(movement),price=movementPrice(movement);return <tr key={movement.id} onClick={()=>movement.documentId&&openDoc(movement.documentId)}><td>{formatDateTime(movement.occurredAt)}</td><td>{movementLabel(movement.type,movement.quantityDelta)}</td><td title={details}>{details}</td><td className="num-cell">{number(movement.quantityDelta)}</td><td className="num-cell">{price===null?"—":money(price)}</td><td dir="ltr">{movementNumber(movement)}</td></tr>})}{!movementRows.length&&<tr><td colSpan={6}>{tr("لا توجد حركات فعلية ضمن هذا الفلتر")}</td></tr>}</tbody></table></div></FramedSection></>;
 }
 
+function productArchiveStockQuantity(product: Product) {
+  const visible=Object.values(product.stocks ?? {}).reduce((sum,value)=>{
+    const quantity=Number(value);
+    return sum+(Number.isFinite(quantity)?Math.abs(quantity):0);
+  },0);
+  const lots=(product.perfumeLots ?? []).reduce((sum,lot)=>sum+Object.values(lot.stocks ?? {}).reduce((lotSum,value)=>{
+    const quantity=Number(value);
+    return lotSum+(Number.isFinite(quantity)?Math.abs(quantity):0);
+  },0),0);
+  return Math.max(visible,lots);
+}
+
 function Products({ data, run, sourceRequest, clearSourceRequest, openProductMovements }: { data: BootstrapData; run: RunCommand; sourceRequest?: string | null; clearSourceRequest?: () => void; openProductMovements: (productId: string) => void }) {
   const confirmAction=useAppConfirm();
   const canCreate=canUseCapability(data.principal,"products.create"),canEdit=canUseCapability(data.principal,"products.edit"),canDelete=canUseCapability(data.principal,"products.delete");
@@ -1369,7 +1381,15 @@ function Products({ data, run, sourceRequest, clearSourceRequest, openProductMov
     },0);
     return()=>window.clearTimeout(timeout);
   },[sourceRequest,data.products,canEdit,clearSourceRequest]);
-  const remove = async (product: Product) => { if(await confirmAction({message:tr("سيُحذف المنتج من الاستخدام الجديد مع الاحتفاظ بمخزونه وتاريخه. هل تريد المتابعة؟"),confirmLabel:tr("حذف المنتج"),tone:"danger"}))await run({type:"product.delete",id:product.id},tr("تم حذف المنتج بأمان")); };
+  const remove = async (product: Product) => {
+    const stocked=productArchiveStockQuantity(product)>0;
+    const message=stocked?tr("هذا المنتج يحتوي على مخزون. عند المتابعة سيتم تصفير المخزون بتصحيح مخزون موثّق ثم أرشفة المنتج. هل تريد المتابعة؟"):tr("سيتم أرشفة المنتج مع الاحتفاظ بتاريخه. هل تريد المتابعة؟");
+    if(await confirmAction({message,confirmLabel:tr("حذف المنتج"),tone:"danger"}))await run({type:"product.delete",id:product.id,...(stocked?{zeroStock:true}:{})},tr("تم حذف المنتج بأمان"));
+  };
+  const zeroArchivedStock=async(product:Product)=>{
+    if(!await confirmAction({message:tr("سيتم تصفير مخزون المنتج المؤرشف وتسجيل تصحيح مخزون موثّق، وسيبقى المنتج مؤرشفًا. هل تريد المتابعة؟"),confirmLabel:tr("تصفير المخزون"),tone:"danger"}))return;
+    await run({type:"product.stock-zero",id:product.id},tr("تم تصفير مخزون المنتج المؤرشف"));
+  };
   return <section className="workspace-page products-page">
     <div className="toolbar workspace-toolbar">
       <label className="search compact-search"><Search /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={tr("بحث سريع بالاسم أو الرمز أو الباركود")} /></label>
@@ -1384,7 +1404,7 @@ function Products({ data, run, sourceRequest, clearSourceRequest, openProductMov
       </tr></thead><tbody>
         {products.map((product, index) => {
           const stock = Object.values(product.stocks).reduce((sum, value) => sum + Number(value), 0);
-          return <tr key={product.id}><td className="num-cell">{number(index + 1)}</td><td className="name-cell">{product.name}{product.isArchived&&<small>{tr("مؤرشف")}</small>}{isProductExpired(product)&&<small className="expired-badge">{tr("منتهي — غير قابل للبيع")}</small>}</td><td className="num-cell">{product.piecePrice == null ? "—" : money(product.piecePrice)}</td><td className="num-cell">{product.wholesalePrice == null ? "—" : money(product.wholesalePrice)}</td><td className="num-cell">{product.lastPurchaseCost == null ? "—" : money(product.lastPurchaseCost)}</td><td className="num-cell">{number(stock)}</td><td className="action-cell">{canEdit&&<button className="soft" onClick={() => openForm(product)}>{tr("تعديل")}</button>}<button className="soft" onClick={() => setViewing(product)}>{tr("عرض التفاصيل")}</button>{product.isArchived?(canEdit&&<button className="soft" onClick={()=>void run({type:"product.restore",id:product.id},tr("تمت استعادة المنتج"))}>{tr("استعادة")}</button>):(canDelete&&<button className="danger compact-delete" onClick={() => void remove(product)}>{tr("حذف")}</button>)}</td></tr>;
+          return <tr key={product.id}><td className="num-cell">{number(index + 1)}</td><td className="name-cell">{product.name}{product.isArchived&&<small>{tr("مؤرشف")}</small>}{isProductExpired(product)&&<small className="expired-badge">{tr("منتهي — غير قابل للبيع")}</small>}</td><td className="num-cell">{product.piecePrice == null ? "—" : money(product.piecePrice)}</td><td className="num-cell">{product.wholesalePrice == null ? "—" : money(product.wholesalePrice)}</td><td className="num-cell">{product.lastPurchaseCost == null ? "—" : money(product.lastPurchaseCost)}</td><td className="num-cell">{number(stock)}</td><td className="action-cell">{canEdit&&<button className="soft" onClick={() => openForm(product)}>{tr("تعديل")}</button>}<button className="soft" onClick={() => setViewing(product)}>{tr("عرض التفاصيل")}</button>{product.isArchived?<>{canEdit&&<button className="soft" onClick={()=>void run({type:"product.restore",id:product.id},tr("تمت استعادة المنتج"))}>{tr("استعادة")}</button>}{canDelete&&productArchiveStockQuantity(product)>0&&<button className="danger compact-delete" onClick={()=>void zeroArchivedStock(product)}>{tr("تصفير المخزون")}</button>}</>:(canDelete&&<button className="danger compact-delete" onClick={() => void remove(product)}>{tr("حذف")}</button>)}</td></tr>;
         })}
         {!products.length && <tr><td colSpan={7}><Empty text={tr("لا توجد منتجات مطابقة للبحث")} /></td></tr>}
       </tbody></table></div>
@@ -1572,12 +1592,12 @@ function Adjustment(p: {data: BootstrapData;run: RunCommand;openDoc: (id: string
   const openingDocs = p.data.documents.filter(document => isOpeningStockDocument(document));
   const adjustmentDocs = p.data.documents.filter(document => document.kind === "adjustment" && !isOpeningStockDocument(document));
   // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
-  useEffect(()=>{const document=p.editRequest?adjustmentDocs.find(item=>item.id===p.editRequest):null;if(document&&canEdit){setEditing(document);p.clearEditRequest?.()}},[p.editRequest]);
+  useEffect(()=>{const document=p.editRequest?adjustmentDocs.find(item=>item.id===p.editRequest):null;if(document&&canEdit&&!isProductArchiveStockClearanceDocument(document)){setEditing(document);p.clearEditRequest?.()}},[p.editRequest]);
   const startEdit=async(document:DocumentRecord)=>{if(await p.prepareEditorReplacement())setEditing(document)};
   const remove=async(document:DocumentRecord)=>{if(!await confirmAction({message:`هل تريد حذف تصحيح المخزون رقم ${displayDocumentNumber(document)}؟\nسيتم عكس أثر التصحيح إذا كان المخزون الناتج عنه ما زال متاحًا.`,confirmLabel:tr("حذف"),tone:"danger"}))return;await p.run({type:"adjustment.void",documentId:document.id},"تم إلغاء تصحيح المخزون",()=>{if(editing?.id===document.id){clearStockOperationDraft(sessionStorage,"adjust");setEditing(null)}})};
   return <section className="stock-workspace adjustment-workspace">
       <FramedSection title={editing?`${tr("تعديل")} · ${tr("تصحيح المخزون")}`:tr("تصحيح المخزون")} className="stock-workspace-main" allowOverflow><MultiStockForm key={editing?.id??"new-adjustment"} {...p} mode="adjust" editingDocument={editing} onCancelEdit={()=>setEditing(null)}/></FramedSection>
-      <Recent title={tr("سجل التصحيحات")} docs={adjustmentDocs} openDoc={p.openDoc} actions={document=><LifecycleActions onEdit={canEdit?()=>void startEdit(document):undefined} onVoid={canDelete?()=>void remove(document):undefined}/>}/>
+      <Recent title={tr("سجل التصحيحات")} docs={adjustmentDocs} openDoc={p.openDoc} actions={document=>{const immutable=isProductArchiveStockClearanceDocument(document);return <LifecycleActions onEdit={canEdit&&!immutable?()=>void startEdit(document):undefined} onVoid={canDelete&&!immutable?()=>void remove(document):undefined}/>}}/>
       <OpeningStockHistory data={p.data} docs={openingDocs} openDoc={p.openDoc} openSource={p.openSource} openOpeningSource={p.openOpeningSource} openProductMovements={p.openProductMovements} run={p.run} canEdit={canEdit} canDelete={canDelete} />
     </section>;
 }
