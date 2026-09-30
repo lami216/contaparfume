@@ -339,7 +339,7 @@
 
 .perfume-bottles-card {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 5px;
   min-height: 0;
   overflow: hidden;
@@ -745,7 +745,7 @@
   .decant-invoices-hub-body.management .perfume-bottles-card,
   .decant-invoices-hub-body.management .perfume-batches-card {
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
   }
   .decant-invoices-hub-body.management .perfume-batches-card { grid-template-rows: auto minmax(0, 1fr); }
 
@@ -806,6 +806,21 @@
 .perfume-product-empty { padding: 10px; text-align: center; color: var(--muted,#667085); }
 .decant-add-row-search { position: relative; z-index: 20; }
 
+.decant-product-picker { position: relative; z-index: 20; min-width: 0; }
+.decant-product-search input { width: 100%; }
+.decant-product-results { position: absolute; inset-inline: 0; top: calc(100% + 4px); z-index: 85; max-height: 230px; overflow: auto; border: 1px solid var(--border,#d0d5dd); border-radius: 7px; background: #fff; box-shadow: 0 12px 28px rgba(15,23,42,.16); }
+.decant-product-results .erp-table { width: 100%; min-width: 520px; table-layout: fixed; }
+.decant-product-results th,
+.decant-product-results td { height: 33px; padding: 4px 6px; font-size: 9px; }
+.decant-product-results tbody tr { cursor: default; }
+.decant-product-results tbody tr:hover,
+.decant-product-results tbody tr.selected { background: #eef7ff; }
+.decant-product-results tbody tr.unavailable { color: var(--muted,#667085); background: #f8fafb; }
+.decant-product-results .name-cell small { display: block; margin-top: 1px; color: var(--muted,#667085); font-size: 8px; }
+.decant-product-results button { min-height: 25px; height: 25px; padding: 2px 7px; font-size: 8.5px; }
+.decant-purchase-product-tools { display: grid; gap: 5px; min-width: 0; }
+.decant-bottle-create { min-width: 0; }
+
 .perfume-bottle-adjust { display: grid; grid-template-columns: minmax(60px,.65fr) minmax(90px,1fr) auto auto; align-items: center; gap: 3px; min-width: 0; }
 .perfume-bottle-adjust input,
 .perfume-bottle-adjust button { min-width: 0; min-height: 24px; height: 24px; padding: 1px 4px; border-radius: 4px; font-size: 8px; }
@@ -849,6 +864,7 @@
   .perfume-bottle-create,
   .decant-invoice-meta,
   .decant-add-row { grid-template-columns: minmax(0, 1fr); }
+  .decant-product-results { position: static; max-height: 42vh; margin-top: 4px; }
   .perfume-cost-preview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .decant-add-row button { width: 100%; }
 }

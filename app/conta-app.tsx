@@ -1362,7 +1362,7 @@ function Products({ data, run, sourceRequest, clearSourceRequest, openProductMov
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [sort, setSort] = useState<{ key: "price" | "cost" | "stock"; direction: "asc" | "desc" } | null>(null);
   const normalized = query.trim().toLocaleLowerCase();
-  const filteredProducts = useMemo(() => data.products.filter(product => showArchived || !product.isArchived).filter(product => !normalized || `${product.name} ${product.sku} ${product.barcode}`.toLocaleLowerCase().includes(normalized)), [data.products, normalized, showArchived]);
+  const filteredProducts = useMemo(() => data.products.filter(product => showArchived ? product.isArchived === true : product.isArchived !== true).filter(product => !normalized || `${product.name} ${product.sku} ${product.barcode}`.toLocaleLowerCase().includes(normalized)), [data.products, normalized, showArchived]);
   const productSortColumns=useMemo(()=>[
     {key:"price",type:"money" as const,get:(product:Product)=>product.piecePrice},
     {key:"cost",type:"money" as const,get:(product:Product)=>product.lastPurchaseCost},

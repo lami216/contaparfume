@@ -23,7 +23,6 @@ export default function PerfumeDivisions({ data, run, onAdjustBottle }: { data: 
   const [sourceProductId, setSourceProductId] = useState("");
   const [warehouseId, setWarehouseId] = useState(warehouses.find(warehouse => warehouse.isSalesDefault)?.id ?? warehouses[0]?.id ?? "");
   const [divisionsCount, setDivisionsCount] = useState("10"), [salePrice, setSalePrice] = useState("");
-  const [bottleName, setBottleName] = useState(""), [bottleSize, setBottleSize] = useState("10"), [bottleCost, setBottleCost] = useState("");
   const [recombinePrices, setRecombinePrices] = useState<Record<string, string>>({});
   const [adjustBottleId, setAdjustBottleId] = useState(""), [adjustActual, setAdjustActual] = useState(""), [adjustReason, setAdjustReason] = useState("");
   const [busy, setBusy] = useState(false), [localError, setLocalError] = useState("");
@@ -43,16 +42,6 @@ export default function PerfumeDivisions({ data, run, onAdjustBottle }: { data: 
     try {
       await run({ type: "perfume-split.post", sourceProductId: source.id, warehouseId, divisionsCount: count, salePrice: sell }, tr("تم إنشاء التقسيمات"));
       setSalePrice("");
-    } finally { setBusy(false); }
-  };
-
-  const createBottle = async () => {
-    const size = Number(bottleSize), cost = Number(bottleCost);
-    if (!bottleName.trim() || !Number.isFinite(size) || size <= 0 || !Number.isFinite(cost) || cost <= 0) { setLocalError(tr("أدخل اسم الزجاجة وحجمها وتكلفتها")); return; }
-    setBusy(true); setLocalError("");
-    try {
-      await run({ type: "perfume-bottle.create", name: bottleName.trim(), sizeMl: size, cost }, tr("تمت إضافة زجاجة التقسيمة"));
-      setBottleName(""); setBottleCost("");
     } finally { setBusy(false); }
   };
 
@@ -109,13 +98,7 @@ export default function PerfumeDivisions({ data, run, onAdjustBottle }: { data: 
     </section>
 
     <section className="perfume-divisions-card perfume-bottles-card">
-      <div className="perfume-divisions-heading"><div><h2>{tr("زجاج التقسيمات")}</h2><p>{tr("عرّف نوع الزجاجة هنا، ثم اشترِ كمياتها من فاتورة شراء زجاج التقسيمات.")}</p></div></div>
-      <div className="perfume-bottle-create">
-        <label>{tr("اسم الزجاجة")}<input value={bottleName} onChange={event => setBottleName(event.target.value)} placeholder={tr("مثال: زجاجة شفافة")}/></label>
-        <label>{tr("الحجم (ml)")}<input type="number" min="1" value={bottleSize} onChange={event => setBottleSize(event.target.value)}/></label>
-        <label>{tr("التكلفة المرجعية")}<input type="number" min="0" value={bottleCost} onChange={event => setBottleCost(event.target.value)}/></label>
-        <button className="soft" type="button" disabled={busy || !bottleName.trim() || Number(bottleSize) <= 0 || Number(bottleCost) <= 0} onClick={() => void createBottle()}>{tr("إضافة زجاجة")}</button>
-      </div>
+      <div className="perfume-divisions-heading"><div><h2>{tr("زجاج التقسيمات")}</h2><p>{tr("تابع مخزون أنواع الزجاج وصحح كمياتها عند الحاجة. إضافة الأنواع الجديدة أصبحت داخل فاتورة شراء الزجاج.")}</p></div></div>
       <div className="perfume-bottles-table-wrap"><table className="erp-table perfume-bottles-table"><thead><tr><th>{tr("الزجاجة")}</th><th>{tr("الحجم")}</th><th>{tr("التكلفة المرجعية")}</th><th>{tr("آخر شراء")}</th><th>{tr("المخزون")}</th><th>{tr("إجراء")}</th></tr></thead><tbody>{bottles.length === 0 ? <tr><td colSpan={6}>{tr("لا توجد أنواع زجاج حتى الآن")}</td></tr> : bottles.map(bottle => <tr key={bottle.id}><td>{bottle.name}</td><td className="num-cell">{bottle.decantSizeMl ? `${bottle.decantSizeMl} ml` : "—"}</td><td className="num-cell">{money(Number(bottle.pieceCost ?? 0))}</td><td className="num-cell">{money(Number(bottle.lastPurchaseCost ?? 0))}</td><td className="num-cell">{quantity(totalProductStock(bottle))}</td><td>{adjustBottleId === bottle.id && !onAdjustBottle ? <div className="perfume-bottle-adjust"><input type="number" min="0" step="1" value={adjustActual} onChange={event => setAdjustActual(event.target.value)} placeholder={tr("الكمية الحالية")}/><input value={adjustReason} onChange={event => setAdjustReason(event.target.value)} placeholder={tr("سبب التصحيح")}/><button className="primary" type="button" disabled={busy || !adjustReason.trim()} onClick={() => void saveBottleAdjustment(bottle)}>{tr("اعتماد التصحيح")}</button><button className="soft" type="button" onClick={() => setAdjustBottleId("")}>{tr("إلغاء")}</button></div> : <button className="soft" type="button" disabled={!warehouseId} onClick={() => beginBottleAdjustment(bottle)}>{tr("تصحيح الكمية")}</button>}</td></tr>)}</tbody></table></div>
     </section>
 
