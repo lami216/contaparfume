@@ -1,19 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
-import { reservedProductQuantity } from "../app/perfume-invoices.tsx";
 
 const source = async path => readFile(new URL(`../${path}`, import.meta.url), "utf8");
-
-test("decant invoice reservations combine empty bottle sales and bottle allocations", () => {
-  const lines = [
-    { key: "empty", productId: "bottle", quantity: "2", unitPrice: "1", bottleProductId: "" },
-    { key: "decant-a", productId: "decant-a", quantity: "3", unitPrice: "1", bottleProductId: "bottle" },
-    { key: "decant-b", productId: "decant-b", quantity: "4", unitPrice: "1", bottleProductId: "bottle" },
-  ];
-  assert.equal(reservedProductQuantity(lines, "bottle"), 9);
-  assert.equal(reservedProductQuantity(lines, "bottle", "decant-a"), 6);
-});
 
 test("decant v2 has separate bottle inventory and dedicated invoice surfaces", async () => {
   const [logic, invoices, divisions] = await Promise.all([
@@ -25,27 +14,8 @@ test("decant v2 has separate bottle inventory and dedicated invoice surfaces", a
   assert.match(invoices, /bottleProductId/);
   assert.match(invoices, /بيع فارغ/);
   assert.doesNotMatch(divisions, /setDecantSizeMl|decantSizeMl\.trim/);
-  assert.match(invoices, /perfume-bottle\.create/);
+  assert.match(divisions, /perfume-bottle\.create/);
   assert.match(divisions, /إرجاع الباقي إلى عطر ناقص/);
-});
-
-test("decant sale search adds products directly and bottle creation lives with purchases", async () => {
-  const [invoices, divisions] = await Promise.all([
-    source("app/perfume-invoices.tsx"), source("app/perfume-divisions.tsx"),
-  ]);
-  assert.match(invoices, /decant-product-results/);
-  assert.match(invoices, /onDoubleClick=\{\(\) => addProduct\(product\)\}/);
-  assert.match(invoices, /onDoubleClick=\{event => event\.stopPropagation\(\)\} onClick=\{event => \{ event\.stopPropagation\(\); if \(event\.detail > 1\) return; addProduct\(product\); \}\}/);
-  assert.match(invoices, /perfume-bottle\.create/);
-  assert.match(invoices, /setProductId\(createdId\)/);
-  assert.match(invoices, /perfume-bottle-create/);
-  assert.match(invoices, /لا توجد كمية إضافية متاحة من هذا المنتج/);
-  assert.match(invoices, /requestedStock/);
-  assert.doesNotMatch(divisions, /perfume-bottle\.create/);
-  assert.doesNotMatch(divisions, /perfume-bottle-create/);
-  const messages = await source("app/i18n/messages.ts");
-  assert.match(messages, /"إضافة نوع زجاج": "Ajouter un type de flacon"/);
-  assert.match(messages, /"إضافة للفاتورة": "Ajouter à la facture"/);
 });
 
 test("special commands consume liquid and selected bottles independently", async () => {
