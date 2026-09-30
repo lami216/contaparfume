@@ -60,6 +60,19 @@ test("legacy archived perfume product can clear lot-only stock and stays archive
   assert.deepEqual([docs[0].lines[0].quantity,docs[0].lines[0].perfumeLotStockBefore],[0,2]);
 });
 
+test("perfume archive stock-clearance corrections stay visible but cannot be edited or voided",async()=>{
+  await insertProduct({stocks:{a:2,b:0},lots:[lot("l1",{a:2,b:0},2)]});
+  await command({type:"product.delete",id:"p",zeroStock:true});
+  const document=await db.collection("documents").findOne({productArchiveStockClearance:true,warehouseId:"a"});
+  assert.ok(document);
+  await assert.rejects(command({type:"adjustment.update",documentId:document.id,reason:"rewrite",lines:[{productId:"p",actualQuantity:2}]}),/أرشفة المنتج/);
+  await assert.rejects(command({type:"adjustment.void",documentId:document.id}),/أرشفة المنتج/);
+  const stored=await db.collection("documents").findOne({id:document.id});
+  assert.equal(stored.status,"posted");
+  assert.equal((await db.collection("products").findOne({id:"p"})).isArchived,true);
+  assert.equal((await db.collection("products").findOne({id:"p"})).stocks.a,0);
+});
+
 test("perfume clearance rollback restores visible stock and perfumeLots together on invalid warehouse",async()=>{
   await insertProduct({stocks:{a:4,missing:1},lots:[lot("l1",{a:2,missing:3},5)]});
   await assert.rejects(command({type:"product.delete",id:"p",zeroStock:true}),/تعذر تصفير المخزون/);
