@@ -25,11 +25,6 @@ jobs:
         with: {node-version: 22, cache: npm}
       # better-sqlite3 13 already ships the N-API binary used by this app. Avoid
       # an unnecessary node-gyp rebuild, then install Electron explicitly.
-      - name: Refresh lockfile for Next.js patch validation
-        shell: pwsh
-        run: |
-          npm install --package-lock-only --ignore-scripts
-          git diff -- package-lock.json
       - run: npm ci --ignore-scripts
       - run: node node_modules/electron/install.js
       - name: Audit production dependencies
