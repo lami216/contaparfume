@@ -6,12 +6,13 @@ import type { ReportFilters, ReportResponse, ReportRow, ReportType } from "../ap
 import { inventoryUnitCost, isProductExpired, resolvePartyType } from "../app/domain.ts";
 import { displayDocumentNumber } from "./document-sequences.ts";
 import { classifyStockMovementType, collapseLegacyStockEditMovements, stockMovementMatchesFilter } from "../app/stock-movement.ts";
+import { PURCHASE_DOCUMENT_KINDS, SALE_DOCUMENT_KINDS, isPurchaseDocumentKind, isSaleDocumentKind } from "./document-family.ts";
 
 const TYPES: ReportType[] = ["overview", "sales", "purchases", "product-sales", "stock", "profit", "debts", "party-ledger", "financial", "expenses"];
-const SALE_KINDS = ["sale", "decant-sale"] as const;
-const PURCHASE_KINDS = ["purchase", "decant-purchase"] as const;
-const isSaleKind = (kind: unknown) => SALE_KINDS.includes(String(kind) as typeof SALE_KINDS[number]);
-const isPurchaseKind = (kind: unknown) => PURCHASE_KINDS.includes(String(kind) as typeof PURCHASE_KINDS[number]);
+const SALE_KINDS = SALE_DOCUMENT_KINDS;
+const PURCHASE_KINDS = PURCHASE_DOCUMENT_KINDS;
+const isSaleKind = isSaleDocumentKind;
+const isPurchaseKind = isPurchaseDocumentKind;
 const REPORT_SORT_KEYS: Record<ReportType, Set<string>> = {
   overview:new Set(),
   sales:new Set(["number","occurredAt","party","paymentMethod","total","cost","profit","product","quantity","revenue"]),
