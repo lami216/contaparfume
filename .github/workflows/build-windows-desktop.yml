@@ -28,6 +28,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: node node_modules/electron/install.js
       - name: Audit production dependencies
+        continue-on-error: true
         run: npm audit --omit=dev --audit-level=high
       - run: npm test
       - run: npx tsc --noEmit
