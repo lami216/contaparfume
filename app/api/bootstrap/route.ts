@@ -9,6 +9,7 @@ import { productsWithCurrentCosts } from "../../../lib/product-cost.ts";
 import { getInvoiceBranding } from "../../../lib/invoice-branding";
 import { classifyStockMovementType, collapseLegacyStockEditMovements } from "../../stock-movement";
 import { canReadOperationalDocument, isEffectiveFinancialMovement, resolveCurrentPartyName } from "../../../lib/document-read-model";
+import { PURCHASE_DOCUMENT_KINDS, SALE_DOCUMENT_KINDS } from "../../../lib/document-family";
 
 export async function GET(request: Request) {const licenseDenied=await requireValidLicense();if(licenseDenied)return licenseDenied;
   const principal=await getPrincipalFromRequest(request);if(!principal)return Response.json({error:"غير مصرح"},{status:401});
@@ -26,13 +27,13 @@ export async function GET(request: Request) {const licenseDenied=await requireVa
       peekNextDocumentSequence(db, "sale"), peekNextDocumentSequence(db, "purchase"), peekNextDocumentSequence(db, "expense"), peekNextDocumentSequence(db, "decant-sale"), peekNextDocumentSequence(db, "decant-purchase"), getInvoiceBranding(db),
     ]);
     const clean = (rows: Array<Record<string, unknown>>) => rows.map(({ _id, ...row }) => ({ id: row.id ?? String(_id), ...row }));
-    const postedCostDocuments=documents.filter(document=>document.status==="posted"&&["purchase","decant-purchase","adjustment"].includes(String(document.kind)));
+    const postedCostDocuments=documents.filter(document=>document.status==="posted"&&[...PURCHASE_DOCUMENT_KINDS,"adjustment"].includes(String(document.kind)));
     const cleanProducts = clean(await productsWithCurrentCosts(db, products, postedCostDocuments)).map(product => ({ ...product, wholesalePrice: (product as Record<string, unknown>).wholesalePrice ?? null, expiryDate: (product as Record<string, unknown>).expiryDate ?? null, note: (product as Record<string, unknown>).note ?? null, categoryId: (product as Record<string, unknown>).categoryId ?? null }));
     const cleanCategories = clean(categories).map(category => { const item = category as Record<string, unknown>; return { id: String(item.id ?? ""), name: String(item.name ?? "") }; }).filter(category => category.id && category.name);
     const documentHints = new Map(documents.map(document => [String(document.id ?? document._id ?? ""), document]));
     const cleanMovements = collapseLegacyStockEditMovements(clean(movements as Array<Record<string, unknown>>).map((movement: Record<string, unknown>) => ({ ...movement, type: classifyStockMovementType(movement.type, documentHints.get(String(movement.documentId ?? ""))) })));
     const effectiveFinancialMovements=(financialMovements as Array<Record<string,unknown>>).filter(isEffectiveFinancialMovement);
-    const partyMetricDocuments=(documents as Array<Record<string,unknown>>).filter(document=>["sale","decant-sale","return","purchase","decant-purchase"].includes(String(document.kind)));
+    const partyMetricDocuments=(documents as Array<Record<string,unknown>>).filter(document=>[...SALE_DOCUMENT_KINDS,...PURCHASE_DOCUMENT_KINDS,"return"].includes(String(document.kind)));
     const effectivePartyMetricMovements=effectiveFinancialMovements.filter(movement=>typeof movement.partyId==="string");
     const nonOperatingTypes=new Set(["opening-balance","opening-balance-correction"]);
     const totalByAccount=new Map<string,{_id:string;income:number;expenses:number;purchaseTotal:number;derivedOpening:number}>();
@@ -57,7 +58,7 @@ export async function GET(request: Request) {const licenseDenied=await requireVa
     const supplierPartyIds=new Set(cleanParties.filter(party=>resolvePartyType(party)==="supplier").map(party=>String(party.id)));
     const currentPartyNames=new Map(cleanParties.map(party=>[String(party.id),String(party.name??"")] as const));
     const readAccess={can:(capability:string)=>hasCapability(principal,capability as Capability),customerPartyIds,supplierPartyIds};
-    const allowedDocuments=(clean(documents) as Array<Record<string,unknown>>).filter(document=>canReadOperationalDocument(document,readAccess)||(perfumeAccess&&["decant-sale","decant-purchase"].includes(String(document.kind)))).map(document=>resolveCurrentPartyName(document,currentPartyNames));
+    const allowedDocuments=(clean(documents) as Array<Record<string,unknown>>).filter(document=>canReadOperationalDocument(document,readAccess)).map(document=>resolveCurrentPartyName(document,currentPartyNames));
     const exposedParties=(cleanParties as Array<Record<string,unknown>>).map(party=>hasCapability(principal,resolvePartyType(party)==="supplier"?"suppliers.view":"customers.view")?party:{id:party.id,name:party.name,phone:party.phone,partyType:party.partyType,isArchived:party.isArchived,receivable:0,payable:0,net:0});
     const exposedProducts=inventoryCostAccess?cleanProducts:(cleanProducts as Array<Record<string,unknown>>).map(({id,name,sku,barcode,piecePrice,wholesalePrice,expiryDate,categoryId,stocks,isArchived})=>({id,name,sku,barcode,piecePrice,wholesalePrice,expiryDate,categoryId,stocks,isArchived,pieceCost:null,lastPurchaseCost:null}));
     const visiblePartyIds=new Set(cleanParties.filter(party=>(resolvePartyType(party)==="customer"&&hasCapability(principal,"customers.view"))||(resolvePartyType(party)==="supplier"&&hasCapability(principal,"suppliers.view"))).map(party=>String(party.id)));
