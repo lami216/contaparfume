@@ -1,3 +1,5 @@
+import { documentFamily } from "./document-family.ts";
+
 export type ReadModelDocument = Record<string, unknown> & {
   kind?: unknown;
   status?: unknown;
@@ -41,8 +43,9 @@ export function isOperationalDocument(document: ReadModelDocument) {
 /** Coarse kind authorization, used before historical queries expose a kind. */
 export function canReadDocumentKind(kind: string, access: Pick<DocumentReadAccess, "can">) {
   if (access.can("records.view")) return true;
-  if (kind === "sale") return canAny(access.can, saleAccess) || canAny(access.can, customerAccess);
-  if (kind === "purchase") return canAny(access.can, purchaseAccess) || canAny(access.can, supplierAccess);
+  const family = documentFamily(kind);
+  if (family === "sale") return canAny(access.can, saleAccess) || canAny(access.can, customerAccess);
+  if (family === "purchase") return canAny(access.can, purchaseAccess) || canAny(access.can, supplierAccess);
   if (kind === "expense") return canAny(access.can, expenseAccess);
   if (kind === "transfer") return canAny(access.can, transferAccess);
   if (kind === "adjustment") return canAny(access.can, adjustmentAccess);
@@ -56,12 +59,12 @@ export function canReadDocumentKind(kind: string, access: Pick<DocumentReadAcces
 export function canReadDocument(document: ReadModelDocument, access: DocumentReadAccess) {
   if (access.can("records.view")) return true;
 
-  const kind = String(document.kind ?? ""), partyId = partyIdOf(document);
+  const kind = String(document.kind ?? ""), family = documentFamily(kind), partyId = partyIdOf(document);
   const customerParty = Boolean(partyId) && access.customerPartyIds.has(partyId);
   const supplierParty = Boolean(partyId) && access.supplierPartyIds.has(partyId);
 
-  if (kind === "sale") return canAny(access.can, saleAccess) || (customerParty && canAny(access.can, customerAccess));
-  if (kind === "purchase") return canAny(access.can, purchaseAccess) || (supplierParty && canAny(access.can, supplierAccess));
+  if (family === "sale") return canAny(access.can, saleAccess) || (customerParty && canAny(access.can, customerAccess));
+  if (family === "purchase") return canAny(access.can, purchaseAccess) || (supplierParty && canAny(access.can, supplierAccess));
   if (kind === "expense") return canAny(access.can, expenseAccess);
   if (kind === "transfer") return canAny(access.can, transferAccess);
   if (kind === "adjustment") return canAny(access.can, adjustmentAccess);
