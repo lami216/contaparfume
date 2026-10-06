@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import { calculatePartyFinancialSummaries } from "../app/party-metrics.ts";
+import { resolveProductCost } from "../lib/product-cost.ts";
 
 const source = async path => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -44,4 +46,33 @@ test("decant invoice screens present as sale and purchase invoices but keep dedi
   assert.match(invoices, /title="فواتير الشراء"/);
   assert.match(invoices, /document\.kind === "decant-sale"/);
   assert.match(invoices, /document\.kind === "decant-purchase"/);
+});
+
+
+test("decant invoices contribute to party trade metrics as normal commercial invoices", () => {
+  const summaries = calculatePartyFinancialSummaries([
+    { kind: "decant-sale", status: "posted", partyId: "customer", total: 1200, lines: [{ grossProfit: 300 }] },
+    { kind: "decant-purchase", status: "posted", partyId: "supplier", total: 400, lines: [] },
+  ], []);
+  const customer = summaries.find(row => row.partyId === "customer");
+  const supplier = summaries.find(row => row.partyId === "supplier");
+  assert.equal(customer.customerTradeTotal, 1200);
+  assert.equal(customer.customerGrossProfit, 300);
+  assert.equal(supplier.supplierTradeTotal, 400);
+  assert.equal(supplier.supplierInvoiceCount, 1);
+});
+
+test("decant bottle purchases are valid purchase-cost authority", () => {
+  const result = resolveProductCost(
+    { id: "bottle-1" },
+    [{
+      kind: "decant-purchase",
+      status: "posted",
+      occurredAt: "2026-10-05T12:00:00.000Z",
+      sequence: 3,
+      lines: [{ productId: "bottle-1", unitPrice: 18 }],
+    }],
+  );
+  assert.equal(result.cost, 18);
+  assert.equal(result.source, "purchase");
 });
