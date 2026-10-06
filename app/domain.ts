@@ -16,6 +16,14 @@ export type DocumentKind =
   | "settlement"
   | "account-transfer"
   | "account-adjustment";
+export type CommercialDocumentFamily = "sale" | "purchase" | null;
+/** Business family used by reports and presentation. Decant documents keep their
+ * specialized storage kind because their inventory lifecycle is different. */
+export function commercialDocumentFamily(kind: DocumentKind): CommercialDocumentFamily {
+  if (kind === "sale" || kind === "decant-sale") return "sale";
+  if (kind === "purchase" || kind === "decant-purchase") return "purchase";
+  return null;
+}
 export type PartyType = "customer" | "supplier";
 export interface Party {
   id: string;
