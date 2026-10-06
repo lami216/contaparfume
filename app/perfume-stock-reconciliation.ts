@@ -186,6 +186,9 @@ export function reversePerfumeLotTransfer(lots: PerfumeLot[], fromWarehouseId: s
     if (!lot) throw new Error("تعذر العثور على دفعة التقسيم الأصلية للتحويل");
     const amount = nonNegativeInteger(allocation.quantity, "كمية توزيع التحويل");
     if (amount <= 0) throw new Error("توزيع التحويل غير صالح");
+    const currentUnitCost = finiteNonNegative(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0, "تكلفة التقسيمة");
+    const transferredUnitCost = finiteNonNegative(allocation.unitCost, "تكلفة التقسيمة وقت التحويل");
+    if (Math.abs(currentUnitCost - transferredUnitCost) > 1e-9) throw new Error("لا يمكن عكس تحويل التقسيمات لأن تكلفة الدفعة تغيرت بعده. ألغِ تصحيح الناتج الأحدث أولًا");
     const destination = nonNegativeInteger(lot.stocks?.[toWarehouseId] ?? 0, "رصيد الدفعة في مخزن الوجهة");
     if (destination < amount) throw new Error("لا يمكن عكس تحويل التقسيمات لأن جزءًا من الدفعة المحولة تم التصرف فيه");
     const source = nonNegativeInteger(lot.stocks?.[fromWarehouseId] ?? 0, "رصيد الدفعة في مخزن المصدر");
