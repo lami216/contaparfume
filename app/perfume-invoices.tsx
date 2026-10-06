@@ -12,7 +12,7 @@ import {
   type BootstrapData,
   type DocumentRecord,
 } from "./domain";
-import { tr } from "./i18n/messages";
+import { tr, type MessageKey } from "./i18n/messages";
 import PerfumeProductPicker, { type PerfumePickerItem } from "./perfume-product-picker";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
@@ -22,9 +22,9 @@ type DraftLine = { key: string; productId: string; quantity: string; unitPrice: 
 const lineKey = () => crypto.randomUUID();
 const n = (value: string) => value.trim() === "" ? 0 : Number(value);
 
-function InvoiceHistory({ documents, openDoc, onVoid, busy }: { documents: DocumentRecord[]; openDoc: (id: string) => void; onVoid: (document: DocumentRecord) => void; busy: boolean }) {
+function InvoiceHistory({ documents, openDoc, onVoid, busy, title }: { documents: DocumentRecord[]; openDoc: (id: string) => void; onVoid: (document: DocumentRecord) => void; busy: boolean; title: MessageKey }) {
   return <section className="decant-invoice-history">
-    <div className="decant-invoice-heading"><div><h3>{tr("آخر فواتير التقسيمات")}</h3><p>{tr("يمكن فتح الفاتورة أو إلغاؤها لإعادة المخزون والحسابات كما كانت.")}</p></div></div>
+    <div className="decant-invoice-heading"><div><h3>{tr(title)}</h3><p>{tr("يمكن فتح الفاتورة أو إلغاؤها لإعادة المخزون والحسابات كما كانت.")}</p></div></div>
     <div className="decant-invoice-history-scroll">
       <table className="erp-table decant-invoice-history-table">
         <thead><tr><th>{tr("رقم")}</th><th>{tr("التاريخ")}</th><th>{tr("الطرف")}</th><th>{tr("القيمة")}</th><th>{tr("الحالة")}</th><th>{tr("إجراءات")}</th></tr></thead>
@@ -94,18 +94,18 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
 
   return <div className="decant-invoice-page">
     <section className="decant-invoice-editor">
-      <div className="decant-invoice-heading"><div><h2>{tr("فاتورة التقسيمات")}</h2><p>{tr("بيع عطر التقسيمات مع اختيار الزجاجة، أو بيع زجاج التقسيمات فارغًا.")}</p></div><strong>{money(total)}</strong></div>
+      <div className="decant-invoice-heading"><div><h2>{tr("فاتورة بيع")} · {tr("فاتورة التقسيمات")}</h2><p>{tr("بيع عطر التقسيمات مع اختيار الزجاجة، أو بيع زجاج التقسيمات فارغًا.")}</p><small>{tr("رقم")}: {data.nextDocumentSequences.decantSale}</small></div><strong>{money(total)}</strong></div>
       <div className="decant-invoice-meta">
         <label>{tr("المخزن")}<select value={warehouseId} onChange={event => setWarehouseId(event.target.value)}>{warehouses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="note">{tr("آجل")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
-        <label>{tr("العميل")}<select value={partyId} onChange={event => setPartyId(event.target.value)}><option value="">{tr("بيع تقسيمات مباشر")}</option>{customers.map(customer => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
+        <label>{tr("العميل")}<select value={partyId} onChange={event => setPartyId(event.target.value)}><option value="">{tr("بيع مباشر")}</option>{customers.map(customer => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
       </div>
       <div className="decant-add-row decant-add-row-search"><label>{tr("المنتج أو الزجاجة")}<PerfumeProductPicker items={pickerItems} value={productId} onChange={setProductId} placeholder={tr("اختر منتج التقسيمات")} ariaLabel={tr("المنتج أو الزجاجة")}/></label><button className="soft" type="button" disabled={!productId} onClick={add}>{tr("إضافة")}</button></div>
       <div className="decant-lines-scroll"><table className="erp-table decant-lines-table"><thead><tr><th>{tr("المنتج")}</th><th>{tr("الكمية")}</th><th>{tr("سعر البيع")}</th><th>{tr("زجاجة التقسيمة")}</th><th>{tr("المتوفر")}</th><th>{tr("الإجمالي")}</th><th>{tr("إجراء")}</th></tr></thead><tbody>{lines.length === 0 ? <tr><td colSpan={7}>{tr("أضف عطر تقسيمات أو زجاجة فارغة")}</td></tr> : lines.map(line => { const product = saleProducts.find(item => item.id === line.productId)!; const isDecant = product.perfumeForm === "decant"; return <tr key={line.key}><td>{product.name}</td><td><input type="number" min="1" step="1" value={line.quantity} onChange={event => patch(line.key, { quantity: event.target.value })}/></td><td><input type="number" min="0" value={line.unitPrice} onChange={event => patch(line.key, { unitPrice: event.target.value })}/></td><td>{isDecant ? <select value={line.bottleProductId} onChange={event => patch(line.key, { bottleProductId: event.target.value })}><option value="">{tr("اختر الزجاجة")}</option>{bottles.map(bottle => <option key={bottle.id} value={bottle.id} disabled={stockInWarehouse(bottle, warehouseId) < n(line.quantity)}>{bottle.name} · {bottle.decantSizeMl ? `${bottle.decantSizeMl} ml` : ""} · {quantity(stockInWarehouse(bottle, warehouseId))}</option>)}</select> : <span className="muted">{tr("بيع فارغ")}</span>}</td><td className="num-cell">{quantity(stockInWarehouse(product, warehouseId))}</td><td className="num-cell">{money(n(line.quantity) * n(line.unitPrice))}</td><td><button className="soft" type="button" onClick={() => remove(line.key)}>{tr("حذف")}</button></td></tr>; })}</tbody></table></div>
       {localError && <div className="error">{localError}</div>}
       <div className="decant-invoice-actions"><button className="primary" type="button" disabled={busy || !lines.length || !warehouse} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : tr("اعتماد فاتورة التقسيمات")}</button></div>
     </section>
-    <InvoiceHistory documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
+    <InvoiceHistory documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy} title="فواتير البيع"/>
   </div>;
 }
 
@@ -135,13 +135,13 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
   };
   return <div className="decant-invoice-page">
     <section className="decant-invoice-editor">
-      <div className="decant-invoice-heading"><div><h2>{tr("فاتورة شراء زجاج التقسيمات")}</h2><p>{tr("هذه الفاتورة مخصصة لإدخال كميات زجاج التقسيمات إلى المخزون.")}</p></div><strong>{money(total)}</strong></div>
-      <div className="decant-invoice-meta"><label>{tr("المخزن")}<select value={warehouseId} onChange={event => setWarehouseId(event.target.value)}>{warehouses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="note">{tr("آجل")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label><label>{tr("المورد")}<select value={partyId} onChange={event => setPartyId(event.target.value)}><option value="">{tr("شراء زجاج مباشر")}</option>{suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label></div>
+      <div className="decant-invoice-heading"><div><h2>{tr("فاتورة شراء")} · {tr("فاتورة شراء زجاج التقسيمات")}</h2><p>{tr("هذه الفاتورة مخصصة لإدخال كميات زجاج التقسيمات إلى المخزون.")}</p><small>{tr("رقم")}: {data.nextDocumentSequences.decantPurchase}</small></div><strong>{money(total)}</strong></div>
+      <div className="decant-invoice-meta"><label>{tr("المخزن")}<select value={warehouseId} onChange={event => setWarehouseId(event.target.value)}>{warehouses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="note">{tr("آجل")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label><label>{tr("المورد")}<select value={partyId} onChange={event => setPartyId(event.target.value)}><option value="">{tr("شراء مباشر")}</option>{suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label></div>
       <div className="decant-add-row"><label>{tr("زجاجة التقسيمة")}<select value={productId} onChange={event => setProductId(event.target.value)}><option value="">{tr("اختر الزجاجة")}</option>{bottles.map(product => <option key={product.id} value={product.id}>{product.name}{product.decantSizeMl ? ` · ${product.decantSizeMl} ml` : ""}</option>)}</select></label><button className="soft" type="button" disabled={!productId} onClick={add}>{tr("إضافة")}</button></div>
       <div className="decant-lines-scroll"><table className="erp-table decant-lines-table"><thead><tr><th>{tr("الزجاجة")}</th><th>{tr("الحجم")}</th><th>{tr("الكمية")}</th><th>{tr("سعر الشراء")}</th><th>{tr("الإجمالي")}</th><th>{tr("إجراء")}</th></tr></thead><tbody>{lines.length === 0 ? <tr><td colSpan={6}>{tr("أضف زجاجة إلى فاتورة الشراء")}</td></tr> : lines.map(line => { const product = bottles.find(item => item.id === line.productId)!; return <tr key={line.key}><td>{product.name}</td><td className="num-cell">{product.decantSizeMl ? `${product.decantSizeMl} ml` : "—"}</td><td><input type="number" min="1" step="1" value={line.quantity} onChange={event => patch(line.key, { quantity: event.target.value })}/></td><td><input type="number" min="0" value={line.unitPrice} onChange={event => patch(line.key, { unitPrice: event.target.value })}/></td><td className="num-cell">{money(n(line.quantity) * n(line.unitPrice))}</td><td><button className="soft" type="button" onClick={() => remove(line.key)}>{tr("حذف")}</button></td></tr>; })}</tbody></table></div>
       {localError && <div className="error">{localError}</div>}
       <div className="decant-invoice-actions"><button className="primary" type="button" disabled={busy || !lines.length} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : tr("اعتماد فاتورة شراء الزجاج")}</button></div>
     </section>
-    <InvoiceHistory documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
+    <InvoiceHistory documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy} title="فواتير الشراء"/>
   </div>;
 }
