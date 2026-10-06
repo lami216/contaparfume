@@ -373,7 +373,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     await changeStock(db,session,decant,warehouse,-stockDelta,original,"perfume-stock-operation-void");
     if(original.perfumeStockOperationType==="opening"){
       if(original.decantProductCreated===true){
-        const remainingVisible=Object.values((decant.stocks??{}) as Record<string,unknown>).reduce((sum,value)=>sum+Number(value??0),0);
+        const remainingVisible=Object.values((decant.stocks??{}) as Record<string,unknown>).reduce((sum:number,value:unknown)=>sum+Number(value??0),0);
         if(lots.length===0&&Math.abs(remainingVisible)<1e-9){
           await db.collection("products").updateOne({id:decant.id,isArchived:{$ne:true}},{$set:{isArchived:true,archivedAt:new Date(),updatedAt:new Date()}},{session});
           decant.isArchived=true;
