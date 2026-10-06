@@ -290,6 +290,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     if(!Number.isInteger(quantity))throw new CommandError("الكمية الافتتاحية يجب أن تكون عددًا صحيحًا");
     const doc={...baseDocument("adjustment","DOP"),perfumeStockOperationType:"opening",partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:"رصيد افتتاحي للتقسيمات",total:0,dueTotal:0,paidTotal:0,inventoryLoss:0,bookValueBefore:0,bookValueAfter:remainingValue,lines:[] as Record<string,unknown>[]};
     let decant=await db.collection("products").findOne({perfumeForm:"decant",parentProductId:sourceProductId,isArchived:{$ne:true}},{session});
+    const decantProductExisted=Boolean(decant),decantProductBefore=decant?{name:decant.name??null,piecePrice:decant.piecePrice??null}:null;
     if(!decant){
       const sku=await nextProductCode(db,session);
       decant={id:id("product"),sku,name:`${source.name} — تقسيمة`,barcode:"",pieceCost:quantity?remainingValue/quantity:0,lastPurchaseCost:null,lastPurchaseAt:null,piecePrice:salePrice,wholesalePrice:null,expiryDate:null,note:null,categoryId:source.categoryId??null,perfumeForm:"decant",parentProductId:sourceProductId,decantSizeMl:null,decantBottleCost:0,perfumeLots:[],stocks:{},createdAt:new Date()};
@@ -305,7 +306,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     const lots=perfumeLots(decant);lots.push(lot);await savePerfumeLots(db,session,decant,lots);
     await db.collection("products").updateOne({id:sourceProductId},{$set:{perfumeForm:"full"}},{session});source.perfumeForm="full";
     const stock=await changeStock(db,session,decant,warehouse,quantity,doc,"perfume-opening-in");
-    Object.assign(doc,{decantProductId:String(decant.id),sourceProductId,perfumeLotId:lotId,stockDelta:quantity,perfumeLotBefore:null,perfumeLotAfter:structuredClone(lot)});
+    Object.assign(doc,{decantProductId:String(decant.id),sourceProductId,perfumeLotId:lotId,stockDelta:quantity,perfumeLotBefore:null,perfumeLotAfter:structuredClone(lot),decantProductCreated:!decantProductExisted,decantProductBefore,decantProductAfter:{name:decant.name??null,piecePrice:decant.piecePrice??null}});
     doc.lines=[{id:id("line"),productId:String(decant.id),description:`${String(decant.name)} — رصيد افتتاحي`,quantity,unitPrice:Number(lot.liquidUnitCost),lineTotal:0,balanceBefore:stock.before,balanceAfter:stock.after,perfumeLotId:lot.id}];
     await db.collection("documents").insertOne(doc,{session});return String(doc.id);
   }
@@ -370,6 +371,22 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     }
     await savePerfumeLots(db,session,decant,lots);
     await changeStock(db,session,decant,warehouse,-stockDelta,original,"perfume-stock-operation-void");
+    if(original.perfumeStockOperationType==="opening"){
+      if(original.decantProductCreated===true){
+        const remainingVisible=Object.values((decant.stocks??{}) as Record<string,unknown>).reduce((sum,value)=>sum+Number(value??0),0);
+        if(lots.length===0&&Math.abs(remainingVisible)<1e-9){
+          await db.collection("products").updateOne({id:decant.id,isArchived:{$ne:true}},{$set:{isArchived:true,archivedAt:new Date(),updatedAt:new Date()}},{session});
+          decant.isArchived=true;
+        }
+      }else{
+        const beforeMeta=original.decantProductBefore as {name?:unknown;piecePrice?:unknown}|null|undefined,afterMeta=original.decantProductAfter as {name?:unknown;piecePrice?:unknown}|null|undefined;
+        const unchangedSinceOpening=Boolean(beforeMeta&&afterMeta&&String(decant.name??"")===String(afterMeta.name??"")&&Number(decant.piecePrice??0)===Number(afterMeta.piecePrice??0));
+        if(unchangedSinceOpening&&beforeMeta){
+          await db.collection("products").updateOne({id:decant.id},{$set:{name:beforeMeta.name??decant.name,piecePrice:beforeMeta.piecePrice??null,updatedAt:new Date()}},{session});
+          decant.name=beforeMeta.name??decant.name;decant.piecePrice=beforeMeta.piecePrice??null;
+        }
+      }
+    }
     const bottleQuantity=Number(original.bottleQuantity??0),bottleProductId=String(original.bottleProductId??"");
     if(bottleQuantity>0&&bottleProductId){
       const bottle=await db.collection("products").findOne({id:bottleProductId},{session});if(!bottle)throw new CommandError("زجاجة التقسيمة المرتبطة بالحركة غير موجودة",409);
