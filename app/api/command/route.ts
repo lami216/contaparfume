@@ -41,7 +41,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     await db.collection("productCategories").deleteOne({ id: categoryId }, { session });
     return categoryId;
   }
-  const perfumeCommands = new Set(["product.delete","product.stock-zero","perfume-bottle.create","decant-sale.post","decant-sale.void","decant-purchase.post","decant-purchase.void","perfume-split.post","perfume-recombine.post"]);
+  const perfumeCommands = new Set(["product.delete","product.stock-zero","perfume-bottle.create","decant-sale.post","decant-sale.void","decant-purchase.post","decant-purchase.void","perfume-split.post","perfume-recombine.post","perfume-opening.post","perfume-lot-consume.post","perfume-lot-correct.post","perfume-stock-operation.void"]);
   return perfumeCommands.has(type) ? executeBaseCommand(db, session, body) : executeCoreCommand(db, session, body);
 }
 
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
       "product-category.create":"products.create","product-category.update":"products.edit","product-category.delete":"products.delete",
       "warehouse.create":"warehouses.create","warehouse.update":"warehouses.edit","warehouse.default":"warehouses.edit","warehouse.delete":"warehouses.delete",
       "sale.post":"pos.create","sale.update":"pos.edit","sale.void":"pos.delete","purchase.post":"purchases.create","purchase.update":"purchases.edit","purchase.void":"purchases.delete",
-      "perfume-bottle.create":"perfume.divisions.manage","decant-sale.post":"perfume.divisions.manage","decant-sale.void":"perfume.divisions.manage","decant-purchase.post":"perfume.divisions.manage","decant-purchase.void":"perfume.divisions.manage","perfume-split.post":"perfume.divisions.manage","perfume-recombine.post":"perfume.divisions.manage",
+      "perfume-bottle.create":"perfume.divisions.manage","decant-sale.post":"perfume.divisions.manage","decant-sale.void":"perfume.divisions.manage","decant-purchase.post":"perfume.divisions.manage","decant-purchase.void":"perfume.divisions.manage","perfume-split.post":"perfume.divisions.manage","perfume-recombine.post":"perfume.divisions.manage","perfume-opening.post":"perfume.divisions.manage","perfume-lot-consume.post":"perfume.divisions.manage","perfume-lot-correct.post":"perfume.divisions.manage","perfume-stock-operation.void":"perfume.divisions.manage",
       "transfer.post":"warehouses.transfer","transfer.update":"warehouses.transfer.edit","transfer.void":"warehouses.transfer.delete",
       "adjustment.post":"warehouses.adjust","adjustment.update":"warehouses.adjust.edit","adjustment.void":"warehouses.adjust.delete",
       "opening-stock-correction.update":"warehouses.adjust.edit","opening-stock-correction.void":"warehouses.adjust.delete","opening-stock-initial.void":"warehouses.adjust.delete",
