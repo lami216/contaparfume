@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { activeProducts, activeWarehouses, formatDateTime, inventoryUnitCost, money, quantity, stockInWarehouse, totalProductStock, type BootstrapData, type Product } from "./domain";
-import { lotRemainingTotal, roundedDivisionLiquidCost, type PerfumeLot } from "./perfume-logic";
+import { divisionLiquidCost, lotRemainingTotal, type PerfumeLot } from "./perfume-logic";
 import { tr } from "./i18n/messages";
 import PerfumeProductPicker, { type PerfumePickerItem } from "./perfume-product-picker";
 
@@ -43,7 +43,7 @@ export default function PerfumeDivisions({ data, run, onAdjustBottle }: { data: 
   const source = sourceProducts.find(product => product.id === sourceProductId) ?? null;
   const sourceCost = source ? inventoryUnitCost(source) : 0;
   const count = Number(divisionsCount), sell = Number(salePrice);
-  const liquidCost = sourceCost > 0 && Number.isInteger(count) && count > 0 ? roundedDivisionLiquidCost(sourceCost, count) : 0;
+  const liquidCost = sourceCost > 0 && Number.isInteger(count) && count > 0 ? divisionLiquidCost(sourceCost, count) : 0;
   const expectedRevenue = Number.isFinite(sell) && sell > 0 && count > 0 ? sell * count : 0;
   const expectedProfitBeforeBottle = expectedRevenue > 0 ? expectedRevenue - liquidCost * count : 0;
   const available = source && warehouseId ? stockInWarehouse(source, warehouseId) : 0;
