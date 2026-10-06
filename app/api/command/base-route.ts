@@ -4,7 +4,7 @@ import { getDatabase } from "../../../lib/sqlite.ts";
 import { log } from "../../../lib/log.ts";
 import { requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
 import { isProductExpired } from "../../domain.ts";
-import { roundedDivisionLiquidCost, type PerfumeAllocation, type PerfumeLot } from "../../perfume-logic.ts";
+import { divisionLiquidCost, type PerfumeAllocation, type PerfumeLot } from "../../perfume-logic.ts";
 import { consumePerfumeLot, correctPerfumeLotYield, createOpeningPerfumeLot, perfumeLotEquals } from "../../perfume-stock-reconciliation.ts";
 import { handlePerfumeInvoiceCommand, PerfumeInvoiceCommandError } from "../../perfume-invoice-commands.ts";
 import { normalizePartyNet, partyCashDelta, partyNet } from "../../party-balance.ts";
@@ -286,7 +286,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     if(!source)throw new CommandError("العطر غير موجود",404);
     if(["decant","partial","bottle"].includes(String(source.perfumeForm??"")))throw new CommandError("اختر العطر الأصلي وليس منتجًا مولدًا من التقسيمات",409);
     const warehouse=await warehouses(db).findOne({_id:warehouseId,isArchived:{$ne:true}},{session});if(!warehouse)throw new CommandError("المخزن غير موجود",404);
-    const quantity=positive(body.quantity,"الكمية الافتتاحية"),remainingValue=positive(body.remainingValue,"القيمة الافتتاحية",true),salePrice=Math.ceil(positive(body.salePrice,"سعر البيع للتقسيمة"));
+    const quantity=positive(body.quantity,"الكمية الافتتاحية"),remainingValue=positive(body.remainingValue,"القيمة الافتتاحية"),salePrice=Math.ceil(positive(body.salePrice,"سعر البيع للتقسيمة"));
     if(!Number.isInteger(quantity))throw new CommandError("الكمية الافتتاحية يجب أن تكون عددًا صحيحًا");
     const doc={...baseDocument("adjustment","DOP"),perfumeStockOperationType:"opening",partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:"رصيد افتتاحي للتقسيمات",total:0,dueTotal:0,paidTotal:0,inventoryLoss:0,bookValueBefore:0,bookValueAfter:remainingValue,lines:[] as Record<string,unknown>[]};
     let decant=await db.collection("products").findOne({perfumeForm:"decant",parentProductId:sourceProductId,isArchived:{$ne:true}},{session});
@@ -388,7 +388,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     const divisionsCount=positive(body.divisionsCount,"عدد التقسيمات");if(!Number.isInteger(divisionsCount)||divisionsCount<2)throw new CommandError("عدد التقسيمات يجب أن يكون عددًا صحيحًا أكبر من 1");
     const salePrice=Math.ceil(positive(body.salePrice,"سعر البيع للتقسيمة"));
     const sourceCost=await authoritativeCost(db,session,source);if(sourceCost==null||sourceCost<=0)throw new CommandError("لا توجد تكلفة شراء معتمدة لهذا العطر",409);
-    const liquidUnitCost=roundedDivisionLiquidCost(sourceCost,divisionsCount);
+    const liquidUnitCost=divisionLiquidCost(sourceCost,divisionsCount);
     const doc={...baseDocument("adjustment","SPL"),perfumeConversionType:"perfume-split",partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:"تحويل عطر إلى تقسيمات",total:0,dueTotal:0,paidTotal:0,lines:[] as Record<string,unknown>[]};
     let decant=await db.collection("products").findOne({perfumeForm:"decant",parentProductId:sourceProductId,isArchived:{$ne:true}},{session});
     if(!decant){const sku=await nextProductCode(db,session);decant={id:id("product"),sku,name:`${source.name} — تقسيمة`,barcode:"",pieceCost:liquidUnitCost,lastPurchaseCost:null,lastPurchaseAt:null,piecePrice:salePrice,wholesalePrice:null,expiryDate:null,note:null,categoryId:source.categoryId??null,perfumeForm:"decant",parentProductId:sourceProductId,decantSizeMl:null,decantBottleCost:0,perfumeLots:[],stocks:{},createdAt:new Date()};await db.collection("products").insertOne(decant,{session})}else{await db.collection("products").updateOne({id:decant.id},{$set:{name:`${source.name} — تقسيمة`,piecePrice:salePrice,pieceCost:liquidUnitCost,decantSizeMl:null,decantBottleCost:0}},{session});decant.name=`${source.name} — تقسيمة`;decant.piecePrice=salePrice;decant.pieceCost=liquidUnitCost;decant.decantSizeMl=null;decant.decantBottleCost=0}
