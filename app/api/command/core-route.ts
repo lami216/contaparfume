@@ -9,6 +9,8 @@ import { nextDocumentSequence, type SequencedDocumentKind } from "../../../lib/d
 import { deriveOpeningStockState, planOpeningStockCorrection } from "../../../lib/opening-stock.ts";
 import { currentProductCost, resolveProductCost } from "../../../lib/product-cost.ts";
 import { executeLifecycleCommand, findActiveFinancialMovement, LifecycleCommandError, propagatePartyName, reverseFinancialMovement } from "../../../lib/transaction-lifecycle.ts";
+import { transferPerfumeLotStock } from "../../perfume-stock-reconciliation.ts";
+import type { PerfumeLot } from "../../perfume-logic.ts";
 
 type Input = Record<string, unknown>;
 type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; costAtSale?: number | null; grossProfit?: number | null };
@@ -832,9 +834,43 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     return doc.id;
   }
   if (type === "transfer.post") {
-    const input = lines(body), fromId = text(body.fromWarehouseId), toId = text(body.toWarehouseId); if (!fromId || fromId === toId) throw new CommandError("اختر مخزنين مختلفين");
-    const [from, to] = await Promise.all([warehouses(db).findOne({ _id: fromId, isArchived: { $ne: true } }, { session }), warehouses(db).findOne({ _id: toId, isArchived: { $ne: true } }, { session })]); if (!from || !to) throw new CommandError("أحد المخازن غير موجود", 404); const map = await products(db, session, input), doc = { ...baseDocument("transfer", "TRF"), revision: 0, partyId: null, partyName: null, warehouseId: fromId, warehouseName: from.name, destinationWarehouseId: toId, destinationWarehouseName: to.name, parentDocumentId: null, paymentMethod: null, title: null, total: 0, dueTotal: 0, paidTotal: 0, lines: input.map(l => ({ id: id("line"), productId: l.productId, description: map.get(l.productId)!.name, quantity: l.quantity, unitPrice: 0, lineTotal: 0 })) };
-    for (const line of input) { const p = map.get(line.productId)!; await changeStock(db, session, p, from, -line.quantity, doc, "transfer-out"); await changeStock(db, session, p, to, line.quantity, doc, "transfer-in"); } await db.collection("documents").insertOne(doc, { session }); return doc.id;
+    const input = lines(body), fromId = text(body.fromWarehouseId), toId = text(body.toWarehouseId);
+    if (!fromId || fromId === toId) throw new CommandError("اختر مخزنين مختلفين");
+    const [from, to] = await Promise.all([
+      warehouses(db).findOne({ _id: fromId, isArchived: { $ne: true } }, { session }),
+      warehouses(db).findOne({ _id: toId, isArchived: { $ne: true } }, { session }),
+    ]);
+    if (!from || !to) throw new CommandError("أحد المخازن غير موجود", 404);
+    const map = await products(db, session, input);
+    const doc = {
+      ...baseDocument("transfer", "TRF"), revision: 0, partyId: null, partyName: null,
+      warehouseId: fromId, warehouseName: from.name, destinationWarehouseId: toId, destinationWarehouseName: to.name,
+      parentDocumentId: null, paymentMethod: null, title: null, total: 0, dueTotal: 0, paidTotal: 0,
+      lines: input.map(line => ({ id: id("line"), productId: line.productId, description: map.get(line.productId)!.name, quantity: line.quantity, unitPrice: 0, lineTotal: 0 })) as Array<Record<string, unknown>>,
+    };
+    for (const line of input) {
+      const product = map.get(line.productId)!;
+      if (product.perfumeForm === "decant") {
+        try {
+          const moved = transferPerfumeLotStock(
+            structuredClone(Array.isArray(product.perfumeLots) ? product.perfumeLots : []) as PerfumeLot[],
+            fromId,
+            toId,
+            line.quantity,
+          );
+          await db.collection("products").updateOne({ id: product.id }, { $set: { perfumeLots: moved.lots } }, { session });
+          product.perfumeLots = moved.lots;
+          const documentLine = doc.lines.find(item => item.productId === line.productId);
+          if (documentLine) documentLine.perfumeTransferAllocations = moved.allocations;
+        } catch (error) {
+          throw new CommandError(error instanceof Error ? error.message : "تعذر نقل دفعات التقسيمات بأمان", 409);
+        }
+      }
+      await changeStock(db, session, product, from, -line.quantity, doc, "transfer-out");
+      await changeStock(db, session, product, to, line.quantity, doc, "transfer-in");
+    }
+    await db.collection("documents").insertOne(doc, { session });
+    return doc.id;
   }
   if (type === "adjustment.post") {
     if (!Array.isArray(body.lines) || !body.lines.length) throw new CommandError("أضف منتجًا");
