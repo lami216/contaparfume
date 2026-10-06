@@ -1114,6 +1114,7 @@ export const arMessages = {
   "إلغاء رصيد افتتاحي تقسيمات": "إلغاء رصيد افتتاحي تقسيمات",
   "إلغاء استهلاك/هالك تقسيمات": "إلغاء استهلاك/هالك تقسيمات",
   "إلغاء تصحيح ناتج تقسيمات": "إلغاء تصحيح ناتج تقسيمات",
+  "إلغاء تسوية مخزون التقسيمات": "إلغاء تسوية مخزون التقسيمات",
   "تنبيه": "تنبيه",
 } as const;
 
@@ -2236,6 +2237,7 @@ export const frMessages: Record<MessageKey, string> = {
   "إلغاء رصيد افتتاحي تقسيمات": "Annulation du stock initial des décantations",
   "إلغاء استهلاك/هالك تقسيمات": "Annulation de consommation / perte de décantations",
   "إلغاء تصحيح ناتج تقسيمات": "Annulation de correction du rendement des décantations",
+  "إلغاء تسوية مخزون التقسيمات": "Annulation d’une régularisation du stock de décantations",
   "تنبيه": "Attention",
 };
 export const messages = { ar: arMessages, fr: frMessages } as const;
