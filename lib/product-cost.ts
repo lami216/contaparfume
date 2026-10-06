@@ -1,4 +1,5 @@
 import type { DbDocument, SqliteDatabase, SqliteSession } from "./sqlite.ts";
+import { isPurchaseDocumentKind } from "./document-family.ts";
 
 const positiveCost = (value: unknown) => {
   const cost = Number(value);
@@ -10,7 +11,7 @@ export function resolveProductCost(product: DbDocument, documents: DbDocument[])
   const relevant = documents.filter(document => document.status === "posted" &&
     Array.isArray(document.lines) && document.lines.some((line: DbDocument) => line.productId === product.id));
   // Stable sorting retains posting order for equal timestamps; newest is last.
-  const purchases = relevant.filter(document => document.kind === "purchase").sort((a, b) =>
+  const purchases = relevant.filter(document => isPurchaseDocumentKind(document.kind)).sort((a, b) =>
     String(a.occurredAt).localeCompare(String(b.occurredAt)) || Number(a.sequence ?? 0) - Number(b.sequence ?? 0));
   const latest = purchases.at(-1);
   const purchaseCost = positiveCost(latest?.lines.find((line: DbDocument) => line.productId === product.id)?.unitPrice);
