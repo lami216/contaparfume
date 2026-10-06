@@ -7,6 +7,7 @@ export type StockMovementDocumentHint = {
   openingStockBefore?: unknown;
   openingStockAfter?: unknown;
   productArchiveStockClearance?: unknown;
+  perfumeStockOperationType?: unknown;
 };
 
 const asText = (value: unknown) => typeof value === "string" ? value.trim() : "";
@@ -54,6 +55,14 @@ export function classifyStockMovementType(type: unknown, document?: StockMovemen
   const current = asText(type);
   if (isOpeningStockCorrectionDocument(document)) return current.startsWith("opening-correction-") ? current : "opening-correction";
   if (isOpeningStockInitialDocument(document)) return "opening";
+  const perfumeOperation = asText(document?.perfumeStockOperationType);
+  if (perfumeOperation) {
+    const base = perfumeOperation === "opening" ? "decant-opening"
+      : perfumeOperation === "consumption" ? "decant-consumption"
+      : perfumeOperation === "yield-correction" ? "decant-yield-correction"
+      : "";
+    if (base) return current.startsWith("perfume-stock-operation-void") ? `${base}-void` : base;
+  }
   if (current.startsWith("decant-sale")) return "sale";
   if (current.startsWith("decant-purchase")) return "purchase";
   return current || "unknown";
@@ -128,7 +137,7 @@ export function stockMovementMatchesFilter(type: unknown, filter: string | null 
   if (filter === "sale") return current === "sale" || current.startsWith("sale-") || current.startsWith("decant-sale");
   if (filter === "purchase") return current === "purchase" || current.startsWith("purchase-") || current.startsWith("decant-purchase");
   if (filter === "transfer") return current === "transfer" || current.startsWith("transfer-");
-  if (filter === "adjustment") return current === "adjustment" || current.startsWith("adjustment-") || current === "opening" || current === "opening-void" || current.startsWith("opening-correction");
+  if (filter === "adjustment") return current === "adjustment" || current.startsWith("adjustment-") || current === "opening" || current === "opening-void" || current.startsWith("opening-correction") || current.startsWith("decant-opening") || current.startsWith("decant-consumption") || current.startsWith("decant-yield-correction");
   return current === filter;
 }
 
