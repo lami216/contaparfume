@@ -144,6 +144,59 @@ export function createOpeningPerfumeLot(input: {
   };
 }
 
+export type PerfumeLotTransferAllocation = {
+  lotId: string;
+  quantity: number;
+  unitCost: number;
+};
+
+export function transferPerfumeLotStock(lots: PerfumeLot[], fromWarehouseId: string, toWarehouseId: string, quantity: number) {
+  if (!fromWarehouseId || !toWarehouseId || fromWarehouseId === toWarehouseId) throw new Error("اختر مخزنين مختلفين");
+  const amount = nonNegativeInteger(quantity, "كمية التحويل");
+  if (amount <= 0) throw new Error("كمية التحويل يجب أن تكون أكبر من صفر");
+  const updated = structuredClone(lots);
+  for (const lot of updated) assertPerfumeLotStockBalance(lot);
+  const ordered = updated
+    .map((lot, index) => ({ lot, index }))
+    .sort((left, right) => String(left.lot.createdAt).localeCompare(String(right.lot.createdAt)) || left.index - right.index);
+  let remaining = amount;
+  const allocations: PerfumeLotTransferAllocation[] = [];
+  for (const { lot } of ordered) {
+    if (remaining <= 0) break;
+    const available = nonNegativeInteger(lot.stocks?.[fromWarehouseId] ?? 0, "رصيد الدفعة في مخزن المصدر");
+    if (available <= 0) continue;
+    const moved = Math.min(available, remaining);
+    const target = nonNegativeInteger(lot.stocks?.[toWarehouseId] ?? 0, "رصيد الدفعة في مخزن الوجهة");
+    lot.stocks = { ...(lot.stocks ?? {}), [fromWarehouseId]: available - moved, [toWarehouseId]: target + moved };
+    allocations.push({ lotId: lot.id, quantity: moved, unitCost: finiteNonNegative(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0, "تكلفة التقسيمة") });
+    remaining -= moved;
+  }
+  if (remaining > 0) throw new Error("لا يمكن تحويل كمية تقسيمات أكبر من رصيد دفعات مخزن المصدر");
+  return { lots: updated, allocations };
+}
+
+export function reversePerfumeLotTransfer(lots: PerfumeLot[], fromWarehouseId: string, toWarehouseId: string, allocations: PerfumeLotTransferAllocation[]) {
+  if (!fromWarehouseId || !toWarehouseId || fromWarehouseId === toWarehouseId) throw new Error("مخازن التحويل غير صالحة");
+  if (!Array.isArray(allocations) || allocations.length === 0) throw new Error("تحويل التقسيمات القديم لا يحتوي توزيع الدفعات اللازم لعكسه بأمان");
+  const updated = structuredClone(lots);
+  for (const lot of updated) assertPerfumeLotStockBalance(lot);
+  const byId = new Map(updated.map(lot => [lot.id, lot]));
+  for (const allocation of allocations) {
+    const lot = byId.get(allocation.lotId);
+    if (!lot) throw new Error("تعذر العثور على دفعة التقسيم الأصلية للتحويل");
+    const amount = nonNegativeInteger(allocation.quantity, "كمية توزيع التحويل");
+    if (amount <= 0) throw new Error("توزيع التحويل غير صالح");
+    const currentUnitCost = finiteNonNegative(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0, "تكلفة التقسيمة");
+    const transferredUnitCost = finiteNonNegative(allocation.unitCost, "تكلفة التقسيمة وقت التحويل");
+    if (Math.abs(currentUnitCost - transferredUnitCost) > 1e-9) throw new Error("لا يمكن عكس تحويل التقسيمات لأن تكلفة الدفعة تغيرت بعده. ألغِ تصحيح الناتج الأحدث أولًا");
+    const destination = nonNegativeInteger(lot.stocks?.[toWarehouseId] ?? 0, "رصيد الدفعة في مخزن الوجهة");
+    if (destination < amount) throw new Error("لا يمكن عكس تحويل التقسيمات لأن جزءًا من الدفعة المحولة تم التصرف فيه");
+    const source = nonNegativeInteger(lot.stocks?.[fromWarehouseId] ?? 0, "رصيد الدفعة في مخزن المصدر");
+    lot.stocks = { ...(lot.stocks ?? {}), [toWarehouseId]: destination - amount, [fromWarehouseId]: source + amount };
+  }
+  return updated;
+}
+
 export function perfumeLotEquals(a: PerfumeLot, b: PerfumeLot) {
   const normalizeStocks = (stocks: Record<string, number> | undefined) =>
     Object.fromEntries(Object.entries(stocks ?? {}).sort(([left], [right]) => left.localeCompare(right)));

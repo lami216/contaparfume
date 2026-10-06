@@ -1,5 +1,7 @@
 import type { SqliteDatabase as Db, SqliteSession as ClientSession } from "./sqlite.ts";
 import { normalizePartyNet, partyCashDelta, partyNet } from "../app/party-balance.ts";
+import type { PerfumeLot } from "../app/perfume-logic.ts";
+import { reversePerfumeLotTransfer, transferPerfumeLotStock, type PerfumeLotTransferAllocation } from "../app/perfume-stock-reconciliation.ts";
 
 export class LifecycleCommandError extends Error {
   status: number;
@@ -156,6 +158,42 @@ async function loadProducts(db: Db, session: ClientSession, productIds: string[]
   return new Map(rows.map(row => [String(row.id), row]));
 }
 
+function productPerfumeLots(product: Stored) {
+  return structuredClone(Array.isArray(product.perfumeLots) ? product.perfumeLots : []) as PerfumeLot[];
+}
+
+async function saveProductPerfumeLots(db: Db, session: ClientSession, product: Stored, lots: PerfumeLot[]) {
+  await db.collection("products").updateOne({ id: product.id }, { $set: { perfumeLots: lots } }, { session });
+  product.perfumeLots = lots;
+}
+
+function transferAllocations(line: Stored) {
+  return Array.isArray(line.perfumeTransferAllocations) ? structuredClone(line.perfumeTransferAllocations) as PerfumeLotTransferAllocation[] : [];
+}
+
+async function reverseDecantTransferLots(db: Db, session: ClientSession, product: Stored, line: Stored, fromWarehouseId: string, toWarehouseId: string) {
+  if (product.perfumeForm !== "decant") return;
+  const allocations = transferAllocations(line);
+  if (!allocations.length) throw new LifecycleCommandError("لا يمكن تعديل أو إلغاء تحويل تقسيمات قديم لا يحتوي توزيع الدفعات. سوِّ مخزون التقسيمات أولًا.", 409);
+  try {
+    const lots = reversePerfumeLotTransfer(productPerfumeLots(product), fromWarehouseId, toWarehouseId, allocations);
+    await saveProductPerfumeLots(db, session, product, lots);
+  } catch (error) {
+    throw new LifecycleCommandError(error instanceof Error ? error.message : "تعذر عكس دفعات تحويل التقسيمات بأمان", 409);
+  }
+}
+
+async function applyDecantTransferLots(db: Db, session: ClientSession, product: Stored, fromWarehouseId: string, toWarehouseId: string, quantity: number) {
+  if (product.perfumeForm !== "decant") return null;
+  try {
+    const moved = transferPerfumeLotStock(productPerfumeLots(product), fromWarehouseId, toWarehouseId, quantity);
+    await saveProductPerfumeLots(db, session, product, moved.lots);
+    return moved.allocations;
+  } catch (error) {
+    throw new LifecycleCommandError(error instanceof Error ? error.message : "تعذر نقل دفعات التقسيمات بأمان", 409);
+  }
+}
+
 const stockAuditDocument = (document: Stored, revision: number) => ({ ...document, revision, occurredAt: new Date().toISOString() });
 const openingAdjustment = (document: Stored) => document.openingCorrection === true || String(document.number ?? "").startsWith("OPEN") || document.title === "رصيد بداية" || document.title === "تصحيح رصيد البداية";
 
@@ -187,6 +225,19 @@ async function updateTransfer(db: Db, session: ClientSession, body: Input) {
   for(const line of oldLines){const productId=String(line.productId),quantity=Number(line.quantity??0);addDelta(productId,String(oldFrom._id),quantity);addDelta(productId,String(oldTo._id),-quantity)}
   for(const line of input){addDelta(line.productId,fromId,-line.quantity);addDelta(line.productId,toId,line.quantity)}
 
+  // Decant stock has a second authoritative layer: perfume lots. Reverse the exact old
+  // lot allocations first, then replay the requested transfer and persist its new allocations.
+  for (const line of oldLines) {
+    const product = products.get(String(line.productId))!;
+    await reverseDecantTransferLots(db, session, product, line, String(oldFrom._id), String(oldTo._id));
+  }
+  const newPerfumeAllocations = new Map<string, PerfumeLotTransferAllocation[]>();
+  for (const line of input) {
+    const product = products.get(line.productId)!;
+    const allocations = await applyDecantTransferLots(db, session, product, fromId, toId, line.quantity);
+    if (allocations) newPerfumeAllocations.set(line.productId, allocations);
+  }
+
   for(const {productId,warehouseId,delta} of deltas.values()){
     if(!delta)continue;
     const product=products.get(productId)!,current=Number(((product.stocks??{}) as Record<string,number>)[warehouseId]??0);
@@ -199,7 +250,7 @@ async function updateTransfer(db: Db, session: ClientSession, body: Input) {
     await changeStock(db,session,products.get(productId)!,warehouse,delta,audit,"transfer-edit");
   }
 
-  const lines: Stored[] = input.map(line=>({ id: (oldLines.find(old => String(old.productId) === line.productId)?.id as string | undefined) ?? id("line"), productId: line.productId, description: products.get(line.productId)!.name, quantity: line.quantity, unitPrice: 0, lineTotal: 0 }));
+  const lines: Stored[] = input.map(line=>({ id: (oldLines.find(old => String(old.productId) === line.productId)?.id as string | undefined) ?? id("line"), productId: line.productId, description: products.get(line.productId)!.name, quantity: line.quantity, unitPrice: 0, lineTotal: 0, ...(newPerfumeAllocations.has(line.productId) ? { perfumeTransferAllocations: newPerfumeAllocations.get(line.productId) } : {}) }));
   await db.collection("documents").updateOne({ id: documentId, status: "posted" }, { $set: { warehouseId: fromId, warehouseName: from.name, destinationWarehouseId: toId, destinationWarehouseName: to.name, lines, updatedAt: new Date(), revision } }, { session });
   await preserveHistoricalWarehouseArchiveIfEmpty(db,session,String(oldFrom._id),oldFromWasArchived,oldFromArchivedAt);
   await preserveHistoricalWarehouseArchiveIfEmpty(db,session,String(oldTo._id),oldToWasArchived,oldToArchivedAt);
@@ -215,6 +266,10 @@ async function voidTransfer(db: Db, session: ClientSession, body: Input) {
   ]);
   if (!from || !to) throw new LifecycleCommandError("تعذر تحديد مخازن التحويل الأصلية", 409);
   const lines = (original.lines ?? []) as Stored[], products = await loadProducts(db, session, lines.map(line => String(line.productId))), revision = Number(original.revision ?? 0) + 1, audit = stockAuditDocument(original, revision);
+  for (const line of lines) {
+    const product = products.get(String(line.productId))!;
+    await reverseDecantTransferLots(db, session, product, line, String(from._id), String(to._id));
+  }
   for (const line of lines) {
     const product = products.get(String(line.productId))!, quantity = Number(line.quantity ?? 0);
     await changeStock(db, session, product, from, quantity, audit, "transfer-void");

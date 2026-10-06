@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
-import { consumePerfumeLot, correctPerfumeLotYield, createOpeningPerfumeLot, perfumeLotBookValue } from "../app/perfume-stock-reconciliation.ts";
+import { consumePerfumeLot, correctPerfumeLotYield, createOpeningPerfumeLot, perfumeLotBookValue, reversePerfumeLotTransfer, transferPerfumeLotStock } from "../app/perfume-stock-reconciliation.ts";
 import { divisionLiquidCost } from "../app/perfume-logic.ts";
 import { inventoryAverageUnitCostAcrossWarehouses, inventoryValueAcrossWarehouses } from "../app/domain.ts";
 
@@ -102,8 +102,43 @@ test("samples and waste remove quantity and its exact liquid cost", () => {
   assert.equal(result.inventoryLoss, 100);
 });
 
+test("decant warehouse transfer moves the exact perfume lots without changing book value", () => {
+  const before = lot({ stocks: { wh1: 8, wh2: 0 } });
+  const moved = transferPerfumeLotStock([before], "wh1", "wh2", 3);
+  assert.equal(moved.lots[0].stocks.wh1, 5);
+  assert.equal(moved.lots[0].stocks.wh2, 3);
+  assert.equal(moved.lots[0].remainingQuantity, 8);
+  assert.equal(perfumeLotBookValue(moved.lots[0]), 800);
+  assert.deepEqual(moved.allocations, [{ lotId: "lot-1", quantity: 3, unitCost: 100 }]);
+
+  const restored = reversePerfumeLotTransfer(moved.lots, "wh1", "wh2", moved.allocations);
+  assert.equal(restored[0].stocks.wh1, 8);
+  assert.equal(restored[0].stocks.wh2, 0);
+  assert.equal(restored[0].remainingQuantity, 8);
+  assert.equal(perfumeLotBookValue(restored[0]), 800);
+});
+
+test("decant transfer reversal is blocked after transferred stock or lot cost changed", () => {
+  const moved = transferPerfumeLotStock([lot({ stocks: { wh1: 8, wh2: 0 } })], "wh1", "wh2", 3);
+  const soldFromDestination = structuredClone(moved.lots);
+  soldFromDestination[0].stocks.wh2 = 2;
+  soldFromDestination[0].remainingQuantity = 7;
+  assert.throws(
+    () => reversePerfumeLotTransfer(soldFromDestination, "wh1", "wh2", moved.allocations),
+    /تم التصرف فيه/,
+  );
+
+  const revalued = structuredClone(moved.lots);
+  revalued[0].liquidUnitCost = 80;
+  revalued[0].landedUnitCost = 80;
+  assert.throws(
+    () => reversePerfumeLotTransfer(revalued, "wh1", "wh2", moved.allocations),
+    /تكلفة الدفعة تغيرت/,
+  );
+});
+
 test("decant reconciliation commands are specialized, reversible and noncash", async () => {
-  const [route, commands, reports, ui, stockMovement, footer, bootstrap] = await Promise.all([
+  const [route, commands, reports, ui, stockMovement, footer, bootstrap, coreCommands, lifecycle] = await Promise.all([
     readFile(new URL("../app/api/command/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/command/base-route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/reports.ts", import.meta.url), "utf8"),
@@ -111,12 +146,16 @@ test("decant reconciliation commands are specialized, reversible and noncash", a
     readFile(new URL("../app/stock-movement.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/report-footer.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/bootstrap/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/command/core-route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/transaction-lifecycle.ts", import.meta.url), "utf8"),
   ]);
   for (const command of ["perfume-opening.post", "perfume-lot-consume.post", "perfume-lot-correct.post", "perfume-stock-operation.void"]) {
     assert.match(route, new RegExp(command.replaceAll(".", "\\.")));
   }
   assert.match(commands, /perfumeLotBefore/);
   assert.match(commands, /perfumeLotAfter/);
+  assert.match(commands, /decantProductCreated/);
+  assert.match(commands, /decantProductBefore/);
   assert.match(commands, /perfumeLotEquals/);
   assert.match(commands, /لا يمكن إلغاء الحركة لأن دفعة التقسيم تغيرت بعدها/);
   assert.match(commands, /inventoryLoss:consumed\.inventoryLoss/);
@@ -134,4 +173,11 @@ test("decant reconciliation commands are specialized, reversible and noncash", a
   assert.match(ui, /رصيد افتتاحي لعطر مفتوح قديم/);
   assert.match(ui, /استهلاك \/ هالك \/ عينات/);
   assert.match(ui, /تصحيح ناتج التقسيم/);
+  assert.match(ui, /divisionLiquidCost/);
+  assert.doesNotMatch(ui, /roundedDivisionLiquidCost/);
+  assert.match(coreCommands, /transferPerfumeLotStock/);
+  assert.match(coreCommands, /perfumeTransferAllocations/);
+  assert.match(lifecycle, /reverseDecantTransferLots/);
+  assert.match(lifecycle, /applyDecantTransferLots/);
+  assert.match(lifecycle, /perfumeTransferAllocations/);
 });
