@@ -352,7 +352,7 @@ export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "o
 /** Exact current book value in one warehouse. Decants are valued by their lots because
  * yield corrections can make the remaining unit cost differ between batches. */
 export function inventoryValueInWarehouse(product: Pick<Product, "perfumeForm" | "perfumeLots" | "stocks" | "lastPurchaseCost" | "openingCost" | "legacyOpeningCost">, warehouseId: string) {
-  if (product.perfumeForm === "decant" && Array.isArray(product.perfumeLots)) {
+  if (product.perfumeForm === "decant" && Array.isArray(product.perfumeLots) && product.perfumeLots.length > 0) {
     return product.perfumeLots.reduce((sum, lot) => {
       const quantity = Math.max(0, Number(lot.stocks?.[warehouseId] ?? 0));
       const unitCost = Math.max(0, Number(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0));
