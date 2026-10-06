@@ -146,6 +146,15 @@ export interface DocumentRecord {
   openingCostAfter?: number | null;
   /** Final inventory correction generated while archiving/cleaning an archived product. */
   productArchiveStockClearance?: boolean;
+  /** Specialized decant stock lifecycle operation. */
+  perfumeStockOperationType?: "opening" | "consumption" | "yield-correction";
+  perfumeStockReasonCode?: string | null;
+  inventoryLoss?: number;
+  bookValueBefore?: number;
+  bookValueAfter?: number;
+  decantProductId?: string | null;
+  perfumeLotId?: string | null;
+  stockDelta?: number;
   total: number;
   dueTotal: number;
   paidTotal: number;
@@ -339,6 +348,25 @@ export function displayDocumentNumber(document: Pick<DocumentRecord, "number" | 
 /** Accounting-backed inventory valuation. Manual pieceCost never silently becomes historical cost. */
 export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "openingCost" | "legacyOpeningCost">) {
   return product.lastPurchaseCost ?? product.openingCost ?? product.legacyOpeningCost ?? 0;
+}
+/** Exact current book value in one warehouse. Decants are valued by their lots because
+ * yield corrections can make the remaining unit cost differ between batches. */
+export function inventoryValueInWarehouse(product: Pick<Product, "perfumeForm" | "perfumeLots" | "stocks" | "lastPurchaseCost" | "openingCost" | "legacyOpeningCost">, warehouseId: string) {
+  if (product.perfumeForm === "decant" && Array.isArray(product.perfumeLots) && product.perfumeLots.length > 0) {
+    return product.perfumeLots.reduce((sum, lot) => {
+      const quantity = Math.max(0, Number(lot.stocks?.[warehouseId] ?? 0));
+      const unitCost = Math.max(0, Number(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0));
+      return sum + (Number.isFinite(quantity) && Number.isFinite(unitCost) ? quantity * unitCost : 0);
+    }, 0);
+  }
+  return Math.max(0, Number(product.stocks?.[warehouseId] ?? 0)) * inventoryUnitCost(product);
+}
+export function inventoryValueAcrossWarehouses(product: Pick<Product, "perfumeForm" | "perfumeLots" | "stocks" | "lastPurchaseCost" | "openingCost" | "legacyOpeningCost">, warehouseIds: string[]) {
+  return warehouseIds.reduce((sum, warehouseId) => sum + inventoryValueInWarehouse(product, warehouseId), 0);
+}
+export function inventoryAverageUnitCostAcrossWarehouses(product: Pick<Product, "perfumeForm" | "perfumeLots" | "stocks" | "lastPurchaseCost" | "openingCost" | "legacyOpeningCost">, warehouseIds: string[]) {
+  const quantity = warehouseIds.reduce((sum, warehouseId) => sum + Math.max(0, Number(product.stocks?.[warehouseId] ?? 0)), 0);
+  return quantity > 0 ? inventoryValueAcrossWarehouses(product, warehouseIds) / quantity : inventoryUnitCost(product);
 }
 export function formatDate(
   value: Date | string | number,

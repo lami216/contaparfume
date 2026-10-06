@@ -1106,6 +1106,16 @@ export const arMessages = {
   "تعديل تصحيح": "تعديل تصحيح",
   "عكس تصحيح": "عكس تصحيح",
   "إلغاء تصحيح": "إلغاء تصحيح",
+  "خسائر مخزون التقسيمات": "خسائر مخزون التقسيمات",
+  "صافي الربح بعد خسائر المخزون": "صافي الربح بعد خسائر المخزون",
+  "ربح المبيعات بعد خسائر المخزون": "ربح المبيعات بعد خسائر المخزون",
+  "رصيد افتتاحي تقسيمات": "رصيد افتتاحي تقسيمات",
+  "استهلاك/هالك تقسيمات": "استهلاك/هالك تقسيمات",
+  "تصحيح ناتج تقسيمات": "تصحيح ناتج تقسيمات",
+  "إلغاء رصيد افتتاحي تقسيمات": "إلغاء رصيد افتتاحي تقسيمات",
+  "إلغاء استهلاك/هالك تقسيمات": "إلغاء استهلاك/هالك تقسيمات",
+  "إلغاء تصحيح ناتج تقسيمات": "إلغاء تصحيح ناتج تقسيمات",
+  "إلغاء تسوية مخزون التقسيمات": "إلغاء تسوية مخزون التقسيمات",
   "تنبيه": "تنبيه",
 } as const;
 
@@ -2220,6 +2230,16 @@ export const frMessages: Record<MessageKey, string> = {
   "تعديل تصحيح": "Modif. correction",
   "عكس تصحيح": "Annul. correction",
   "إلغاء تصحيح": "Supp. correction",
+  "خسائر مخزون التقسيمات": "Pertes de stock des décantations",
+  "صافي الربح بعد خسائر المخزون": "Bénéfice net après pertes de stock",
+  "ربح المبيعات بعد خسائر المخزون": "Bénéfice des ventes après pertes de stock",
+  "رصيد افتتاحي تقسيمات": "Stock initial des décantations",
+  "استهلاك/هالك تقسيمات": "Consommation / perte de décantations",
+  "تصحيح ناتج تقسيمات": "Correction du rendement des décantations",
+  "إلغاء رصيد افتتاحي تقسيمات": "Annulation du stock initial des décantations",
+  "إلغاء استهلاك/هالك تقسيمات": "Annulation de consommation / perte de décantations",
+  "إلغاء تصحيح ناتج تقسيمات": "Annulation de correction du rendement des décantations",
+  "إلغاء تسوية مخزون التقسيمات": "Annulation d’une régularisation du stock de décantations",
   "تنبيه": "Attention",
 };
 export const messages = { ar: arMessages, fr: frMessages } as const;

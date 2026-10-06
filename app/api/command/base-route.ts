@@ -4,7 +4,8 @@ import { getDatabase } from "../../../lib/sqlite.ts";
 import { log } from "../../../lib/log.ts";
 import { requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
 import { isProductExpired } from "../../domain.ts";
-import { roundedDivisionLiquidCost, type PerfumeAllocation, type PerfumeLot } from "../../perfume-logic.ts";
+import { divisionLiquidCost, type PerfumeAllocation, type PerfumeLot } from "../../perfume-logic.ts";
+import { consumePerfumeLot, correctPerfumeLotYield, createOpeningPerfumeLot, perfumeLotEquals } from "../../perfume-stock-reconciliation.ts";
 import { handlePerfumeInvoiceCommand, PerfumeInvoiceCommandError } from "../../perfume-invoice-commands.ts";
 import { normalizePartyNet, partyCashDelta, partyNet } from "../../party-balance.ts";
 import { nextDocumentSequence, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
@@ -279,6 +280,104 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
   const type = text(body.type);
   const perfumeInvoiceResult = await handlePerfumeInvoiceCommand(db, session, body);
   if (perfumeInvoiceResult !== null) return perfumeInvoiceResult;
+  if (type === "perfume-opening.post") {
+    const sourceProductId=text(body.sourceProductId),warehouseId=text(body.warehouseId);
+    const source=await db.collection("products").findOne({id:sourceProductId,isArchived:{$ne:true}},{session});
+    if(!source)throw new CommandError("العطر غير موجود",404);
+    if(["decant","partial","bottle"].includes(String(source.perfumeForm??"")))throw new CommandError("اختر العطر الأصلي وليس منتجًا مولدًا من التقسيمات",409);
+    const warehouse=await warehouses(db).findOne({_id:warehouseId,isArchived:{$ne:true}},{session});if(!warehouse)throw new CommandError("المخزن غير موجود",404);
+    const quantity=positive(body.quantity,"الكمية الافتتاحية"),remainingValue=positive(body.remainingValue,"القيمة الافتتاحية"),salePrice=Math.ceil(positive(body.salePrice,"سعر البيع للتقسيمة"));
+    if(!Number.isInteger(quantity))throw new CommandError("الكمية الافتتاحية يجب أن تكون عددًا صحيحًا");
+    const doc={...baseDocument("adjustment","DOP"),perfumeStockOperationType:"opening",partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:"رصيد افتتاحي للتقسيمات",total:0,dueTotal:0,paidTotal:0,inventoryLoss:0,bookValueBefore:0,bookValueAfter:remainingValue,lines:[] as Record<string,unknown>[]};
+    let decant=await db.collection("products").findOne({perfumeForm:"decant",parentProductId:sourceProductId,isArchived:{$ne:true}},{session});
+    if(!decant){
+      const sku=await nextProductCode(db,session);
+      decant={id:id("product"),sku,name:`${source.name} — تقسيمة`,barcode:"",pieceCost:quantity?remainingValue/quantity:0,lastPurchaseCost:null,lastPurchaseAt:null,piecePrice:salePrice,wholesalePrice:null,expiryDate:null,note:null,categoryId:source.categoryId??null,perfumeForm:"decant",parentProductId:sourceProductId,decantSizeMl:null,decantBottleCost:0,perfumeLots:[],stocks:{},createdAt:new Date()};
+      await db.collection("products").insertOne(decant,{session});
+    }else{
+      await db.collection("products").updateOne({id:decant.id},{$set:{name:`${source.name} — تقسيمة`,piecePrice:salePrice}},{session});
+      decant.name=`${source.name} — تقسيمة`;decant.piecePrice=salePrice;
+    }
+    const lotId=id("lot");
+    let lot:PerfumeLot;
+    try{lot=createOpeningPerfumeLot({id:lotId,sourceProductId,sourceProductName:String(source.name),warehouseId,quantity,remainingValue,createdAt:String(doc.occurredAt),conversionDocumentId:String(doc.id)});}
+    catch(error){throw new CommandError(error instanceof Error?error.message:"بيانات الرصيد الافتتاحي غير صالحة",409);}
+    const lots=perfumeLots(decant);lots.push(lot);await savePerfumeLots(db,session,decant,lots);
+    await db.collection("products").updateOne({id:sourceProductId},{$set:{perfumeForm:"full"}},{session});source.perfumeForm="full";
+    const stock=await changeStock(db,session,decant,warehouse,quantity,doc,"perfume-opening-in");
+    Object.assign(doc,{decantProductId:String(decant.id),sourceProductId,perfumeLotId:lotId,stockDelta:quantity,perfumeLotBefore:null,perfumeLotAfter:structuredClone(lot)});
+    doc.lines=[{id:id("line"),productId:String(decant.id),description:`${String(decant.name)} — رصيد افتتاحي`,quantity,unitPrice:Number(lot.liquidUnitCost),lineTotal:0,balanceBefore:stock.before,balanceAfter:stock.after,perfumeLotId:lot.id}];
+    await db.collection("documents").insertOne(doc,{session});return String(doc.id);
+  }
+  if(type==="perfume-lot-consume.post"){
+    const decantProductId=text(body.decantProductId),lotId=text(body.lotId),warehouseId=text(body.warehouseId),reason=text(body.reason),reasonCode=text(body.reasonCode)||"other";
+    if(!reason)throw new CommandError("سبب الاستهلاك أو الهالك مطلوب");
+    const decant=await db.collection("products").findOne({id:decantProductId,perfumeForm:"decant",isArchived:{$ne:true}},{session});if(!decant)throw new CommandError("منتج التقسيمات غير موجود",404);
+    const warehouse=await warehouses(db).findOne({_id:warehouseId,isArchived:{$ne:true}},{session});if(!warehouse)throw new CommandError("المخزن غير موجود",404);
+    const lots=perfumeLots(decant),index=lots.findIndex(item=>item.id===lotId);if(index<0)throw new CommandError("دفعة التقسيم غير موجودة",404);
+    const beforeLot=structuredClone(lots[index]);
+    let consumed;
+    try{consumed=consumePerfumeLot(lots[index],warehouseId,positive(body.quantity,"الكمية"));}
+    catch(error){throw new CommandError(error instanceof Error?error.message:"تعذر استهلاك كمية التقسيمات",409);}
+    lots[index]=consumed.lot;
+    const doc={...baseDocument("adjustment","DCL"),perfumeStockOperationType:"consumption",perfumeStockReasonCode:reasonCode,partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:reason,total:0,dueTotal:0,paidTotal:0,inventoryLoss:consumed.inventoryLoss,bookValueBefore:Number(beforeLot.remainingQuantity)*Number(beforeLot.liquidUnitCost),bookValueAfter:Number(consumed.lot.remainingQuantity)*Number(consumed.lot.liquidUnitCost),decantProductId,perfumeLotId:lotId,stockDelta:-consumed.quantity,perfumeLotBefore:beforeLot,perfumeLotAfter:structuredClone(consumed.lot),lines:[] as Record<string,unknown>[]};
+    await savePerfumeLots(db,session,decant,lots);
+    const stock=await changeStock(db,session,decant,warehouse,-consumed.quantity,doc,"perfume-consumption-liquid");
+    doc.lines.push({id:id("line"),productId:decantProductId,description:`${String(decant.name)} — ${reason}`,quantity:-consumed.quantity,unitPrice:consumed.unitCost,lineTotal:0,balanceBefore:stock.before,balanceAfter:stock.after,inventoryLoss:consumed.inventoryLoss,perfumeLotId:lotId});
+    if(body.consumeBottle===true){
+      const bottleProductId=text(body.bottleProductId);if(!bottleProductId)throw new CommandError("اختر الزجاجة المستهلكة");
+      const bottle=await db.collection("products").findOne({id:bottleProductId,perfumeForm:"bottle",isArchived:{$ne:true}},{session});if(!bottle)throw new CommandError("زجاجة التقسيمة غير موجودة",404);
+      const bottleCost=await authoritativeCost(db,session,bottle);if(bottleCost==null||bottleCost<0)throw new CommandError("لا توجد تكلفة شراء معتمدة للزجاجة",409);
+      const bottleStock=await changeStock(db,session,bottle,warehouse,-consumed.quantity,doc,"perfume-consumption-bottle");
+      doc.inventoryLoss=Number(doc.inventoryLoss)+consumed.quantity*bottleCost;
+      Object.assign(doc,{bottleProductId:String(bottle.id),bottleQuantity:consumed.quantity,bottleUnitCost:bottleCost});
+      doc.lines.push({id:id("line"),productId:String(bottle.id),description:`${String(bottle.name)} — ${reason}`,quantity:-consumed.quantity,unitPrice:bottleCost,lineTotal:0,balanceBefore:bottleStock.before,balanceAfter:bottleStock.after,inventoryLoss:consumed.quantity*bottleCost});
+    }
+    await db.collection("documents").insertOne(doc,{session});return String(doc.id);
+  }
+  if(type==="perfume-lot-correct.post"){
+    const decantProductId=text(body.decantProductId),lotId=text(body.lotId),warehouseId=text(body.warehouseId),reason=text(body.reason);
+    if(!reason)throw new CommandError("سبب تصحيح الناتج مطلوب");
+    const decant=await db.collection("products").findOne({id:decantProductId,perfumeForm:"decant",isArchived:{$ne:true}},{session});if(!decant)throw new CommandError("منتج التقسيمات غير موجود",404);
+    const warehouse=await warehouses(db).findOne({_id:warehouseId,isArchived:{$ne:true}},{session});if(!warehouse)throw new CommandError("المخزن غير موجود",404);
+    const lots=perfumeLots(decant),index=lots.findIndex(item=>item.id===lotId);if(index<0)throw new CommandError("دفعة التقسيم غير موجودة",404);
+    const beforeLot=structuredClone(lots[index]);
+    let correction;
+    try{correction=correctPerfumeLotYield(lots[index],warehouseId,positive(body.actualQuantity,"الرصيد الفعلي",true));}
+    catch(error){throw new CommandError(error instanceof Error?error.message:"تعذر تصحيح ناتج التقسيم",409);}
+    if(correction.quantityDelta===0)throw new CommandError("لا يوجد فرق في ناتج التقسيم لاعتماده",409);
+    lots[index]=correction.lot;
+    const doc={...baseDocument("adjustment","DYC"),perfumeStockOperationType:"yield-correction",partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:reason,total:0,dueTotal:0,paidTotal:0,inventoryLoss:0,bookValueBefore:correction.remainingBookValue,bookValueAfter:correction.remainingBookValue,decantProductId,perfumeLotId:lotId,stockDelta:correction.quantityDelta,perfumeLotBefore:beforeLot,perfumeLotAfter:structuredClone(correction.lot),lines:[] as Record<string,unknown>[]};
+    await savePerfumeLots(db,session,decant,lots);
+    const stock=await changeStock(db,session,decant,warehouse,correction.quantityDelta,doc,"perfume-yield-correction");
+    doc.lines=[{id:id("line"),productId:decantProductId,description:`${String(decant.name)} — ${reason}`,quantity:correction.quantityDelta,unitPrice:correction.afterUnitCost,lineTotal:0,balanceBefore:stock.before,balanceAfter:stock.after,perfumeLotId:lotId,perfumeLotStockBefore:correction.beforeWarehouseQuantity,perfumeLotStockAfter:correction.afterWarehouseQuantity}];
+    await db.collection("documents").insertOne(doc,{session});return String(doc.id);
+  }
+  if(type==="perfume-stock-operation.void"){
+    const documentId=text(body.documentId),original=await db.collection("documents").findOne({id:documentId,kind:"adjustment",status:"posted",perfumeStockOperationType:{$in:["opening","consumption","yield-correction"]}},{session});
+    if(!original)throw new CommandError("حركة مخزون التقسيمات غير موجودة أو ملغاة بالفعل",404);
+    const decantProductId=String(original.decantProductId??""),lotId=String(original.perfumeLotId??""),warehouseId=String(original.warehouseId??"");
+    const decant=await db.collection("products").findOne({id:decantProductId,perfumeForm:"decant"},{session});if(!decant)throw new CommandError("منتج التقسيمات المرتبط بالحركة غير موجود",409);
+    const warehouse=await warehouses(db).findOne({_id:warehouseId},{session});if(!warehouse)throw new CommandError("المخزن المرتبط بالحركة غير موجود",409);
+    const lots=perfumeLots(decant),index=lots.findIndex(item=>item.id===lotId),expected=original.perfumeLotAfter as PerfumeLot|undefined,before=original.perfumeLotBefore as PerfumeLot|null|undefined;
+    if(index<0||!expected||!perfumeLotEquals(lots[index],expected))throw new CommandError("لا يمكن إلغاء الحركة لأن دفعة التقسيم تغيرت بعدها. ألغِ الحركات الأحدث أولًا.",409);
+    const stockDelta=Number(original.stockDelta??0);if(!Number.isFinite(stockDelta)||stockDelta===0)throw new CommandError("حركة المخزون الأصلية غير صالحة",409);
+    if(original.perfumeStockOperationType==="opening"){
+      lots.splice(index,1);
+    }else{
+      if(!before)throw new CommandError("تعذر العثور على حالة الدفعة السابقة",409);
+      lots[index]=structuredClone(before);
+    }
+    await savePerfumeLots(db,session,decant,lots);
+    await changeStock(db,session,decant,warehouse,-stockDelta,original,"perfume-stock-operation-void");
+    const bottleQuantity=Number(original.bottleQuantity??0),bottleProductId=String(original.bottleProductId??"");
+    if(bottleQuantity>0&&bottleProductId){
+      const bottle=await db.collection("products").findOne({id:bottleProductId},{session});if(!bottle)throw new CommandError("زجاجة التقسيمة المرتبطة بالحركة غير موجودة",409);
+      await changeStock(db,session,bottle,warehouse,bottleQuantity,original,"perfume-stock-operation-void-bottle");
+    }
+    await db.collection("documents").updateOne({id:documentId,status:"posted"},{$set:{status:"voided",voidedAt:new Date(),updatedAt:new Date()}},{session});
+    return documentId;
+  }
   if (type === "perfume-split.post") {
     const sourceProductId=text(body.sourceProductId),warehouseId=text(body.warehouseId);
     const source=await db.collection("products").findOne({id:sourceProductId,isArchived:{$ne:true}},{session});
@@ -289,7 +388,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     const divisionsCount=positive(body.divisionsCount,"عدد التقسيمات");if(!Number.isInteger(divisionsCount)||divisionsCount<2)throw new CommandError("عدد التقسيمات يجب أن يكون عددًا صحيحًا أكبر من 1");
     const salePrice=Math.ceil(positive(body.salePrice,"سعر البيع للتقسيمة"));
     const sourceCost=await authoritativeCost(db,session,source);if(sourceCost==null||sourceCost<=0)throw new CommandError("لا توجد تكلفة شراء معتمدة لهذا العطر",409);
-    const liquidUnitCost=roundedDivisionLiquidCost(sourceCost,divisionsCount);
+    const liquidUnitCost=divisionLiquidCost(sourceCost,divisionsCount);
     const doc={...baseDocument("adjustment","SPL"),perfumeConversionType:"perfume-split",partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:"تحويل عطر إلى تقسيمات",total:0,dueTotal:0,paidTotal:0,lines:[] as Record<string,unknown>[]};
     let decant=await db.collection("products").findOne({perfumeForm:"decant",parentProductId:sourceProductId,isArchived:{$ne:true}},{session});
     if(!decant){const sku=await nextProductCode(db,session);decant={id:id("product"),sku,name:`${source.name} — تقسيمة`,barcode:"",pieceCost:liquidUnitCost,lastPurchaseCost:null,lastPurchaseAt:null,piecePrice:salePrice,wholesalePrice:null,expiryDate:null,note:null,categoryId:source.categoryId??null,perfumeForm:"decant",parentProductId:sourceProductId,decantSizeMl:null,decantBottleCost:0,perfumeLots:[],stocks:{},createdAt:new Date()};await db.collection("products").insertOne(decant,{session})}else{await db.collection("products").updateOne({id:decant.id},{$set:{name:`${source.name} — تقسيمة`,piecePrice:salePrice,pieceCost:liquidUnitCost,decantSizeMl:null,decantBottleCost:0}},{session});decant.name=`${source.name} — تقسيمة`;decant.piecePrice=salePrice;decant.pieceCost=liquidUnitCost;decant.decantSizeMl=null;decant.decantBottleCost=0}

@@ -23,14 +23,21 @@ export type PerfumeLot = {
   stocks: Record<string, number>;
   createdAt: string;
   conversionDocumentId: string;
+  /** True when the lot was introduced as an opening balance rather than converted from on-hand full perfume stock. */
+  openingBalance?: boolean;
   recombinedAt?: string | null;
   partialProductId?: string | null;
 };
 
-export function roundedDivisionLiquidCost(perfumeCost: number, divisionsCount: number) {
+export function divisionLiquidCost(perfumeCost: number, divisionsCount: number) {
   if (!Number.isFinite(perfumeCost) || perfumeCost <= 0) throw new Error("invalid perfume cost");
   if (!Number.isInteger(divisionsCount) || divisionsCount <= 0) throw new Error("invalid divisions count");
-  return Math.ceil(perfumeCost / divisionsCount);
+  return perfumeCost / divisionsCount;
+}
+/** Legacy rounded helper retained for old imports/compatibility. New lots use exact division cost
+ * so their total book value never exceeds the source perfume cost because of rounding. */
+export function roundedDivisionLiquidCost(perfumeCost: number, divisionsCount: number) {
+  return Math.ceil(divisionLiquidCost(perfumeCost, divisionsCount));
 }
 
 /** Legacy helper retained for old tests/imports. New v2 decants add bottle cost only when the sale chooses a bottle product. */
