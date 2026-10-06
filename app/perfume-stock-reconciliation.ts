@@ -12,6 +12,13 @@ const nonNegativeInteger = (value: unknown, label: string) => {
   return parsed;
 };
 
+function assertPerfumeLotStockBalance(lot: Pick<PerfumeLot, "remainingQuantity" | "stocks">) {
+  const remaining = nonNegativeInteger(lot.remainingQuantity ?? 0, "الرصيد المتبقي");
+  const stocks = Object.values(lot.stocks ?? {}).reduce((sum, value) => sum + nonNegativeInteger(value, "رصيد الدفعة في المخزن"), 0);
+  if (stocks !== remaining) throw new Error("رصيد دفعة التقسيم غير متطابق مع مجموع المخازن؛ أصلح البيانات قبل التسوية");
+  return remaining;
+}
+
 export function perfumeLotBookValue(lot: Pick<PerfumeLot, "remainingQuantity" | "liquidUnitCost">) {
   const remaining = finiteNonNegative(lot.remainingQuantity, "الرصيد المتبقي");
   const unitCost = finiteNonNegative(lot.liquidUnitCost, "تكلفة التقسيمة");
@@ -39,7 +46,7 @@ export type YieldCorrection = {
 export function correctPerfumeLotYield(lot: PerfumeLot, warehouseId: string, actualWarehouseQuantity: number): YieldCorrection {
   const actual = nonNegativeInteger(actualWarehouseQuantity, "الرصيد الفعلي");
   const beforeWarehouseQuantity = nonNegativeInteger(lot.stocks?.[warehouseId] ?? 0, "رصيد المخزن");
-  const beforeRemainingQuantity = nonNegativeInteger(lot.remainingQuantity ?? 0, "الرصيد المتبقي");
+  const beforeRemainingQuantity = assertPerfumeLotStockBalance(lot);
   const beforeOriginalQuantity = nonNegativeInteger(lot.originalQuantity ?? 0, "الناتج الأصلي");
   const beforeUnitCost = finiteNonNegative(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0, "تكلفة التقسيمة");
   const quantityDelta = actual - beforeWarehouseQuantity;
@@ -87,7 +94,7 @@ export function consumePerfumeLot(lot: PerfumeLot, warehouseId: string, quantity
   const amount = nonNegativeInteger(quantity, "الكمية");
   if (amount <= 0) throw new Error("الكمية يجب أن تكون أكبر من صفر");
   const beforeWarehouseQuantity = nonNegativeInteger(lot.stocks?.[warehouseId] ?? 0, "رصيد المخزن");
-  const beforeRemainingQuantity = nonNegativeInteger(lot.remainingQuantity ?? 0, "الرصيد المتبقي");
+  const beforeRemainingQuantity = assertPerfumeLotStockBalance(lot);
   if (amount > beforeWarehouseQuantity || amount > beforeRemainingQuantity) throw new Error("الكمية أكبر من رصيد الدفعة");
   const unitCost = finiteNonNegative(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0, "تكلفة التقسيمة");
   const updated: PerfumeLot = {
