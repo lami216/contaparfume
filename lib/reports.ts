@@ -133,7 +133,7 @@ async function decantInventoryLoss(db: Db, f: ReportFilters, categoryScope: Prod
 }
 
 function productInventoryValueInWarehouse(product: Document, warehouseId: string) {
-  if (product.perfumeForm === "decant" && Array.isArray(product.perfumeLots)) {
+  if (product.perfumeForm === "decant" && Array.isArray(product.perfumeLots) && product.perfumeLots.length > 0) {
     return (product.perfumeLots as Document[]).reduce((sum, lot) =>
       sum + Math.max(0, n((lot.stocks as Document | undefined)?.[warehouseId])) * Math.max(0, n(lot.liquidUnitCost ?? lot.landedUnitCost)), 0);
   }
