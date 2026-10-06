@@ -122,9 +122,14 @@ async function decantInventoryLoss(db: Db, f: ReportFilters, categoryScope: Prod
   if (constraint) query["lines.productId"] = constraint;
   const rows = await db.collection("documents").find(query).toArray();
   if (!constraint) return rows.reduce((sum, document) => sum + n(document.inventoryLoss), 0);
-  return rows.reduce((sum, document) => sum + ((document.lines ?? []) as Document[])
-    .filter(line => lineMatches(line, f, categoryScope))
-    .reduce((lineSum, line) => lineSum + n(line.inventoryLoss), 0), 0);
+  return rows.reduce((sum, document) => {
+    const operationProductId = String(document.decantProductId ?? "");
+    const operationMatches = (!f.productId || operationProductId === f.productId) && (!categoryScope || categoryScope.has(operationProductId));
+    if (operationMatches) return sum + n(document.inventoryLoss);
+    return sum + ((document.lines ?? []) as Document[])
+      .filter(line => lineMatches(line, f, categoryScope))
+      .reduce((lineSum, line) => lineSum + n(line.inventoryLoss), 0);
+  }, 0);
 }
 
 function productInventoryValueInWarehouse(product: Document, warehouseId: string) {
