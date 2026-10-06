@@ -23,6 +23,8 @@ export type PerfumeLot = {
   stocks: Record<string, number>;
   createdAt: string;
   conversionDocumentId: string;
+  /** True when the lot was introduced as an opening balance rather than converted from on-hand full perfume stock. */
+  openingBalance?: boolean;
   recombinedAt?: string | null;
   partialProductId?: string | null;
 };
