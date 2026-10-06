@@ -658,9 +658,10 @@
   .perfume-divisions-page {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-rows: minmax(0, .9fr) minmax(0, 1.1fr);
+    grid-template-rows: minmax(0, .75fr) minmax(0, 1.45fr) minmax(0, .8fr);
     grid-template-areas:
       "split batches"
+      "reconciliation batches"
       "bottles batches";
     gap: 7px;
     width: 100%;
@@ -672,6 +673,7 @@
   }
 
   .perfume-split-card { grid-area: split; }
+  .perfume-reconciliation-card { grid-area: reconciliation; }
   .perfume-bottles-card { grid-area: bottles; }
   .perfume-batches-card { grid-area: batches; }
 
@@ -832,7 +834,7 @@
   .decant-invoices-hub .decant-invoice-history { height: auto; overflow: visible; }
   .decant-lines-scroll,
   .decant-invoice-history-scroll { max-height: 55vh; }
-  .perfume-divisions-page { height: auto; min-height: 100%; grid-template-columns: 1fr; grid-template-areas: "split" "bottles" "batches"; grid-template-rows: auto auto auto; overflow: visible; padding-bottom: max(28px, env(safe-area-inset-bottom)); }
+  .perfume-divisions-page { height: auto; min-height: 100%; grid-template-columns: 1fr; grid-template-areas: "split" "reconciliation" "bottles" "batches"; grid-template-rows: auto auto auto auto; overflow: visible; padding-bottom: max(28px, env(safe-area-inset-bottom)); }
   .perfume-divisions-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .perfume-cost-preview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .perfume-bottle-create { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -925,4 +927,146 @@
     height: auto;
     overflow: visible;
   }
+}
+
+
+/* Decant stock reconciliation keeps stock corrections separate from sales,
+   purchases and cash while staying compact inside the management workspace. */
+.perfume-reconciliation-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 6px;
+  min-height: 0;
+  overflow: hidden;
+}
+.perfume-reconciliation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+}
+.perfume-reconciliation-block {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+}
+.perfume-reconciliation-block > strong,
+.perfume-stock-operation-history > strong {
+  font-size: 10px;
+}
+.perfume-reconciliation-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  min-width: 0;
+}
+.perfume-reconciliation-form label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-size: 8.5px;
+  font-weight: 800;
+}
+.perfume-reconciliation-form :is(input, select),
+.perfume-consume-bottle select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 27px;
+  min-height: 27px;
+  padding: 2px 5px;
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 4px;
+  background: #fff;
+  color: inherit;
+  font-size: 8.5px;
+}
+.perfume-reconciliation-form > button,
+.perfume-reconciliation-block > button {
+  min-height: 27px;
+  height: 27px;
+  align-self: end;
+  padding: 2px 7px;
+  font-size: 8.5px;
+}
+.perfume-reconciliation-reason {
+  grid-column: span 2;
+}
+.perfume-consume-bottle {
+  display: grid;
+  grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 5px;
+  font-size: 8.5px;
+}
+.perfume-consume-bottle label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 800;
+}
+.perfume-consume-bottle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+}
+.perfume-reconciliation-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted, #667085);
+  font-size: 8px;
+}
+.perfume-stock-operation-history {
+  display: grid;
+  gap: 3px;
+  min-height: 0;
+}
+.perfume-stock-operation-list {
+  display: grid;
+  gap: 2px;
+  max-height: 78px;
+  overflow: auto;
+}
+.perfume-stock-operation-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 25px;
+  padding: 2px 4px;
+  border: 1px solid var(--border, #e4e7ec);
+  border-radius: 4px;
+  font-size: 8px;
+}
+.perfume-stock-operation-row > span {
+  display: grid;
+  min-width: 0;
+}
+.perfume-stock-operation-row small {
+  overflow: hidden;
+  color: var(--muted, #667085);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.perfume-stock-operation-row button {
+  min-height: 22px;
+  height: 22px;
+  padding: 1px 6px;
+  font-size: 8px;
+}
+@media (max-width: 1050px) {
+  .perfume-reconciliation-card { overflow: visible; }
+  .perfume-reconciliation-grid { grid-template-columns: 1fr; }
+  .perfume-stock-operation-list { max-height: none; }
+}
+@media (max-width: 620px) {
+  .perfume-reconciliation-form { grid-template-columns: 1fr; }
+  .perfume-reconciliation-reason { grid-column: auto; }
+  .perfume-consume-bottle { grid-template-columns: 1fr; }
 }
