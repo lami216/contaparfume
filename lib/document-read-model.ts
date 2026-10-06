@@ -30,6 +30,7 @@ const transferAccess = ["warehouses.transfer", "warehouses.transfer.edit", "ware
 const adjustmentAccess = ["warehouses.adjust", "warehouses.adjust.edit", "warehouses.adjust.delete"] as const;
 const accountTransferAccess = ["banks.view", "banks.movements.view", "banks.transfer.edit", "banks.transfer.delete"] as const;
 const accountAdjustmentAccess = ["banks.view", "banks.movements.view", "banks.deposit_withdraw.edit", "banks.deposit_withdraw.delete"] as const;
+const decantAccess = ["perfume.divisions.view", "perfume.divisions.manage"] as const;
 
 /**
  * `documents` in bootstrap is the operational read model. Voided records stay in
@@ -43,7 +44,8 @@ export function isOperationalDocument(document: ReadModelDocument) {
 /** Coarse kind authorization, used before historical queries expose a kind. */
 export function canReadDocumentKind(kind: string, access: Pick<DocumentReadAccess, "can">) {
   if (access.can("records.view")) return true;
-  const family = documentFamily(kind);
+  const family = documentFamily(kind), decant = kind === "decant-sale" || kind === "decant-purchase";
+  if (decant && canAny(access.can, decantAccess)) return true;
   if (family === "sale") return canAny(access.can, saleAccess) || canAny(access.can, customerAccess);
   if (family === "purchase") return canAny(access.can, purchaseAccess) || canAny(access.can, supplierAccess);
   if (kind === "expense") return canAny(access.can, expenseAccess);
@@ -63,6 +65,7 @@ export function canReadDocument(document: ReadModelDocument, access: DocumentRea
   const customerParty = Boolean(partyId) && access.customerPartyIds.has(partyId);
   const supplierParty = Boolean(partyId) && access.supplierPartyIds.has(partyId);
 
+  if ((kind === "decant-sale" || kind === "decant-purchase") && canAny(access.can, decantAccess)) return true;
   if (family === "sale") return canAny(access.can, saleAccess) || (customerParty && canAny(access.can, customerAccess));
   if (family === "purchase") return canAny(access.can, purchaseAccess) || (supplierParty && canAny(access.can, supplierAccess));
   if (kind === "expense") return canAny(access.can, expenseAccess);
