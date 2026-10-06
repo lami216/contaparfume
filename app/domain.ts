@@ -349,6 +349,25 @@ export function displayDocumentNumber(document: Pick<DocumentRecord, "number" | 
 export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "openingCost" | "legacyOpeningCost">) {
   return product.lastPurchaseCost ?? product.openingCost ?? product.legacyOpeningCost ?? 0;
 }
+/** Exact current book value in one warehouse. Decants are valued by their lots because
+ * yield corrections can make the remaining unit cost differ between batches. */
+export function inventoryValueInWarehouse(product: Pick<Product, "perfumeForm" | "perfumeLots" | "stocks" | "lastPurchaseCost" | "openingCost" | "legacyOpeningCost">, warehouseId: string) {
+  if (product.perfumeForm === "decant" && Array.isArray(product.perfumeLots)) {
+    return product.perfumeLots.reduce((sum, lot) => {
+      const quantity = Math.max(0, Number(lot.stocks?.[warehouseId] ?? 0));
+      const unitCost = Math.max(0, Number(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0));
+      return sum + (Number.isFinite(quantity) && Number.isFinite(unitCost) ? quantity * unitCost : 0);
+    }, 0);
+  }
+  return Math.max(0, Number(product.stocks?.[warehouseId] ?? 0)) * inventoryUnitCost(product);
+}
+export function inventoryValueAcrossWarehouses(product: Pick<Product, "perfumeForm" | "perfumeLots" | "stocks" | "lastPurchaseCost" | "openingCost" | "legacyOpeningCost">, warehouseIds: string[]) {
+  return warehouseIds.reduce((sum, warehouseId) => sum + inventoryValueInWarehouse(product, warehouseId), 0);
+}
+export function inventoryAverageUnitCostAcrossWarehouses(product: Pick<Product, "perfumeForm" | "perfumeLots" | "stocks" | "lastPurchaseCost" | "openingCost" | "legacyOpeningCost">, warehouseIds: string[]) {
+  const quantity = warehouseIds.reduce((sum, warehouseId) => sum + Math.max(0, Number(product.stocks?.[warehouseId] ?? 0)), 0);
+  return quantity > 0 ? inventoryValueAcrossWarehouses(product, warehouseIds) / quantity : inventoryUnitCost(product);
+}
 export function formatDate(
   value: Date | string | number,
   options: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit", year: "numeric" },
