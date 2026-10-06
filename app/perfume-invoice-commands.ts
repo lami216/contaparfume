@@ -262,8 +262,12 @@ async function postSale(db: Db, session: ClientSession, body: Input) {
     }
   }
   doc.total = doc.lines.reduce((sum, line) => sum + line.lineTotal, 0);
-  const cashAmount = paymentMethod === "note" ? 0 : positive(body.cashAmount ?? doc.total, "المبلغ المستلم", true);
-  const paidTotal = Math.min(doc.total, cashAmount), dueTotal = Math.max(doc.total - cashAmount, 0), partyDelta = doc.total - cashAmount;
+  const suppliedCash = body.cashAmount;
+  const settlementAmount = suppliedCash == null || suppliedCash === "" ? (paymentMethod === "note" ? 0 : doc.total) : positive(suppliedCash, "المبلغ المستلم", true);
+  if (paymentMethod === "note" ? settlementAmount !== 0 : settlementAmount !== doc.total) {
+    throw new PerfumeInvoiceCommandError("الدفع الجزئي داخل الفاتورة غير مدعوم. الفاتورة إما مدفوعة بالكامل أو ملاحظة بالكامل، ثم تُسجل أي دفعة لاحقة من حساب الطرف.", 409);
+  }
+  const cashAmount = paymentMethod === "note" ? 0 : doc.total, paidTotal = cashAmount, dueTotal = paymentMethod === "note" ? doc.total : 0, partyDelta = dueTotal;
   if (partyDelta && !party) throw new PerfumeInvoiceCommandError("اختر عميلاً عند وجود مبلغ مستحق");
   const snapshot = partyDelta ? await applyPartyNetDelta(db, session, partyId, partyDelta) : null;
   Object.assign(doc, { cashAmount, paidTotal, dueTotal, ...(snapshot ? { partyBalanceBefore: snapshot.before, partyBalanceDelta: snapshot.delta, partyBalanceAfter: snapshot.after } : {}) });
@@ -286,8 +290,12 @@ async function postPurchase(db: Db, session: ClientSession, body: Input) {
     lines: input.map(line => ({ id: id("line"), productId: line.productId, description: String(products.get(line.productId)!.name), quantity: line.quantity, unitPrice: line.unitPrice, lineTotal: Math.round(line.quantity * line.unitPrice) })),
   };
   doc.total = doc.lines.reduce((sum, line) => sum + line.lineTotal, 0);
-  const cashAmount = paymentMethod === "note" ? 0 : positive(body.cashAmount ?? doc.total, "المبلغ المدفوع", true);
-  const paidTotal = Math.min(doc.total, cashAmount), dueTotal = Math.max(doc.total - cashAmount, 0), partyDelta = -doc.total + cashAmount;
+  const suppliedCash = body.cashAmount;
+  const settlementAmount = suppliedCash == null || suppliedCash === "" ? (paymentMethod === "note" ? 0 : doc.total) : positive(suppliedCash, "المبلغ المدفوع", true);
+  if (paymentMethod === "note" ? settlementAmount !== 0 : settlementAmount !== doc.total) {
+    throw new PerfumeInvoiceCommandError("الدفع الجزئي داخل الفاتورة غير مدعوم. الفاتورة إما مدفوعة بالكامل أو ملاحظة بالكامل، ثم تُسجل أي دفعة لاحقة من حساب الطرف.", 409);
+  }
+  const cashAmount = paymentMethod === "note" ? 0 : doc.total, paidTotal = cashAmount, dueTotal = paymentMethod === "note" ? doc.total : 0, partyDelta = -dueTotal;
   if (partyDelta && !party) throw new PerfumeInvoiceCommandError("اختر موردًا عند وجود مبلغ مستحق");
   const snapshot = partyDelta ? await applyPartyNetDelta(db, session, partyId, partyDelta) : null;
   Object.assign(doc, { cashAmount, paidTotal, dueTotal, ...(snapshot ? { partyBalanceBefore: snapshot.before, partyBalanceDelta: snapshot.delta, partyBalanceAfter: snapshot.after } : {}) });
