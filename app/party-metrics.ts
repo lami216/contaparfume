@@ -1,4 +1,5 @@
 import type { DocumentRecord, FinancialMovement, PartyFinancialSummary, PartyType } from "./domain";
+import { documentFamily } from "../lib/document-family";
 
 /** Builds historical party totals without exposing the underlying cash movements. */
 export function calculatePartyFinancialSummaries(
@@ -24,10 +25,10 @@ export function calculatePartyFinancialSummaries(
     if (!document.partyId || document.status !== "posted") continue;
     const value = Number(document.total);
     if (!Number.isFinite(value)) continue;
-    const party = summary(document.partyId);
-    if (document.kind === "purchase") { party.supplierTradeTotal += value; party.supplierInvoiceCount += 1; }
+    const party = summary(document.partyId), family = documentFamily(document.kind);
+    if (family === "purchase") { party.supplierTradeTotal += value; party.supplierInvoiceCount += 1; }
     // Legacy read-only adjustments must keep historical customer totals unchanged.
-    if (document.kind === "sale" || document.kind === "return") {
+    if (family === "sale" || document.kind === "return") {
       const sign = document.kind === "return" ? -1 : 1;
       party.customerTradeTotal += sign * value;
       for (const line of document.lines ?? []) {
