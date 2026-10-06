@@ -146,6 +146,15 @@ export interface DocumentRecord {
   openingCostAfter?: number | null;
   /** Final inventory correction generated while archiving/cleaning an archived product. */
   productArchiveStockClearance?: boolean;
+  /** Specialized decant stock lifecycle operation. */
+  perfumeStockOperationType?: "opening" | "consumption" | "yield-correction";
+  perfumeStockReasonCode?: string | null;
+  inventoryLoss?: number;
+  bookValueBefore?: number;
+  bookValueAfter?: number;
+  decantProductId?: string | null;
+  perfumeLotId?: string | null;
+  stockDelta?: number;
   total: number;
   dueTotal: number;
   paidTotal: number;
