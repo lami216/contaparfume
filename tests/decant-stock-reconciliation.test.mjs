@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { consumePerfumeLot, correctPerfumeLotYield, createOpeningPerfumeLot, perfumeLotBookValue } from "../app/perfume-stock-reconciliation.ts";
 import { divisionLiquidCost } from "../app/perfume-logic.ts";
+import { inventoryAverageUnitCostAcrossWarehouses, inventoryValueAcrossWarehouses } from "../app/domain.ts";
 
 const lot = (overrides = {}) => ({
   id: "lot-1",
@@ -49,6 +50,22 @@ test("reconciliation refuses a lot whose warehouse balances do not match its rem
   );
 });
 
+test("inventory valuation follows per-lot corrected costs", () => {
+  const product = {
+    perfumeForm: "decant",
+    perfumeLots: [
+      lot({ id: "a", remainingQuantity: 2, liquidUnitCost: 50, landedUnitCost: 50, stocks: { wh1: 2 } }),
+      lot({ id: "b", originalQuantity: 1, remainingQuantity: 1, liquidUnitCost: 80, landedUnitCost: 80, stocks: { wh1: 1 } }),
+    ],
+    stocks: { wh1: 3 },
+    lastPurchaseCost: null,
+    openingCost: null,
+    legacyOpeningCost: null,
+  };
+  assert.equal(inventoryValueAcrossWarehouses(product, ["wh1"]), 180);
+  assert.equal(inventoryAverageUnitCostAcrossWarehouses(product, ["wh1"]), 60);
+});
+
 test("yield correction from 8 to 9 preserves the lot book value", () => {
   const result = correctPerfumeLotYield(lot(), "wh1", 9);
   assert.equal(result.afterOriginalQuantity, 9);
@@ -86,13 +103,14 @@ test("samples and waste remove quantity and its exact liquid cost", () => {
 });
 
 test("decant reconciliation commands are specialized, reversible and noncash", async () => {
-  const [route, commands, reports, ui, stockMovement, footer] = await Promise.all([
+  const [route, commands, reports, ui, stockMovement, footer, bootstrap] = await Promise.all([
     readFile(new URL("../app/api/command/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/command/base-route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/reports.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/perfume-divisions.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/stock-movement.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/report-footer.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/bootstrap/route.ts", import.meta.url), "utf8"),
   ]);
   for (const command of ["perfume-opening.post", "perfume-lot-consume.post", "perfume-lot-correct.post", "perfume-stock-operation.void"]) {
     assert.match(route, new RegExp(command.replaceAll(".", "\\.")));
@@ -111,6 +129,8 @@ test("decant reconciliation commands are specialized, reversible and noncash", a
   assert.match(stockMovement, /decant-consumption/);
   assert.match(stockMovement, /decant-yield-correction/);
   assert.match(footer, /netProfitAfterInventoryLoss/);
+  assert.match(bootstrap, /perfumeStockOperationType/);
+  assert.match(bootstrap, /perfumeAccess/);
   assert.match(ui, /رصيد افتتاحي لعطر مفتوح قديم/);
   assert.match(ui, /استهلاك \/ هالك \/ عينات/);
   assert.match(ui, /تصحيح ناتج التقسيم/);
