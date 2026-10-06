@@ -48,6 +48,7 @@ export function correctPerfumeLotYield(lot: PerfumeLot, warehouseId: string, act
   const beforeWarehouseQuantity = nonNegativeInteger(lot.stocks?.[warehouseId] ?? 0, "رصيد المخزن");
   const beforeRemainingQuantity = assertPerfumeLotStockBalance(lot);
   const beforeOriginalQuantity = nonNegativeInteger(lot.originalQuantity ?? 0, "الناتج الأصلي");
+  if (beforeOriginalQuantity < beforeRemainingQuantity) throw new Error("بيانات دفعة التقسيم غير صالحة: الرصيد المتبقي أكبر من الناتج الأصلي");
   const beforeUnitCost = finiteNonNegative(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0, "تكلفة التقسيمة");
   const quantityDelta = actual - beforeWarehouseQuantity;
   const afterRemainingQuantity = beforeRemainingQuantity + quantityDelta;
