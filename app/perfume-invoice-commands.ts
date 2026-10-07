@@ -194,14 +194,14 @@ function parseLines(body: Input) {
 }
 
 async function refs(db: Db, session: ClientSession, body: Input, partyType: "customer" | "supplier") {
-  const warehouseId = text(body.warehouseId), partyId = text(body.partyId);
+  const partyId = text(body.partyId);
   const [warehouse, party] = await Promise.all([
-    warehouseId ? warehouses(db).findOne({ _id: warehouseId, isArchived: { $ne: true } }, { session }) : null,
+    warehouses(db).findOne({ isSalesDefault: true, isArchived: { $ne: true } }, { session }),
     partyId ? db.collection("parties").findOne({ id: partyId }, { session }) : null,
   ]);
-  if (!warehouse) throw new PerfumeInvoiceCommandError("المخزن غير موجود", 404);
+  if (!warehouse) throw new PerfumeInvoiceCommandError("عيّن مخزن البيع الافتراضي من إدارة المخازن أولًا.", 409);
   if (party && party.partyType !== partyType) throw new PerfumeInvoiceCommandError(partyType === "customer" ? "يجب اختيار عميل صالح" : "يجب اختيار مورد صالح");
-  return { warehouse, warehouseId, party, partyId };
+  return { warehouse, warehouseId: String(warehouse._id), party, partyId };
 }
 
 async function createBottle(db: Db, session: ClientSession, body: Input) {
