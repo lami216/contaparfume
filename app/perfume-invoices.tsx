@@ -5,7 +5,6 @@ import { Banknote, PencilLine, X } from "lucide-react";
 import {
   activePaymentAccounts,
   activeProducts,
-  activeWarehouses,
   displayDocumentNumber,
   money,
   quantity,
@@ -80,21 +79,20 @@ function InvoiceHistory({
 }
 
 export function DecantSaleInvoice({ data, run, openDoc }: Props) {
-  const warehouses = activeWarehouses(data.warehouses);
+  const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
+  const warehouseId = defaultWarehouse?.id ?? "";
   const accounts = activePaymentAccounts(data.paymentAccounts);
   const customers = data.parties.filter(party => party.partyType === "customer" && party.isArchived !== true);
   const decants = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "decant"), [data.products]);
   const bottles = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "bottle"), [data.products]);
   const saleProducts = useMemo(() => [...decants, ...bottles], [decants, bottles]);
   const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-sale").slice(0, 20), [data.documents]);
-  const [warehouseId, setWarehouseId] = useState(warehouses.find(warehouse => warehouse.isSalesDefault)?.id ?? warehouses[0]?.id ?? "");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [partyId, setPartyId] = useState("");
   const [productId, setProductId] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
-  const warehouse = warehouses.find(item => item.id === warehouseId);
   const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
   const pickerItems = useMemo<PerfumePickerItem[]>(() => saleProducts.map(product => ({
     id: product.id,
@@ -117,7 +115,8 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
 
   const submit = async () => {
     setLocalError("");
-    if (!warehouseId || !lines.length) { setLocalError(tr("أضف منتجًا واختر المخزن")); return; }
+    if (!defaultWarehouse) { setLocalError("عيّن مخزن البيع الافتراضي من إدارة المخازن أولًا."); return; }
+    if (!lines.length) { setLocalError(tr("أضف منتجًا")); return; }
     if (paymentMethod === "note" && !partyId) { setLocalError(tr("اختر عميلاً عند البيع الآجل")); return; }
     if (paymentMethod !== "note" && !paymentMethod) { setLocalError(tr("اختر وسيلة الدفع")); return; }
     for (const line of lines) {
@@ -134,7 +133,6 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
     try {
       await run({
         type: "decant-sale.post",
-        warehouseId,
         paymentMethod,
         partyId: partyId || null,
         cashAmount: paymentMethod === "note" ? 0 : total,
@@ -194,14 +192,13 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
               onDirect={() => setPaymentMethod(paymentMethod === "note" ? (accounts[0]?.id ?? "") : paymentMethod)}
               onNote={() => setPaymentMethod("note")}
             />
-            <label>{tr("المخزن")}<select value={warehouseId} onChange={event => setWarehouseId(event.target.value)}>{warehouses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
             <label>{tr("العميل")}<select value={partyId} onChange={event => setPartyId(event.target.value)}><option value="">{paymentMethod === "note" ? tr("اختر العميل") : tr("بيع تقسيمات مباشر")}</option>{customers.map(customer => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
             <div className="checkout-invoice-actions"><button type="button" className="invoice-void" disabled={!lines.length} onClick={reset}>{tr("حذف المسودة")}</button></div>
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
-            <button className="primary wide" type="button" disabled={busy || !lines.length || !warehouse || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : tr("إتمام البيع")}</button>
+            <button className="primary wide" type="button" disabled={busy || !lines.length || !defaultWarehouse || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : tr("إتمام البيع")}</button>
           </div>
         </div>
       </InvoicePanel>
@@ -210,12 +207,12 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
 }
 
 export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
-  const warehouses = activeWarehouses(data.warehouses);
+  const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
+  const warehouseId = defaultWarehouse?.id ?? "";
   const accounts = activePaymentAccounts(data.paymentAccounts);
   const suppliers = data.parties.filter(party => party.partyType === "supplier" && party.isArchived !== true);
   const bottles = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "bottle"), [data.products]);
   const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-purchase").slice(0, 20), [data.documents]);
-  const [warehouseId, setWarehouseId] = useState(warehouses.find(warehouse => warehouse.isSalesDefault)?.id ?? warehouses[0]?.id ?? "");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [partyId, setPartyId] = useState("");
   const [productId, setProductId] = useState("");
@@ -243,7 +240,8 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
 
   const submit = async () => {
     setLocalError("");
-    if (!warehouseId || !lines.length) { setLocalError(tr("أضف زجاجة واختر المخزن")); return; }
+    if (!defaultWarehouse) { setLocalError("عيّن مخزن البيع الافتراضي من إدارة المخازن أولًا."); return; }
+    if (!lines.length) { setLocalError(tr("أضف زجاجة")); return; }
     if (paymentMethod === "note" && !partyId) { setLocalError(tr("اختر موردًا عند الشراء الآجل")); return; }
     if (paymentMethod !== "note" && !paymentMethod) { setLocalError(tr("اختر وسيلة الدفع")); return; }
     if (lines.some(line => !Number.isInteger(n(line.quantity)) || n(line.quantity) <= 0 || n(line.unitPrice) <= 0)) { setLocalError(tr("راجع الكمية وسعر الشراء")); return; }
@@ -251,7 +249,6 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
     try {
       await run({
         type: "decant-purchase.post",
-        warehouseId,
         paymentMethod,
         partyId: partyId || null,
         cashAmount: paymentMethod === "note" ? 0 : total,
@@ -312,12 +309,11 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
             />
             {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
             <label>{tr("المورد")}<select value={partyId} onChange={event => setPartyId(event.target.value)}><option value="">{paymentMethod === "note" ? tr("اختر المورد") : tr("شراء زجاج مباشر")}</option>{suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
-            <label>{tr("مخزن الاستلام")}<select value={warehouseId} onChange={event => setWarehouseId(event.target.value)}><option value="">{tr("اختر المخزن")}</option>{warehouses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <div className="checkout-invoice-actions"><button type="button" className="invoice-void" disabled={!lines.length} onClick={reset}>{tr("حذف المسودة")}</button></div>
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
-            <button className="primary wide" type="button" disabled={busy || !warehouseId || !lines.length || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : tr("إتمام الشراء")}</button>
+            <button className="primary wide" type="button" disabled={busy || !defaultWarehouse || !lines.length || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : tr("إتمام الشراء")}</button>
           </div>
         </div>
       </InvoicePanel>
