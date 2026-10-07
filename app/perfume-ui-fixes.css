@@ -1070,3 +1070,165 @@
   .perfume-reconciliation-reason { grid-column: auto; }
   .perfume-consume-bottle { grid-template-columns: 1fr; }
 }
+
+
+/* Management layout refresh: keep all four decant tools readable instead of
+   squeezing three unequal cards beside a full-height batch register. */
+@media (min-width: 1051px) {
+  .decant-invoices-hub-body.management {
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding-inline-end: 2px;
+  }
+
+  .decant-invoices-hub-body.management .perfume-divisions-page {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      "split reconciliation"
+      "bottles batches";
+    align-content: start;
+    gap: 9px;
+    width: 100%;
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+    padding-bottom: 4px;
+  }
+
+  .decant-invoices-hub-body.management .perfume-divisions-card {
+    min-height: 0;
+    padding: 10px 11px;
+    border-radius: 10px;
+    overflow: visible;
+  }
+
+  .decant-invoices-hub-body.management .perfume-divisions-heading {
+    min-height: 38px;
+    align-items: flex-start;
+  }
+
+  .decant-invoices-hub-body.management .perfume-divisions-heading h2 {
+    font-size: 13px;
+  }
+
+  .decant-invoices-hub-body.management .perfume-divisions-heading p {
+    max-width: 48ch;
+    font-size: 9px;
+    line-height: 1.35;
+  }
+
+  .decant-invoices-hub-body.management .perfume-split-card {
+    z-index: 6;
+  }
+
+  .decant-invoices-hub-body.management .perfume-divisions-form-v2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .decant-invoices-hub-body.management .perfume-cost-preview-v2 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .decant-invoices-hub-body.management .perfume-reconciliation-card {
+    display: grid;
+    grid-template-rows: auto auto auto;
+    align-content: start;
+    gap: 8px;
+  }
+
+  .decant-invoices-hub-body.management .perfume-reconciliation-grid {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .decant-invoices-hub-body.management .perfume-reconciliation-block {
+    padding: 8px;
+    gap: 6px;
+    background: #fbfcfd;
+  }
+
+  .decant-invoices-hub-body.management .perfume-reconciliation-form {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .decant-invoices-hub-body.management .perfume-reconciliation-form :is(input, select),
+  .decant-invoices-hub-body.management .perfume-consume-bottle select {
+    height: 30px;
+    min-height: 30px;
+    font-size: 9px;
+  }
+
+  .decant-invoices-hub-body.management .perfume-reconciliation-form > button,
+  .decant-invoices-hub-body.management .perfume-reconciliation-block > button {
+    height: 30px;
+    min-height: 30px;
+    font-size: 9px;
+  }
+
+  .decant-invoices-hub-body.management .perfume-stock-operation-list {
+    max-height: 132px;
+  }
+
+  .decant-invoices-hub-body.management .perfume-bottles-card,
+  .decant-invoices-hub-body.management .perfume-batches-card {
+    display: grid;
+    grid-template-rows: auto auto minmax(120px, auto);
+    gap: 7px;
+  }
+
+  .decant-invoices-hub-body.management .perfume-batches-card {
+    grid-template-rows: auto minmax(160px, auto);
+  }
+
+  .decant-invoices-hub-body.management .perfume-bottles-table-wrap,
+  .decant-invoices-hub-body.management .perfume-batches-table-wrap {
+    min-height: 120px;
+    max-height: 300px;
+    overflow: auto;
+    border-radius: 6px;
+  }
+
+  .decant-invoices-hub-body.management .perfume-bottle-create {
+    grid-template-columns: minmax(0, 1.5fr) minmax(85px, .65fr) minmax(105px, .8fr) auto;
+    gap: 6px;
+  }
+
+  .decant-invoices-hub-body.management :is(.perfume-bottles-table,.perfume-batches-table) th,
+  .decant-invoices-hub-body.management :is(.perfume-bottles-table,.perfume-batches-table) td {
+    height: 30px;
+    padding: 4px 5px;
+    font-size: 8.5px;
+  }
+}
+
+@media (max-width: 1050px) {
+  .decant-invoices-hub-body.management {
+    overflow: visible;
+    padding-inline-end: 0;
+  }
+
+  .decant-invoices-hub-body.management .perfume-divisions-page {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "split"
+      "reconciliation"
+      "bottles"
+      "batches";
+    grid-template-rows: auto auto auto auto;
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+
+  .decant-invoices-hub-body.management .perfume-divisions-card,
+  .decant-invoices-hub-body.management .perfume-reconciliation-card {
+    overflow: visible;
+  }
+}
