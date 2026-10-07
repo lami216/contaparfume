@@ -208,7 +208,6 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
 
 export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
   const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
-  const warehouseId = defaultWarehouse?.id ?? "";
   const accounts = activePaymentAccounts(data.paymentAccounts);
   const suppliers = data.parties.filter(party => party.partyType === "supplier" && party.isArchived !== true);
   const bottles = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "bottle"), [data.products]);
