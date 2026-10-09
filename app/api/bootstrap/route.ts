@@ -7,6 +7,7 @@ import { peekNextDocumentSequence } from "../../../lib/document-sequences";
 import { calculatePartyFinancialSummaries } from "../../party-metrics";
 import { productsWithCurrentCosts } from "../../../lib/product-cost.ts";
 import { getInvoiceBranding } from "../../../lib/invoice-branding";
+import { getCurrencySettings } from "../../../lib/currency-settings";
 import { classifyStockMovementType, collapseLegacyStockEditMovements } from "../../stock-movement";
 import { canReadOperationalDocument, isEffectiveFinancialMovement, resolveCurrentPartyName } from "../../../lib/document-read-model";
 
@@ -15,7 +16,7 @@ export async function GET(request: Request) {const licenseDenied=await requireVa
   try {
     const db = await getDatabase();
 
-    const [parties, warehouses, products, categories, documents, movements, financialMovements, paymentAccounts, accountTransfers, productCounter, nextSale, nextPurchase, nextExpense, nextDecantSale, nextDecantPurchase, branding] = await Promise.all([
+    const [parties, warehouses, products, categories, documents, movements, financialMovements, paymentAccounts, accountTransfers, productCounter, nextSale, nextPurchase, nextExpense, nextDecantSale, nextDecantPurchase, branding, currency] = await Promise.all([
       db.collection("parties").find().sort({ name: 1 }).toArray(), db.collection("warehouses").find().sort({ isSalesDefault: -1, name: 1 }).toArray(),
       db.collection("products").find().sort({ name: 1 }).toArray(), db.collection("productCategories").find().sort({ name: 1 }).toArray(), db.collection("documents").find().sort({ occurredAt: -1 }).toArray(),
       db.collection("stockMovements").find().sort({ occurredAt: -1 }).toArray(),
@@ -23,7 +24,7 @@ export async function GET(request: Request) {const licenseDenied=await requireVa
       db.collection("paymentAccounts").find().sort({ createdAt: 1 }).toArray(),
       db.collection("accountTransfers").find().sort({ occurredAt: -1 }).toArray(),
       db.collection<{ _id: string; value: number }>("counters").findOne({ _id: "productSequence" }),
-      peekNextDocumentSequence(db, "sale"), peekNextDocumentSequence(db, "purchase"), peekNextDocumentSequence(db, "expense"), peekNextDocumentSequence(db, "decant-sale"), peekNextDocumentSequence(db, "decant-purchase"), getInvoiceBranding(db),
+      peekNextDocumentSequence(db, "sale"), peekNextDocumentSequence(db, "purchase"), peekNextDocumentSequence(db, "expense"), peekNextDocumentSequence(db, "decant-sale"), peekNextDocumentSequence(db, "decant-purchase"), getInvoiceBranding(db), getCurrencySettings(db),
     ]);
     const clean = (rows: Array<Record<string, unknown>>) => rows.map(({ _id, ...row }) => ({ id: row.id ?? String(_id), ...row }));
     const postedCostDocuments=documents.filter(document=>document.status==="posted"&&["purchase","decant-purchase","adjustment"].includes(String(document.kind)));
@@ -63,6 +64,6 @@ export async function GET(request: Request) {const licenseDenied=await requireVa
     const visiblePartyIds=new Set(cleanParties.filter(party=>(resolvePartyType(party)==="customer"&&hasCapability(principal,"customers.view"))||(resolvePartyType(party)==="supplier"&&hasCapability(principal,"suppliers.view"))).map(party=>String(party.id)));
     const partyFinancialSummaries=partyAdmin?calculatePartyFinancialSummaries(partyMetricDocuments as never[],effectivePartyMetricMovements as never[]).filter(summary=>visiblePartyIds.has(summary.partyId)):[];
     const effectiveTransfers=(accountTransfers as Array<Record<string,unknown>>).filter(transfer=>transfer.status!=="voided");
-    return Response.json({ branding, principal:{principalType:principal.principalType,name:principal.name,permissions:principal.permissions}, parties:exposedParties, warehouses:clean(warehouses), products:exposedProducts, categories:cleanCategories, documents:allowedDocuments, movements:hasCapability(principal,"warehouses.inventory.view")?cleanMovements:[], financialMovements:bankAccess?clean(effectiveFinancialMovements):[], partyFinancialSummaries, paymentAccounts:selectorAccounts, accountTransfers:bankAccess?clean(effectiveTransfers):[], nextProductCode, nextDocumentSequences:{sale:nextSale,purchase:nextPurchase,expense:nextExpense,decantSale:nextDecantSale,decantPurchase:nextDecantPurchase} });
+    return Response.json({ branding, currency, principal:{principalType:principal.principalType,name:principal.name,permissions:principal.permissions}, parties:exposedParties, warehouses:clean(warehouses), products:exposedProducts, categories:cleanCategories, documents:allowedDocuments, movements:hasCapability(principal,"warehouses.inventory.view")?cleanMovements:[], financialMovements:bankAccess?clean(effectiveFinancialMovements):[], partyFinancialSummaries, paymentAccounts:selectorAccounts, accountTransfers:bankAccess?clean(effectiveTransfers):[], nextProductCode, nextDocumentSequences:{sale:nextSale,purchase:nextPurchase,expense:nextExpense,decantSale:nextDecantSale,decantPurchase:nextDecantPurchase} });
   } catch (error) { log("error", "api.bootstrap.failed", { error }); return Response.json({ error: "تعذر تحميل البيانات" }, { status: 500 }); }
 }

@@ -1,3 +1,4 @@
+import { getDisplayCurrencyCode, type CurrencySettings } from "../lib/currency-core";
 import type { PerfumeAllocation, PerfumeForm, PerfumeLot } from "./perfume-logic";
 
 export type PaymentMethod = string;
@@ -194,6 +195,7 @@ export interface Movement {
 export interface BootstrapData {
   principal: { principalType: "local" | "owner" | "user"; name: string; permissions: string[] };
   branding: InvoiceBrandingSettings;
+  currency: CurrencySettings;
   /** Informational only; product.create allocates the authoritative value atomically. */
   nextProductCode: number;
   /** Informational previews; posting remains authoritative and allocates atomically. */
@@ -340,7 +342,7 @@ export function formatQuantity(value: number) {
   return formatNumber(value);
 }
 export function formatMoney(value: number) {
-  return `${formatNumber(value)} MRU`;
+  return `${formatNumber(value)} ${getDisplayCurrencyCode()}`;
 }
 export function displayDocumentNumber(document: Pick<DocumentRecord, "number" | "sequence" | "kind">) {
   return ["sale", "purchase", "expense", "decant-sale", "decant-purchase"].includes(document.kind) && Number.isSafeInteger(Number(document.sequence)) && Number(document.sequence) > 0 ? String(document.sequence) : document.number;

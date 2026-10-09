@@ -1,3 +1,4 @@
+import { getDisplayCurrencyCode } from "../../lib/currency-core";
 import { localeTag, type Locale } from "./locale";
 
 export const western = (value: string) => value
@@ -8,7 +9,7 @@ export function formatNumber(locale: Locale, value: number, options: Intl.Number
   return western(new Intl.NumberFormat(localeTag(locale), { maximumFractionDigits: 0, numberingSystem: "latn", ...options }).format(value));
 }
 export const formatQuantity = (locale: Locale, value: number) => formatNumber(locale, value);
-export const formatMoney = (locale: Locale, value: number) => `${formatNumber(locale, value)} MRU`;
+export const formatMoney = (locale: Locale, value: number) => `${formatNumber(locale, value)} ${getDisplayCurrencyCode()}`;
 export function formatDate(locale: Locale, value: Date | string | number, options: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit", year: "numeric" }) {
   return western(new Intl.DateTimeFormat(localeTag(locale), { ...options, numberingSystem: "latn" }).format(new Date(value)));
 }

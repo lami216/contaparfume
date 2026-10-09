@@ -41,7 +41,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     await db.collection("productCategories").deleteOne({ id: categoryId }, { session });
     return categoryId;
   }
-  const perfumeCommands = new Set(["product.delete","product.stock-zero","perfume-bottle.create","decant-sale.post","decant-sale.void","decant-purchase.post","decant-purchase.void","perfume-split.post","perfume-recombine.post","perfume-opening.post","perfume-lot-consume.post","perfume-lot-correct.post","perfume-stock-operation.void"]);
+  const perfumeCommands = new Set(["product.delete","product.stock-zero","product.restore","perfume-bottle.create","decant-sale.post","decant-sale.void","decant-purchase.post","decant-purchase.void","perfume-split.post","perfume-recombine.post","perfume-opening.post","perfume-lot-consume.post","perfume-lot-correct.post","perfume-stock-operation.void"]);
   return perfumeCommands.has(type) ? executeBaseCommand(db, session, body) : executeCoreCommand(db, session, body);
 }
 
