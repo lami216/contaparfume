@@ -115,3 +115,19 @@ test("decant invoices reject unknown parties and missing bottle purchase cost wi
   assert.equal(await db.collection("documents").countDocuments({ kind: "decant-sale" }), 0);
   assert.equal((await db.collection("products").findOne({ id })).stocks.a, 1);
 });
+
+test("generic adjustment lifecycle cannot void or edit perfume conversion records", async () => {
+  await setupPerfume();
+  const split = await db.collection("documents").findOne({ perfumeConversionType: "perfume-split", status: "posted" });
+  assert.ok(split);
+  const before = await db.collection("products").findOne({ perfumeForm: "decant" });
+  await assert.rejects(command({
+    type: "adjustment.void", documentId: split.id,
+  }), /لا يمكن إلغاء عملية مخزون تقسيمات/);
+  await assert.rejects(command({
+    type: "adjustment.update", documentId: split.id, reason: "wrong path",
+    lines: [{ productId: before.id, actualQuantity: 0 }],
+  }), /لا يمكن تعديل عملية مخزون تقسيمات/);
+  assert.equal((await db.collection("documents").findOne({ id: split.id })).status, "posted");
+  assert.deepEqual((await db.collection("products").findOne({ id: before.id })).perfumeLots, before.perfumeLots);
+});
