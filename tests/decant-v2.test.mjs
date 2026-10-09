@@ -24,7 +24,8 @@ test("special commands consume liquid and selected bottles independently", async
   assert.match(commands, /case "decant-purchase\.post"/);
   assert.match(commands, /case "decant-sale\.void"/);
   assert.match(commands, /case "decant-purchase\.void"/);
-  assert.match(commands, /const liquidUnitCost = Number\(lot\.liquidUnitCost/);
+  assert.match(commands, /const unitCost = Number\(lot\.liquidUnitCost/);
+  assert.match(commands, /const liquidUnitCost = unitCost/);
   assert.match(commands, /bottleProductId:/);
   assert.match(commands, /"decant-sale-bottle"/);
   assert.match(commands, /perfumeForm: "bottle"/);
