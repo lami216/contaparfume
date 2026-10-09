@@ -58,8 +58,17 @@ test("specific confirmations, payment statements and official business metadata 
   assert.match(app, /tr\("stock\.transferDeleteConfirm"/);
   assert.match(app, /tr\("stock\.adjustmentDeleteConfirm"/);
   assert.match(app, /receive\?tr\("استلام من الطرف"\):tr\("دفع للطرف"\)/);
-  assert.match(app, /tr\("رقم السجل التجاري"\)/);
-  assert.match(app, /tr\("الرقم الضريبي"\)/);
+  assert.match(app, /t\("رقم السجل التجاري"\)/);
+  assert.match(app, /t\("الرقم الضريبي"\)/);
+});
+
+test("business settings use the locale provider translator for system labels", () => {
+  const settings = app.slice(app.indexOf("function GeneralSettings("), app.indexOf("function PrintSettingsPanel("));
+  assert.match(settings, /const \{locale,t\}=useI18n\(\)/);
+  for (const key of ["بيانات النشاط","اسم المحل","العنوان","رقم السجل التجاري","الرقم الضريبي","هوية المستندات","معلومات المستند","ملاحظة التذييل","العملة"]) {
+    assert.match(settings, new RegExp('t\\("'+key+'"\\)'));
+    assert.doesNotMatch(translate("fr", key), /[\u0600-\u06FF]/);
+  }
 });
 
 test("French import progress uses semantic phase and group keys", () => {
