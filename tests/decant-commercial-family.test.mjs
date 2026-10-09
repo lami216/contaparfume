@@ -60,11 +60,22 @@ test("decant sale and bottle purchase always use the default sales warehouse", a
   assert.match(commands, /warehouseId: String\(warehouse\._id\)/);
 });
 
-test("decant management uses a readable two-by-two desktop layout with natural scrolling", async () => {
-  const css = await source("app/perfume-ui-fixes.css");
+test("management arranges conversion beside batches with full-width reconciliation and bottle stock", async () => {
+  const [css, ui] = await Promise.all([
+    source("app/perfume-ui-fixes.css"),
+    source("app/perfume-divisions.tsx"),
+  ]);
   assert.match(css, /Management layout refresh/);
-  assert.match(css, /grid-template-areas:\s*"split reconciliation"\s*"bottles batches"/s);
-  assert.match(css, /decant-invoices-hub-body\.management \{\s*overflow: auto/s);
-  assert.match(css, /perfume-reconciliation-grid \{\s*grid-template-columns: 1fr/s);
-  assert.match(css, /@media \(max-width: 1050px\)[\s\S]*"split"[\s\S]*"reconciliation"[\s\S]*"bottles"[\s\S]*"batches"/);
+  assert.match(css, /grid-template-areas:\s*"split batches"\s*"reconciliation reconciliation"\s*"bottles bottles"/s);
+  assert.match(css, /\.decant-invoices-hub-body\.management \{\s*overflow-x:\s*hidden;\s*overflow-y:\s*auto/s);
+  assert.match(css, /\.decant-invoices-hub-body\.management \.perfume-reconciliation-grid \{\s*display:\s*grid;\s*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/s);
+  assert.match(css, /grid-template-areas:\s*"split"\s*"batches"\s*"reconciliation"\s*"bottles"/s);
+  assert.match(css, /\.perfume-batches-table \{ min-width: 660px; \}/);
+  assert.match(css, /\.perfume-bottles-table \{ min-width: 780px; \}/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.perfume-reconciliation-grid \{\s*grid-template-columns: minmax\(0, 1fr\)/);
+  const cardNames = ["perfume-split-card", "perfume-batches-card", "perfume-reconciliation-card", "perfume-bottles-card"];
+  const positions = cardNames.map(name => ui.indexOf(`className="perfume-divisions-card ${name}"`));
+  assert.ok(positions.every(position => position >= 0));
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions, "keyboard order matches the visible desktop and mobile order");
+  assert.doesNotMatch(css, /grid-template-areas:\s*"split reconciliation"\s*"bottles batches"/s);
 });
