@@ -168,7 +168,8 @@ test("decant reconciliation commands are specialized, reversible and noncash", a
   assert.match(stockMovement, /decant-consumption/);
   assert.match(stockMovement, /decant-yield-correction/);
   assert.match(footer, /netProfitAfterInventoryLoss/);
-  assert.match(bootstrap, /perfumeStockOperationType/);
+  assert.match(await readFile(new URL("../lib/document-read-model.ts", import.meta.url), "utf8"), /perfumeStockOperationType/);
+  assert.match(bootstrap, /canReadOperationalDocument/);
   assert.match(bootstrap, /perfumeAccess/);
   assert.match(ui, /رصيد افتتاحي لعطر مفتوح قديم/);
   assert.match(ui, /استهلاك \/ هالك \/ عينات/);
