@@ -2393,14 +2393,14 @@ input[type="date"]{height:34px;min-height:34px;font-size:10px}.expense-form inpu
 @media(max-width:420px){.party-ledger-filter{grid-template-columns:1fr}.party-type-toggle{width:180px}.report-kpis{grid-template-columns:1fr}.report-kpi+.report-kpi{border-inline-start:0;border-block-start:1px solid var(--grid-line)}}
 
 /* Content-driven Settings workspaces; the users matrix intentionally remains full width. */
-.general-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"business branding" "privacy document" "actions actions" "feedback feedback";align-items:start;gap:14px;width:min(100%,980px);margin-inline:auto}
-.general-settings>.erp-fieldset{height:auto;align-self:start;margin:0}.general-settings>.erp-fieldset:first-child{grid-area:business}.branding-settings{grid-area:branding}.document-info-settings{grid-area:document}.financial-privacy-settings{grid-area:privacy}
+.general-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"business branding" "currency document" "print print" "actions actions" "feedback feedback";align-items:start;gap:14px;width:min(100%,980px);margin-inline:auto}
+.general-settings>.erp-fieldset{height:auto;align-self:start;margin:0}.general-settings>.erp-fieldset:first-child{grid-area:business}.currency-settings{grid-area:currency}.branding-settings{grid-area:branding}.document-info-settings{grid-area:document}.print-settings-panel{grid-area:print}
 .business-settings-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.business-settings-fields label,.general-settings>fieldset>label{display:grid;gap:4px}.business-settings-fields .business-address{grid-column:1/-1}
 .general-settings :is(input:not([type="checkbox"]),select){height:37px;min-height:37px}.general-settings textarea{min-height:78px;max-height:120px;resize:vertical}
 .branding-fields{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.branding-preview{min-height:140px;max-height:180px;align-content:center;padding:10px}
 .privacy-setting{display:flex!important;grid-template-columns:auto 1fr!important;align-items:center;min-height:37px}.financial-privacy-settings{height:auto;align-self:start}
 .settings-save{grid-area:actions;justify-self:start}.general-settings>.success,.general-settings>.error{grid-area:feedback}.official-business-meta{font-size:11pt!important;color:#475569}.official-record-sheet footer{display:grid;gap:5px;text-align:center}
-@media(max-width:1050px){.general-settings{grid-template-columns:1fr;grid-template-areas:"business" "branding" "document" "privacy" "actions" "feedback"}.settings-utility-row{width:100%}}
+@media(max-width:1050px){.general-settings{grid-template-columns:1fr;grid-template-areas:"business" "branding" "currency" "document" "print" "actions" "feedback"}.settings-utility-row{width:100%}}
 @media(max-width:650px){.business-settings-fields,.branding-fields{grid-template-columns:1fr}.business-settings-fields .business-address{grid-column:auto}}
 .financial-amount-summary { min-width:112px; font-size:17px; }
 .combobox-results button.selected:not(.highlighted) { color:var(--accent); background:#eef4fb; }
