@@ -1212,7 +1212,8 @@
     grid-template-areas:
       "split batches"
       "reconciliation reconciliation"
-      "bottles bottles";
+      "bottles bottles"
+      "error error";
     grid-template-rows: auto auto auto;
     align-items: start;
     align-content: start;
@@ -1239,8 +1240,9 @@
       "split"
       "batches"
       "reconciliation"
-      "bottles";
-    grid-template-rows: repeat(4, auto);
+      "bottles"
+      "error";
+    grid-template-rows: repeat(5, auto);
     align-items: start;
     gap: 12px;
     width: 100%;
