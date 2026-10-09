@@ -161,3 +161,10 @@ test("perfume command routing keeps product stock zero under products.delete per
   assert.match(lifecycle,/productArchivePerfumeLotsBefore/);
   assert.match(lifecycle,/reconstructLegacySinglePerfumeLot/);
 });
+
+
+test("products page switches exclusively between active and archived products",async()=>{
+  const app=await readFile(new URL("../app/conta-app.tsx",import.meta.url),"utf8");
+  assert.match(app,/data\.products\.filter\(product\s*=>\s*showArchived\s*\?\s*product\.isArchived\s*===\s*true\s*:\s*product\.isArchived\s*!==\s*true\)/);
+  assert.doesNotMatch(app,/showArchived\s*\|\|\s*!product\.isArchived/);
+});
