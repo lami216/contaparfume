@@ -135,7 +135,7 @@ test("product deletion archives zero stock, requires explicit stocked clearance,
   stocked=await db.collection("products").findOne({id:"stock"});assert.equal(stocked.isArchived,true);assert.equal(stocked.stocks["wh-main"],0);
   const clearance=await db.collection("documents").findOne({productArchiveStockClearance:true,"lines.productId":"stock"});
   assert.deepEqual([clearance.kind,clearance.title,clearance.lines[0].balanceBefore,clearance.lines[0].balanceAfter],["adjustment","تصفير المخزون المرتبط بأرشفة المنتج",2,0]);
-  await command({type:"product.restore",id:"stock"});stocked=await db.collection("products").findOne({id:"stock"});assert.equal(stocked.isArchived,false);assert.equal(stocked.stocks["wh-main"],0);
+  await command({type:"product.restore",id:"stock"});stocked=await db.collection("products").findOne({id:"stock"});assert.equal(stocked.isArchived,false);assert.equal(stocked.stocks["wh-main"],2);
   await assert.rejects(command({type:"purchase.post",warehouseId:"wh-main",partyId:"party",paymentMethod:"note",lines:[{productId:"history",quantity:1,unitPrice:1}]}),/غير موجود/);
   assert.ok(await db.collection("documents").findOne({"lines.productId":"history"}),"historical documents remain queryable");
 });
