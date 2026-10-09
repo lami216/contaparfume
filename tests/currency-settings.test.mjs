@@ -59,15 +59,15 @@ test("bootstrap and settings UI use persisted currency settings", async () => {
   assert.match(bootstrap,/Response\.json\(\{ branding, currency,/);
   assert.match(app,/setDisplayCurrencyCode\(j\.currency\?\.code\)/);
   assert.match(app,/\/api\/settings\/currency/);
-  assert.match(app,/tr\("العملة الافتراضية"\)/);
+  assert.match(app,/t\("العملة الافتراضية"\)/);
   assert.match(route,/settings\.branding\.manage/);
 });
 
 test("currency settings has its own grid area and does not disturb perfume-specific screens", async () => {
   const app=await readFile(new URL("../app/conta-app.tsx",import.meta.url),"utf8");
   const css=await readFile(new URL("../app/globals.css",import.meta.url),"utf8");
-  assert.match(app,/title=\{tr\("العملة"\)\} className="currency-settings"/);
-  assert.match(app,/title=\{tr\("هوية المستندات"\)\} className="branding-settings"/);
+  assert.match(app,/title=\{t\("العملة"\)\} className="currency-settings"/);
+  assert.match(app,/title=\{t\("هوية المستندات"\)\} className="branding-settings"/);
   assert.match(css,/grid-template-areas:"business branding" "currency document" "print print"/);
   assert.match(css,/\.currency-settings\{grid-area:currency\}/);
   assert.match(css,/\.branding-settings\{grid-area:branding\}/);
