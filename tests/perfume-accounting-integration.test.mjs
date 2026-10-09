@@ -131,3 +131,29 @@ test("generic adjustment lifecycle cannot void or edit perfume conversion record
   assert.equal((await db.collection("documents").findOne({ id: split.id })).status, "posted");
   assert.deepEqual((await db.collection("products").findOne({ id: before.id })).perfumeLots, before.perfumeLots);
 });
+
+test("credit decant sales and purchases change party balances only and safely reverse", async () => {
+  const { decantId, bottleId } = await setupPerfume();
+  const cashBefore = (await db.collection("paymentAccounts").findOne({ id: "cash" })).balance;
+  const purchaseId = await command({
+    type: "decant-purchase.post", partyId: "supplier", paymentMethod: "note",
+    lines: [{ productId: bottleId, quantity: 1, unitPrice: 7 }],
+  });
+  assert.equal((await db.collection("parties").findOne({ id: "supplier" })).payable, 7);
+  assert.equal((await db.collection("documents").findOne({ id: purchaseId })).dueTotal, 7);
+  assert.equal(await db.collection("financialMovements").countDocuments({ documentId: purchaseId }), 0);
+  const saleId = await command({
+    type: "decant-sale.post", partyId: "customer", paymentMethod: "note",
+    lines: [{ productId: decantId, bottleProductId: bottleId, quantity: 1, unitPrice: 30 }],
+  });
+  assert.equal((await db.collection("parties").findOne({ id: "customer" })).receivable, 30);
+  assert.equal((await db.collection("documents").findOne({ id: saleId })).dueTotal, 30);
+  assert.equal(await db.collection("financialMovements").countDocuments({ documentId: saleId }), 0);
+  assert.equal((await db.collection("paymentAccounts").findOne({ id: "cash" })).balance, cashBefore);
+  await command({ type: "decant-sale.void", documentId: saleId });
+  await command({ type: "decant-purchase.void", documentId: purchaseId });
+  assert.equal((await db.collection("parties").findOne({ id: "customer" })).receivable, 0);
+  assert.equal((await db.collection("parties").findOne({ id: "supplier" })).payable, 0);
+  assert.equal((await db.collection("paymentAccounts").findOne({ id: "cash" })).balance, cashBefore);
+  assert.equal((await db.collection("products").findOne({ id: bottleId })).lastPurchaseCost, 5);
+});
