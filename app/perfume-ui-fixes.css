@@ -651,141 +651,7 @@
   }
   .decant-invoices-hub .decant-invoice-history-table .action-cell button { flex: 1 1 0; }
 
-  /* Management follows the same two-column visual grammar as the invoices:
-     operations on one side and the growing batch register on the other. */
-  .decant-invoices-hub-body.management { overflow: hidden; }
-  .decant-invoices-hub-body.management .perfume-divisions-page,
-  .perfume-divisions-page {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-rows: minmax(0, .75fr) minmax(0, 1.45fr) minmax(0, .8fr);
-    grid-template-areas:
-      "split batches"
-      "reconciliation batches"
-      "bottles batches";
-    gap: 7px;
-    width: 100%;
-    height: 100%;
-    min-width: 0;
-    min-height: 0;
-    padding: 0;
-    overflow: hidden;
-  }
 
-  .perfume-split-card { grid-area: split; }
-  .perfume-reconciliation-card { grid-area: reconciliation; }
-  .perfume-bottles-card { grid-area: bottles; }
-  .perfume-batches-card { grid-area: batches; }
-
-  .decant-invoices-hub-body.management .perfume-divisions-card {
-    box-sizing: border-box;
-    width: 100%;
-    min-width: 0;
-    min-height: 0;
-    margin: 0;
-    padding: 6px 7px;
-    gap: 4px;
-    overflow: hidden;
-  }
-
-  .decant-invoices-hub-body.management .perfume-split-card {
-    overflow: visible;
-    position: relative;
-    z-index: 5;
-  }
-
-  .decant-invoices-hub-body.management .perfume-divisions-heading { gap: 7px; }
-  .decant-invoices-hub-body.management .perfume-divisions-heading h2 { font-size: 12px; }
-  .decant-invoices-hub-body.management .perfume-divisions-heading p { margin-top: 1px; font-size: 8.5px; line-height: 1.2; }
-  .decant-invoices-hub-body.management .perfume-split-action {
-    min-width: 155px;
-    width: auto;
-    min-height: 30px;
-    height: 30px;
-    padding-inline: 8px;
-    font-size: 9px;
-    box-shadow: 0 2px 7px rgba(11,109,103,.14);
-  }
-
-  .decant-invoices-hub-body.management .perfume-divisions-form-v2 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 4px;
-  }
-  .decant-invoices-hub-body.management .perfume-divisions-form label,
-  .decant-invoices-hub-body.management .perfume-bottle-create label { gap: 1px; font-size: 8.5px; }
-  .decant-invoices-hub-body.management .perfume-divisions-form :is(input,select),
-  .decant-invoices-hub-body.management .perfume-bottle-create :is(input,button),
-  .decant-invoices-hub-body.management .perfume-product-search input {
-    box-sizing: border-box;
-    width: 100%;
-    min-width: 0;
-    height: 28px;
-    min-height: 28px;
-    padding-block: 2px;
-    border-radius: 4px;
-    font-size: 9px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-cost-preview-v2 {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 4px;
-  }
-  .decant-invoices-hub-body.management .perfume-cost-preview > div {
-    min-width: 0;
-    min-height: 43px;
-    padding: 4px 6px;
-  }
-  .decant-invoices-hub-body.management .perfume-cost-preview span,
-  .decant-invoices-hub-body.management .perfume-cost-preview small { font-size: 8px; }
-  .decant-invoices-hub-body.management .perfume-cost-preview strong { font-size: 12px; }
-
-  .decant-invoices-hub-body.management .perfume-bottle-create {
-    grid-template-columns: minmax(0, 1.5fr) minmax(70px, .65fr) minmax(90px, .8fr) auto;
-    gap: 4px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-bottles-card,
-  .decant-invoices-hub-body.management .perfume-batches-card {
-    display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr);
-  }
-  .decant-invoices-hub-body.management .perfume-batches-card { grid-template-rows: auto minmax(0, 1fr); }
-
-  .decant-invoices-hub-body.management .perfume-bottles-table-wrap,
-  .decant-invoices-hub-body.management .perfume-batches-table-wrap {
-    width: 100%;
-    min-width: 0;
-    min-height: 0;
-    max-height: none;
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-  .decant-invoices-hub-body.management .perfume-bottles-table,
-  .decant-invoices-hub-body.management .perfume-batches-table {
-    width: 100%;
-    min-width: 0 !important;
-    table-layout: fixed;
-  }
-  .decant-invoices-hub-body.management :is(.perfume-bottles-table,.perfume-batches-table) th,
-  .decant-invoices-hub-body.management :is(.perfume-bottles-table,.perfume-batches-table) td {
-    box-sizing: border-box;
-    height: 25px;
-    padding: 2px 3px;
-    font-size: 8px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .decant-invoices-hub-body.management .perfume-recombine-control {
-    min-width: 0;
-    gap: 2px;
-  }
-  .decant-invoices-hub-body.management .perfume-recombine-control :is(input,button) {
-    min-width: 0;
-    height: 24px;
-    min-height: 24px;
-    padding: 1px 3px;
-    font-size: 8px;
-  }
 }
 
 /* Search banner shared by decant sale and perfume conversion. */
@@ -1072,142 +938,295 @@
 }
 
 
-/* Management layout refresh: keep all four decant tools readable instead of
-   squeezing three unequal cards beside a full-height batch register. */
+/* Management layout refresh: one readable, RTL-aligned workspace instead
+   of competing fixed-height grids that strand cards in empty columns. */
+.perfume-split-card { grid-area: split; }
+.perfume-batches-card { grid-area: batches; }
+.perfume-reconciliation-card { grid-area: reconciliation; }
+.perfume-bottles-card { grid-area: bottles; }
+
+.decant-invoices-hub-body.management .perfume-divisions-card {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  overflow: visible;
+}
+
+.decant-invoices-hub-body.management .perfume-divisions-heading {
+  min-height: 38px;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.decant-invoices-hub-body.management .perfume-divisions-heading h2 {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.decant-invoices-hub-body.management .perfume-divisions-heading p {
+  max-width: 64ch;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.decant-invoices-hub-body.management .perfume-split-card {
+  position: relative;
+  z-index: 2; /* Keep the perfume picker above adjacent cards. */
+}
+
+.decant-invoices-hub-body.management .perfume-split-action {
+  min-width: 154px;
+  min-height: 36px;
+  height: auto;
+  padding: 7px 12px;
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: normal;
+}
+
+.decant-invoices-hub-body.management .perfume-divisions-form-v2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.decant-invoices-hub-body.management :is(.perfume-divisions-form, .perfume-bottle-create) label,
+.decant-invoices-hub-body.management .perfume-reconciliation-form label {
+  min-width: 0;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.decant-invoices-hub-body.management .perfume-divisions-form :is(input, select),
+.decant-invoices-hub-body.management .perfume-bottle-create :is(input, button),
+.decant-invoices-hub-body.management .perfume-product-search input,
+.decant-invoices-hub-body.management .perfume-reconciliation-form :is(input, select),
+.decant-invoices-hub-body.management .perfume-consume-bottle select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  height: 36px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.decant-invoices-hub-body.management .perfume-cost-preview-v2 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.decant-invoices-hub-body.management .perfume-cost-preview > div {
+  min-width: 0;
+  min-height: 58px;
+  padding: 8px 10px;
+  overflow: visible;
+}
+
+.decant-invoices-hub-body.management .perfume-cost-preview :is(span, small) {
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.decant-invoices-hub-body.management .perfume-cost-preview strong {
+  font-size: 14px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.decant-invoices-hub-body.management .perfume-batches-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
+  gap: 10px;
+}
+
+.decant-invoices-hub-body.management .perfume-bottles-card {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: start;
+  gap: 12px;
+}
+
+.decant-invoices-hub-body.management .perfume-bottle-create {
+  grid-template-columns: minmax(200px, 1.5fr) minmax(105px, .6fr) minmax(135px, .7fr) minmax(132px, auto);
+  align-items: end;
+  gap: 10px;
+}
+
+.decant-invoices-hub-body.management .perfume-bottles-table-wrap,
+.decant-invoices-hub-body.management .perfume-batches-table-wrap {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-height: 320px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-radius: 7px;
+}
+
+.decant-invoices-hub-body.management .perfume-batches-table-wrap {
+  min-height: 230px;
+  max-height: 355px;
+}
+
+.decant-invoices-hub-body.management .perfume-bottles-table,
+.decant-invoices-hub-body.management .perfume-batches-table {
+  width: 100%;
+  table-layout: auto;
+}
+
+.decant-invoices-hub-body.management .perfume-batches-table { min-width: 660px; }
+.decant-invoices-hub-body.management .perfume-bottles-table { min-width: 780px; }
+
+.decant-invoices-hub-body.management :is(.perfume-bottles-table, .perfume-batches-table) th,
+.decant-invoices-hub-body.management :is(.perfume-bottles-table, .perfume-batches-table) td {
+  height: 36px;
+  padding: 7px 9px;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
+}
+
+.decant-invoices-hub-body.management :is(.perfume-bottles-table, .perfume-batches-table) th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f5f8fb;
+  white-space: nowrap;
+}
+
+.decant-invoices-hub-body.management .perfume-recombine-control {
+  min-width: 170px;
+  gap: 6px;
+}
+
+.decant-invoices-hub-body.management .perfume-recombine-control :is(input, button) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 33px;
+  height: auto;
+  padding: 6px 8px;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.decant-invoices-hub-body.management .perfume-reconciliation-card {
+  display: grid;
+  grid-template-rows: auto auto auto;
+  align-content: start;
+  gap: 12px;
+}
+
+.decant-invoices-hub-body.management .perfume-reconciliation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.decant-invoices-hub-body.management .perfume-reconciliation-block {
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.decant-invoices-hub-body.management .perfume-reconciliation-block > strong,
+.decant-invoices-hub-body.management .perfume-stock-operation-history > strong {
+  font-size: 12px;
+}
+
+.decant-invoices-hub-body.management .perfume-reconciliation-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.decant-invoices-hub-body.management .perfume-reconciliation-reason,
+.decant-invoices-hub-body.management .perfume-reconciliation-form > button {
+  grid-column: 1 / -1;
+}
+
+.decant-invoices-hub-body.management .perfume-reconciliation-form > button,
+.decant-invoices-hub-body.management .perfume-reconciliation-block > button {
+  width: 100%;
+  min-height: 36px;
+  height: auto;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.decant-invoices-hub-body.management .perfume-consume-bottle,
+.decant-invoices-hub-body.management .perfume-reconciliation-summary {
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.decant-invoices-hub-body.management .perfume-stock-operation-list {
+  max-height: 184px;
+  gap: 5px;
+  overflow: auto;
+}
+
+.decant-invoices-hub-body.management .perfume-stock-operation-row {
+  min-height: 35px;
+  padding: 6px 8px;
+  gap: 10px;
+  font-size: 11px;
+}
+
+.decant-invoices-hub-body.management .perfume-stock-operation-row button {
+  min-height: 30px;
+  height: auto;
+  padding: 4px 9px;
+  font-size: 10px;
+}
+
+/* Desktop: the conversion form and batch register share the first row.
+   Reconciliation uses the full width so its two forms stay legible. */
 @media (min-width: 1051px) {
   .decant-invoices-hub-body.management {
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
     overscroll-behavior: contain;
-    padding-inline-end: 2px;
+    scrollbar-gutter: stable;
+    padding: 2px 4px 22px;
   }
 
   .decant-invoices-hub-body.management .perfume-divisions-page {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: auto auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr);
     grid-template-areas:
-      "split reconciliation"
-      "bottles batches";
+      "split batches"
+      "reconciliation reconciliation"
+      "bottles bottles"
+      "error error";
+    grid-template-rows: auto auto auto;
+    align-items: start;
     align-content: start;
-    gap: 9px;
+    gap: 12px;
     width: 100%;
     height: auto;
-    min-height: 100%;
-    overflow: visible;
-    padding-bottom: 4px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-divisions-card {
     min-height: 0;
-    padding: 10px 11px;
-    border-radius: 10px;
+    padding: 0;
     overflow: visible;
-  }
-
-  .decant-invoices-hub-body.management .perfume-divisions-heading {
-    min-height: 38px;
-    align-items: flex-start;
-  }
-
-  .decant-invoices-hub-body.management .perfume-divisions-heading h2 {
-    font-size: 13px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-divisions-heading p {
-    max-width: 48ch;
-    font-size: 9px;
-    line-height: 1.35;
-  }
-
-  .decant-invoices-hub-body.management .perfume-split-card {
-    z-index: 6;
-  }
-
-  .decant-invoices-hub-body.management .perfume-divisions-form-v2 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-    margin-top: 8px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-cost-preview-v2 {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 5px;
-    margin-top: 8px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-reconciliation-card {
-    display: grid;
-    grid-template-rows: auto auto auto;
-    align-content: start;
-    gap: 8px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-reconciliation-grid {
-    grid-template-columns: 1fr;
-    gap: 7px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-reconciliation-block {
-    padding: 8px;
-    gap: 6px;
-    background: #fbfcfd;
-  }
-
-  .decant-invoices-hub-body.management .perfume-reconciliation-form {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 5px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-reconciliation-form :is(input, select),
-  .decant-invoices-hub-body.management .perfume-consume-bottle select {
-    height: 30px;
-    min-height: 30px;
-    font-size: 9px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-reconciliation-form > button,
-  .decant-invoices-hub-body.management .perfume-reconciliation-block > button {
-    height: 30px;
-    min-height: 30px;
-    font-size: 9px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-stock-operation-list {
-    max-height: 132px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-bottles-card,
-  .decant-invoices-hub-body.management .perfume-batches-card {
-    display: grid;
-    grid-template-rows: auto auto minmax(120px, auto);
-    gap: 7px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-batches-card {
-    grid-template-rows: auto minmax(160px, auto);
-  }
-
-  .decant-invoices-hub-body.management .perfume-bottles-table-wrap,
-  .decant-invoices-hub-body.management .perfume-batches-table-wrap {
-    min-height: 120px;
-    max-height: 300px;
-    overflow: auto;
-    border-radius: 6px;
-  }
-
-  .decant-invoices-hub-body.management .perfume-bottle-create {
-    grid-template-columns: minmax(0, 1.5fr) minmax(85px, .65fr) minmax(105px, .8fr) auto;
-    gap: 6px;
-  }
-
-  .decant-invoices-hub-body.management :is(.perfume-bottles-table,.perfume-batches-table) th,
-  .decant-invoices-hub-body.management :is(.perfume-bottles-table,.perfume-batches-table) td {
-    height: 30px;
-    padding: 4px 5px;
-    font-size: 8.5px;
   }
 }
 
+/* Tablets and narrow windows: maintain the same reading and focus order. */
 @media (max-width: 1050px) {
   .decant-invoices-hub-body.management {
     overflow: visible;
@@ -1215,20 +1234,64 @@
   }
 
   .decant-invoices-hub-body.management .perfume-divisions-page {
-    grid-template-columns: 1fr;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "split"
+      "batches"
       "reconciliation"
       "bottles"
-      "batches";
-    grid-template-rows: auto auto auto auto;
+      "error";
+    grid-template-rows: repeat(5, auto);
+    align-items: start;
+    gap: 12px;
+    width: 100%;
     height: auto;
-    min-height: 100%;
+    min-height: 0;
     overflow: visible;
   }
 
-  .decant-invoices-hub-body.management .perfume-divisions-card,
-  .decant-invoices-hub-body.management .perfume-reconciliation-card {
-    overflow: visible;
+  .decant-invoices-hub-body.management .perfume-batches-table-wrap { min-height: 0; }
+}
+
+@media (max-width: 760px) {
+  .decant-invoices-hub-body.management .perfume-reconciliation-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .decant-invoices-hub-body.management .perfume-bottle-create {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .decant-invoices-hub-body.management .perfume-bottle-create > button {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 620px) {
+  .decant-invoices-hub-body.management .perfume-divisions-card { padding: 12px; }
+  .decant-invoices-hub-body.management .perfume-divisions-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .decant-invoices-hub-body.management .perfume-split-action {
+    width: 100%;
+  }
+  .decant-invoices-hub-body.management .perfume-divisions-form-v2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .decant-invoices-hub-body.management .perfume-cost-preview-v2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .decant-invoices-hub-body.management .perfume-reconciliation-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .decant-invoices-hub-body.management .perfume-reconciliation-reason,
+  .decant-invoices-hub-body.management .perfume-reconciliation-form > button {
+    grid-column: auto;
+  }
+  .decant-invoices-hub-body.management .perfume-bottle-create {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .decant-invoices-hub-body.management .perfume-consume-bottle {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -175,6 +175,20 @@ export default function PerfumeDivisions({ data, run, onAdjustBottle }: { data: 
       </div>
     </section>
 
+    <section className="perfume-divisions-card perfume-batches-card">
+      <div className="perfume-divisions-heading"><div><h2>{tr("دفعات التقسيمات")}</h2><p>{tr("اختر الدفعة ثم أدخل سعر العطر الناقص لإرجاع كل المتبقي منها إلى عطر واحد ناقص.")}</p></div></div>
+      <div className="perfume-batches-table-wrap">
+        <table className="erp-table perfume-batches-table">
+          <thead><tr><th>{tr("العطر")}</th><th>{tr("الأصل")}</th><th>{tr("المتبقي")}</th><th>{tr("تكلفة السائل")}</th><th>{tr("المخزن")}</th><th>{tr("إرجاع إلى عطر ناقص")}</th></tr></thead>
+          <tbody>{batches.length === 0 ? <tr><td colSpan={6}>{tr("لا توجد تقسيمات حتى الآن")}</td></tr> : batches.map(row => {
+            const remaining = lotRemainingTotal(row.lot), locations = Object.entries(row.lot.stocks ?? {}).filter(([, value]) => Number(value) > 0);
+            const singleWarehouse = locations.length === 1 && Number(locations[0][1]) === remaining ? locations[0][0] : "";
+            const warehouse = warehouses.find(item => item.id === singleWarehouse), partialCost = remaining * row.lot.liquidUnitCost;
+            return <tr key={row.lot.id}><td>{row.sourceName}</td><td>{quantity(row.lot.originalQuantity)}</td><td>{quantity(remaining)}</td><td>{money(row.lot.liquidUnitCost)}</td><td>{warehouse?.name ?? tr("أكثر من مخزن")}</td><td>{remaining <= 0 ? <span>{tr("مغلقة")}</span> : !singleWarehouse ? <span className="muted">{tr("اجمع الباقي في مخزن واحد أولًا")}</span> : <div className="perfume-recombine-control"><small>{tr("تكلفة العطر الناقص")}: {money(partialCost)}</small><input type="number" min="0" placeholder={tr("سعر بيع العطر الناقص")} value={recombinePrices[row.lot.id] ?? ""} onChange={event => setRecombinePrices(values => ({ ...values, [row.lot.id]: event.target.value }))}/><button className="primary" disabled={busy || Number(recombinePrices[row.lot.id]) <= 0} onClick={() => void recombine(row)}>{tr("إرجاع الباقي إلى عطر ناقص")}</button></div>}</td></tr>;
+          })}</tbody>
+        </table>
+      </div>
+    </section>
     <section className="perfume-divisions-card perfume-reconciliation-card">
       <div className="perfume-divisions-heading">
         <div><h2>تسوية مخزون التقسيمات</h2><p>للرصيد القديم، الهالك والعينات، وتصحيح ناتج التقسيم بدون إنشاء بيع أو شراء وهمي.</p></div>
@@ -244,20 +258,6 @@ export default function PerfumeDivisions({ data, run, onAdjustBottle }: { data: 
       <div className="perfume-bottles-table-wrap"><table className="erp-table perfume-bottles-table"><thead><tr><th>{tr("الزجاجة")}</th><th>{tr("الحجم")}</th><th>{tr("التكلفة المرجعية")}</th><th>{tr("آخر شراء")}</th><th>{tr("المخزون")}</th><th>{tr("إجراء")}</th></tr></thead><tbody>{bottles.length === 0 ? <tr><td colSpan={6}>{tr("لا توجد أنواع زجاج حتى الآن")}</td></tr> : bottles.map(bottle => <tr key={bottle.id}><td>{bottle.name}</td><td className="num-cell">{bottle.decantSizeMl ? `${bottle.decantSizeMl} ml` : "—"}</td><td className="num-cell">{money(Number(bottle.pieceCost ?? 0))}</td><td className="num-cell">{money(Number(bottle.lastPurchaseCost ?? 0))}</td><td className="num-cell">{quantity(totalProductStock(bottle))}</td><td>{adjustBottleId === bottle.id && !onAdjustBottle ? <div className="perfume-bottle-adjust"><input type="number" min="0" step="1" value={adjustActual} onChange={event => setAdjustActual(event.target.value)} placeholder={tr("الكمية الحالية")}/><input value={adjustReason} onChange={event => setAdjustReason(event.target.value)} placeholder={tr("سبب التصحيح")}/><button className="primary" type="button" disabled={busy || !adjustReason.trim()} onClick={() => void saveBottleAdjustment(bottle)}>{tr("اعتماد التصحيح")}</button><button className="soft" type="button" onClick={() => setAdjustBottleId("")}>{tr("إلغاء")}</button></div> : <button className="soft" type="button" disabled={!warehouseId} onClick={() => beginBottleAdjustment(bottle)}>{tr("تصحيح الكمية")}</button>}</td></tr>)}</tbody></table></div>
     </section>
 
-    <section className="perfume-divisions-card perfume-batches-card">
-      <div className="perfume-divisions-heading"><div><h2>{tr("دفعات التقسيمات")}</h2><p>{tr("اختر الدفعة ثم أدخل سعر العطر الناقص لإرجاع كل المتبقي منها إلى عطر واحد ناقص.")}</p></div></div>
-      <div className="perfume-batches-table-wrap">
-        <table className="erp-table perfume-batches-table">
-          <thead><tr><th>{tr("العطر")}</th><th>{tr("الأصل")}</th><th>{tr("المتبقي")}</th><th>{tr("تكلفة السائل")}</th><th>{tr("المخزن")}</th><th>{tr("إرجاع إلى عطر ناقص")}</th></tr></thead>
-          <tbody>{batches.length === 0 ? <tr><td colSpan={6}>{tr("لا توجد تقسيمات حتى الآن")}</td></tr> : batches.map(row => {
-            const remaining = lotRemainingTotal(row.lot), locations = Object.entries(row.lot.stocks ?? {}).filter(([, value]) => Number(value) > 0);
-            const singleWarehouse = locations.length === 1 && Number(locations[0][1]) === remaining ? locations[0][0] : "";
-            const warehouse = warehouses.find(item => item.id === singleWarehouse), partialCost = remaining * row.lot.liquidUnitCost;
-            return <tr key={row.lot.id}><td>{row.sourceName}</td><td>{quantity(row.lot.originalQuantity)}</td><td>{quantity(remaining)}</td><td>{money(row.lot.liquidUnitCost)}</td><td>{warehouse?.name ?? tr("أكثر من مخزن")}</td><td>{remaining <= 0 ? <span>{tr("مغلقة")}</span> : !singleWarehouse ? <span className="muted">{tr("اجمع الباقي في مخزن واحد أولًا")}</span> : <div className="perfume-recombine-control"><small>{tr("تكلفة العطر الناقص")}: {money(partialCost)}</small><input type="number" min="0" placeholder={tr("سعر بيع العطر الناقص")} value={recombinePrices[row.lot.id] ?? ""} onChange={event => setRecombinePrices(values => ({ ...values, [row.lot.id]: event.target.value }))}/><button className="primary" disabled={busy || Number(recombinePrices[row.lot.id]) <= 0} onClick={() => void recombine(row)}>{tr("إرجاع الباقي إلى عطر ناقص")}</button></div>}</td></tr>;
-          })}</tbody>
-        </table>
-      </div>
-    </section>
     {localError && <div className="error perfume-local-error">{localError}</div>}
   </div>;
 }
