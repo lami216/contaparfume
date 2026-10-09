@@ -54,6 +54,7 @@ test("specific confirmations, payment statements and official business metadata 
   assert.match(app, /tr\("expense\.deleteConfirm"/);
   assert.match(app, /tr\("bank\.transferDeleteConfirm"/);
   assert.match(app, /tr\("bank\.adjustmentDeleteConfirm"/);
+  assert.match(app, /tr\("party\.movementDeleteConfirm"/);
   assert.match(app, /tr\("stock\.transferDeleteConfirm"/);
   assert.match(app, /tr\("stock\.adjustmentDeleteConfirm"/);
   assert.match(app, /receive\?tr\("استلام من الطرف"\):tr\("دفع للطرف"\)/);
