@@ -805,6 +805,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     const warehouse = await warehouses(db).findOne({ _id: String(original.warehouseId) }, { session });
     if (!warehouse) throw new CommandError("مخزن الفاتورة غير موجود", 409);
     const oldLines = original.lines as Line[], found = await db.collection("products").find({ id: { $in: oldLines.map(line => line.productId) } }, { session }).toArray(), map = new Map(found.map(product => [String(product.id), product]));
+    if (oldLines.some(line => (isSale ? ["decant", "bottle"] : ["decant", "partial", "bottle"]).includes(String(map.get(String(line.productId))?.perfumeForm ?? "")))) throw new CommandError("لا يمكن إلغاء فاتورة عادية تشمل مخزون تقسيمات متخصص عبر المحرك العام", 409);
     for (const line of oldLines) try { await changeStock(db, session, map.get(line.productId)!, warehouse, isSale ? line.quantity : -line.quantity, { ...original, occurredAt: new Date().toISOString(), revision: Number(original.revision ?? 0) + 1 }, `${kind}-void`); } catch (error) { if (!isSale && error instanceof CommandError && /المخزون غير كاف/.test(error.message)) throw new CommandError("لا يمكن حذف الفاتورة لأن جزءًا من مخزونها تم التصرف فيه.", 409); throw error; }
     if (Number(original.dueTotal) > 0) await changePartyDebt(db, session, original.partyId, kind, -Number(original.dueTotal), true);
     await reverseInvoicePayment(db, session, original, kind);
