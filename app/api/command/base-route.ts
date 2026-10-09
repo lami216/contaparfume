@@ -9,6 +9,7 @@ import { consumePerfumeLot, correctPerfumeLotYield, createOpeningPerfumeLot, per
 import { handlePerfumeInvoiceCommand, PerfumeInvoiceCommandError } from "../../perfume-invoice-commands.ts";
 import { normalizePartyNet, partyCashDelta, partyNet } from "../../party-balance.ts";
 import { nextDocumentSequence, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
+import { restoreProductArchiveStockClearance } from "../../../lib/transaction-lifecycle.ts";
 
 type Input = Record<string, unknown>;
 type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; purchaseCost?: number | null; costAtSale?: number | null; grossProfit?: number | null; perfumeAllocations?: PerfumeAllocation[] };
@@ -241,13 +242,16 @@ function productArchiveStockEntries(product: Record<string, unknown>) {
   }
   return { entries, lots };
 }
-async function zeroProductStockForArchive(db: Db, session: ClientSession, product: Record<string, unknown>) {
+async function zeroProductStockForArchive(db: Db, session: ClientSession, product: Record<string, unknown>, clearanceGroupId: string) {
   const {entries,lots} = productArchiveStockEntries(product);
+  const perfumeLotsBeforeArchive = lots.length ? structuredClone(lots) : null;
   for (const entry of entries) {
     const warehouse = await warehouses(db).findOne({ _id: entry.warehouseId }, { session });
     if (!warehouse) throw new CommandError("تعذر تصفير المخزون لأن أحد المخازن المرتبطة بالمنتج غير موجود", 409);
     const doc = {
       ...baseDocument("adjustment", "ADJ"), revision: 0, productArchiveStockClearance: true,
+      productArchiveStockClearanceGroupId: clearanceGroupId, productArchiveProductId: String(product.id),
+      ...(perfumeLotsBeforeArchive ? { productArchivePerfumeLotsBefore: perfumeLotsBeforeArchive } : {}),
       partyId: null, partyName: null, warehouseId: entry.warehouseId, warehouseName: warehouse.name,
       destinationWarehouseId: null, destinationWarehouseName: null, parentDocumentId: null,
       paymentMethod: null, title: PRODUCT_ARCHIVE_STOCK_ZERO_REASON,
@@ -432,8 +436,9 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     if (product.isArchived === true) throw new CommandError("المنتج مؤرشف بالفعل", 409);
     const {entries} = productArchiveStockEntries(product);
     if (entries.length && body.zeroStock !== true) throw new CommandError("المنتج يحتوي مخزونًا. أكد تصفير المخزون قبل الأرشفة.", 409);
-    if (entries.length) await zeroProductStockForArchive(db, session, product);
-    const archived = await db.collection("products").updateOne({ id: productId, isArchived: { $ne: true } }, { $set: { isArchived: true, archivedAt: new Date(), updatedAt: new Date() } }, { session });
+    const clearanceGroupId = entries.length ? id("archive-clearance") : null;
+    if (entries.length) await zeroProductStockForArchive(db, session, product, clearanceGroupId!);
+    const archived = await db.collection("products").updateOne({ id: productId, isArchived: { $ne: true } }, { $set: { isArchived: true, archivedAt: new Date(), archiveStockClearanceGroupId: clearanceGroupId, updatedAt: new Date() } }, { session });
     if (!archived.matchedCount) throw new CommandError("تغير المنتج أثناء العملية، أعد المحاولة", 409);
     return productId;
   }
@@ -441,12 +446,18 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     const productId = text(body.id), product = await db.collection("products").findOne({ id: productId }, { session });
     if (!product) throw new CommandError("المنتج غير موجود", 404);
     if (product.isArchived !== true) throw new CommandError("تصفير المخزون بهذه العملية متاح للمنتج المؤرشف فقط", 409);
-    await zeroProductStockForArchive(db, session, product);
+    const clearanceGroupId = id("archive-clearance");
+    await zeroProductStockForArchive(db, session, product, clearanceGroupId);
+    await db.collection("products").updateOne({ id: productId, isArchived: true }, { $set: { archiveStockClearanceGroupId: clearanceGroupId, updatedAt: new Date() } }, { session });
     return productId;
   }
   if (type === "product.restore") {
-    const productId=text(body.id),result=await db.collection("products").updateOne({id:productId,isArchived:true},{$set:{isArchived:false,archivedAt:null}},{session});
-    if(!result.matchedCount)throw new CommandError("المنتج المحذوف غير موجود",404);return productId;
+    const productId=text(body.id),product=await db.collection("products").findOne({id:productId,isArchived:true},{session});
+    if(!product)throw new CommandError("المنتج المحذوف غير موجود",404);
+    const restoredClearance=await restoreProductArchiveStockClearance(db,session,{productId});
+    if(restoredClearance)return productId;
+    const result=await db.collection("products").updateOne({id:productId,isArchived:true},{$set:{isArchived:false,archivedAt:null,archiveStockClearanceGroupId:null,updatedAt:new Date()}},{session});
+    if(!result.matchedCount)throw new CommandError("تغير المنتج أثناء الاستعادة، أعد المحاولة",409);return productId;
   }
   if (type === "party.create") {
     const name = text(body.name), phone = text(body.phone), partyType = text(body.partyType); if (!name) throw new CommandError("اسم الحساب مطلوب");
