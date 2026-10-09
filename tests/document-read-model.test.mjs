@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   canReadOperationalDocument,
+  canReadDocumentKind,
+  canReadDocument,
   isEffectiveFinancialMovement,
   isOperationalDocument,
   resolveCurrentPartyName,
@@ -107,4 +109,33 @@ test("reversed and reversal audit rows are excluded from the effective financial
   assert.equal(isEffectiveFinancialMovement({ type: "sale", status: "posted" }), true);
   assert.equal(isEffectiveFinancialMovement({ type: "sale", status: "reversed" }), false);
   assert.equal(isEffectiveFinancialMovement({ type: "sale:reversal", isReversal: true }), false);
+});
+
+
+test("decant commercial documents obey the same permission families and honor perfume access", () => {
+  const customer = access(["customers.view"]);
+  const supplier = access(["suppliers.view"]);
+  assert.equal(canReadDocumentKind("decant-sale", customer), true);
+  assert.equal(canReadDocumentKind("decant-purchase", supplier), true);
+  assert.equal(canReadOperationalDocument({ kind: "decant-sale", status: "posted", partyId: "c1" }, customer), true);
+  assert.equal(canReadOperationalDocument({ kind: "decant-purchase", status: "posted", partyId: "s1" }, supplier), true);
+  assert.equal(canReadOperationalDocument({ kind: "decant-purchase", status: "posted", partyId: "s1" }, customer), false);
+  const perfume = access(["perfume.divisions.view"]);
+  assert.equal(canReadDocumentKind("decant-sale", perfume), true);
+  assert.equal(canReadDocumentKind("decant-purchase", perfume), true);
+  assert.equal(canReadDocument({ kind: "decant-sale", status: "voided" }, perfume), true);
+  assert.equal(canReadOperationalDocument({ kind: "decant-sale", status: "voided" }, perfume), false);
+  assert.equal(canReadOperationalDocument({ kind: "decant-purchase", status: "posted" }, perfume), true);
+  assert.equal(canReadOperationalDocument({ kind: "sale", status: "posted" }, perfume), false);
+});
+
+test("perfume-only access to adjustments is restricted to recognized perfume stock operations", () => {
+  const perfume = access(["perfume.divisions.view"]);
+  for (const operation of ["opening", "consumption", "yield-correction"]) {
+    assert.equal(canReadOperationalDocument({ kind: "adjustment", perfumeStockOperationType: operation, status: "posted" }, perfume), true, operation);
+    assert.equal(canReadOperationalDocument({ kind: "adjustment", perfumeStockOperationType: operation, status: "voided" }, perfume), false, operation);
+  }
+  assert.equal(canReadOperationalDocument({ kind: "adjustment", status: "posted" }, perfume), false);
+  assert.equal(canReadOperationalDocument({ kind: "adjustment", perfumeStockOperationType: "other", status: "posted" }, perfume), false);
+  assert.equal(canReadOperationalDocument({ kind: "adjustment", status: "posted" }, access(["warehouses.adjust"])), true);
 });
