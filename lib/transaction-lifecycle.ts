@@ -197,6 +197,139 @@ async function applyDecantTransferLots(db: Db, session: ClientSession, product: 
 const stockAuditDocument = (document: Stored, revision: number) => ({ ...document, revision, occurredAt: new Date().toISOString() });
 const openingAdjustment = (document: Stored) => document.openingCorrection === true || String(document.number ?? "").startsWith("OPEN") || document.title === "رصيد بداية" || document.title === "تصحيح رصيد البداية";
 
+function archiveClearanceProductId(document: Stored) {
+  const lines = Array.isArray(document.lines) ? document.lines as Stored[] : [];
+  return text(document.productArchiveProductId) || text(lines[0]?.productId);
+}
+
+function sameLegacyClearanceBatch(left: Stored, right: Stored) {
+  const leftTime = Date.parse(String(left.occurredAt ?? ""));
+  const rightTime = Date.parse(String(right.occurredAt ?? ""));
+  return Number.isFinite(leftTime) && Number.isFinite(rightTime)
+    ? Math.abs(leftTime - rightTime) <= 5000
+    : String(left.id ?? "") === String(right.id ?? "");
+}
+
+function archivedPerfumeLotsAreUntouched(lots: PerfumeLot[]) {
+  return lots.every(lot => {
+    const remaining = Number(lot.remainingQuantity ?? 0);
+    if (!Number.isFinite(remaining) || Math.abs(remaining) > 1e-9) return false;
+    return Object.values(lot.stocks ?? {}).every(value => Number.isFinite(Number(value)) && Math.abs(Number(value)) <= 1e-9);
+  });
+}
+
+function reconstructLegacySinglePerfumeLot(currentLots: PerfumeLot[], group: Stored[]) {
+  const lotBeforeByWarehouse = new Map<string, number>();
+  let hasHistoricalLotStock = false;
+  for (const document of group) {
+    const line = (Array.isArray(document.lines) ? document.lines as Stored[] : [])[0];
+    const before = Number(line?.perfumeLotStockBefore ?? 0);
+    if (!Number.isFinite(before) || before < 0) throw new LifecycleCommandError("سجل دفعات التقسيمات القديم غير صالح للاستعادة", 409);
+    if (before > 1e-9) hasHistoricalLotStock = true;
+    lotBeforeByWarehouse.set(String(document.warehouseId ?? ""), before);
+  }
+  if (!hasHistoricalLotStock) return currentLots;
+  if (currentLots.length !== 1) {
+    throw new LifecycleCommandError("لا يمكن عكس تصفير قديم لهذا العطر بأمان لأن توزيع الدفعات التاريخي غير محفوظ.", 409);
+  }
+  const restored = structuredClone(currentLots);
+  const lot = restored[0];
+  const stocks = { ...(lot.stocks ?? {}) };
+  for (const [warehouseId, before] of lotBeforeByWarehouse) if (warehouseId) stocks[warehouseId] = before;
+  lot.stocks = stocks;
+  lot.remainingQuantity = Object.values(stocks).reduce((sum, value) => sum + Number(value ?? 0), 0);
+  return restored;
+}
+
+export async function restoreProductArchiveStockClearance(
+  db: Db,
+  session: ClientSession,
+  selector: { documentId?: string; productId?: string },
+) {
+  const requestedDocumentId = text(selector.documentId), requestedProductId = text(selector.productId);
+  const selected = requestedDocumentId
+    ? await db.collection("documents").findOne({ id: requestedDocumentId, kind: "adjustment", status: "posted", productArchiveStockClearance: true }, { session })
+    : null;
+  if (requestedDocumentId && !selected) throw new LifecycleCommandError("تصحيح تصفير مخزون الأرشفة غير موجود أو ملغى", 404);
+
+  const productId = requestedProductId || (selected ? archiveClearanceProductId(selected) : "");
+  if (!productId) {
+    if (requestedDocumentId) throw new LifecycleCommandError("سند تصفير المخزون لا يحتوي مرجع المنتج", 409);
+    return null;
+  }
+  const product = await db.collection("products").findOne({ id: productId }, { session });
+  if (!product) throw new LifecycleCommandError("المنتج المرتبط بتصفير المخزون غير موجود", 409);
+  if (product.isArchived !== true) {
+    if (requestedDocumentId) throw new LifecycleCommandError("المنتج مستعاد بالفعل؛ لا يمكن عكس تصفير الأرشفة مرة أخرى", 409);
+    return null;
+  }
+
+  const all = await db.collection("documents").find({
+    kind: "adjustment", status: "posted", productArchiveStockClearance: true, "lines.productId": productId,
+  }, { session }).toArray();
+  if (!all.length) return null;
+
+  const configuredGroup = text(selected?.productArchiveStockClearanceGroupId ?? product.archiveStockClearanceGroupId);
+  let anchor = selected;
+  if (!anchor) {
+    anchor = [...all].sort((a, b) => String(b.occurredAt ?? "").localeCompare(String(a.occurredAt ?? "")) || String(b.id ?? "").localeCompare(String(a.id ?? "")))[0] ?? null;
+  }
+  if (!anchor) return null;
+  const group = configuredGroup
+    ? all.filter(document => text(document.productArchiveStockClearanceGroupId) === configuredGroup)
+    : all.filter(document => sameLegacyClearanceBatch(document, anchor!));
+  if (!group.length) throw new LifecycleCommandError("تعذر تحديد مجموعة تصفير المخزون المرتبطة بالأرشفة", 409);
+
+  const currentLots = productPerfumeLots(product);
+  if (currentLots.length && !archivedPerfumeLotsAreUntouched(currentLots)) {
+    throw new LifecycleCommandError("لا يمكن استعادة تصفير الأرشفة لأن دفعات التقسيمات تغيرت بعد التصفير.", 409);
+  }
+  const snapshotSource = group.find(document => Array.isArray(document.productArchivePerfumeLotsBefore));
+  const snapshotLots = snapshotSource
+    ? structuredClone(snapshotSource.productArchivePerfumeLotsBefore as PerfumeLot[])
+    : null;
+  if (snapshotLots) {
+    const currentIds = currentLots.map(lot => String(lot.id)).sort().join("\u0000");
+    const snapshotIds = snapshotLots.map(lot => String(lot.id)).sort().join("\u0000");
+    if (currentIds !== snapshotIds) throw new LifecycleCommandError("لا يمكن استعادة تصفير الأرشفة لأن بنية دفعات التقسيمات تغيرت بعد التصفير.", 409);
+  }
+  const restoredLots = snapshotLots ?? reconstructLegacySinglePerfumeLot(currentLots, group);
+
+  const now = new Date();
+  for (const document of group) {
+    const warehouse = await db.collection("warehouses").findOne({ _id: String(document.warehouseId) }, { session });
+    if (!warehouse) throw new LifecycleCommandError("تعذر استعادة المنتج لأن أحد مخازن التصفير غير موجود", 409);
+    const lines = Array.isArray(document.lines) ? document.lines as Stored[] : [];
+    if (!lines.length || lines.some(line => String(line.productId ?? "") !== productId)) {
+      throw new LifecycleCommandError("سجل تصفير المخزون غير مكتمل ولا يمكن عكسه بأمان", 409);
+    }
+    const revision = Number(document.revision ?? 0) + 1, audit = stockAuditDocument(document, revision);
+    for (const line of lines) {
+      const delta = -Number(line.quantity ?? 0), expectedAfter = Number(line.balanceAfter ?? 0);
+      if (!Number.isFinite(delta) || delta < 0) throw new LifecycleCommandError("كمية تصفير المخزون القديمة غير صالحة للاستعادة", 409);
+      const current = Number((product.stocks as Record<string, number> | undefined)?.[String(warehouse._id)] ?? 0);
+      if (!Number.isFinite(expectedAfter) || Math.abs(current - expectedAfter) > 1e-9) {
+        throw new LifecycleCommandError("لا يمكن استعادة تصفير الأرشفة لأن مخزون أحد المخازن تغير بعد عملية التصفير.", 409);
+      }
+      if (delta > 1e-9) await changeStock(db, session, product, warehouse, delta, audit, "adjustment-void");
+    }
+    await db.collection("documents").updateOne(
+      { id: document.id, status: "posted" },
+      { $set: { status: "voided", voidedAt: now, updatedAt: now, revision, productArchiveStockClearanceRestored: true } },
+      { session },
+    );
+  }
+
+  if (restoredLots.length) await saveProductPerfumeLots(db, session, product, restoredLots);
+  const restored = await db.collection("products").updateOne(
+    { id: productId, isArchived: true },
+    { $set: { isArchived: false, archivedAt: null, archiveStockClearanceGroupId: null, updatedAt: now } },
+    { session },
+  );
+  if (!restored.matchedCount) throw new LifecycleCommandError("تغيرت حالة المنتج أثناء الاستعادة، أعد المحاولة", 409);
+  return { productId, documentIds: group.map(document => String(document.id)) };
+}
+
 async function updateTransfer(db: Db, session: ClientSession, body: Input) {
   const documentId = text(body.documentId), original = await db.collection("documents").findOne({ id: documentId, kind: "transfer", status: "posted" }, { session });
   if (!original) throw new LifecycleCommandError("تحويل المخزون غير موجود أو ملغى", 404);
@@ -323,7 +456,10 @@ async function voidAdjustment(db: Db, session: ClientSession, body: Input) {
   const documentId = text(body.documentId), original = await db.collection("documents").findOne({ id: documentId, kind: "adjustment", status: "posted" }, { session });
   if (!original) throw new LifecycleCommandError("تصحيح المخزون غير موجود أو ملغى", 404);
   if (openingAdjustment(original)) throw new LifecycleCommandError("لا يمكن إلغاء سجل رصيد البداية؛ استخدم تصحيح رصيد بداية جديدًا", 409);
-  if (original.productArchiveStockClearance === true) throw new LifecycleCommandError("تصحيح المخزون المرتبط بأرشفة المنتج سجل نهائي وغير قابل للإلغاء", 409);
+  if (original.productArchiveStockClearance === true) {
+    await restoreProductArchiveStockClearance(db, session, { documentId });
+    return documentId;
+  }
   const warehouse = await db.collection("warehouses").findOne({ _id: String(original.warehouseId) }, { session });
   if (!warehouse) throw new LifecycleCommandError("مخزن التصحيح غير موجود", 409);
   const lines = (original.lines ?? []) as Stored[], products = await loadProducts(db, session, lines.map(line => String(line.productId))), revision = Number(original.revision ?? 0) + 1, audit = stockAuditDocument(original, revision);
