@@ -68,3 +68,35 @@ test("decant management uses a readable two-by-two desktop layout with natural s
   assert.match(css, /perfume-reconciliation-grid \{\s*grid-template-columns: 1fr/s);
   assert.match(css, /@media \(max-width: 1050px\)[\s\S]*"split"[\s\S]*"reconciliation"[\s\S]*"bottles"[\s\S]*"batches"/);
 });
+
+
+test("normal commercial routes cannot mutate decant lots through generic invoice or adjustment commands", async () => {
+  const core = await source("app/api/command/core-route.ts");
+  assert.match(core, /type === "sale.post" \|\| type === "purchase.post"[\s\S]*?\["decant", "bottle"\]/);
+  assert.match(core, /\["decant", "partial", "bottle"\]/);
+  assert.match(core, /\["sale.update", "purchase.update"\][\s\S]*?\["decant", "bottle"\]/);
+  assert.match(core, /allIds\.some\(productId/);
+  assert.match(core, /if \(type === "adjustment.post"\)[\s\S]*?\["decant", "partial"\]/);
+  assert.match(core, /replaceOpeningStock && \["decant", "partial", "bottle"\]/);
+});
+
+test("decant invoice accounting rejects invalid parties, missing costs, and unaudited payment deletion", async () => {
+  const commands = await source("app/perfume-invoice-commands.ts");
+  assert.match(commands, /partyId && !party/);
+  assert.match(commands, /product\.lastPurchaseCost != null/);
+  assert.match(commands, /visibleStock !== lotStock/);
+  assert.match(commands, /total !== expectedQuantity/);
+  assert.match(commands, /findActiveFinancialMovement/);
+  assert.match(commands, /reverseRecordedFinancialMovement/);
+  assert.doesNotMatch(commands, /financialMovements"\)\.deleteOne/);
+});
+
+test("bootstrap and history share posted decant visibility rules", async () => {
+  const [bootstrap, history, readModel] = await Promise.all([
+    source("app/api/bootstrap/route.ts"), source("app/api/history/route.ts"), source("lib/document-read-model.ts"),
+  ]);
+  assert.match(bootstrap, /filter\(document=>canReadOperationalDocument\(document,readAccess\)\)/);
+  assert.match(history, /"perfume.divisions.view"/);
+  assert.match(readModel, /kind === "decant-sale"/);
+  assert.match(readModel, /kind === "decant-purchase"/);
+});
