@@ -10,5 +10,5 @@ export async function finishSuccessfulCommand(afterSuccess: (() => void) | undef
   try { saleDraftCleared = sessionStorage.getItem("conta:sale-lines") === "[]"; } catch { return; }
   if (!saleDraftCleared) return;
   const locale = document.documentElement.lang === "fr" ? "fr" : "ar";
-  window.dispatchEvent(new CustomEvent<string>("alkarna:notice", { detail: formatLowStockWarning(locale, pendingLowStock) }));
+  window.dispatchEvent(new CustomEvent<string>("alkarna:low-stock-warning", { detail: formatLowStockWarning(locale, pendingLowStock) }));
 }

@@ -5,3 +5,22 @@ test("NO quits without backup",async()=>{const h=harness(1);assert.equal(await h
 test("CANCEL and save cancellation keep app open",async()=>{let h=harness(2);assert.equal(await h.flow.requestClose(),false);assert.deepEqual(h.calls,[]);h=harness(0,{canceled:true});assert.equal(await h.flow.requestClose(),false);assert.deepEqual(h.calls,[])});
 test("backup failure reports and does not quit",async()=>{const h=harness(0,undefined,true);assert.equal(await h.flow.requestClose(),false);assert.deepEqual(h.calls,["backup","failure"])});
 test("filename and desktop route security/source use native backup",async()=>{assert.match(backupFilename(new Date(2026,8,1,14,5)),/^AlKarna-Perfume-backup-2026-09-01-1405\.conta\.json$/);const route=await readFile(new URL("../app/api/desktop/backup/route.ts",import.meta.url),"utf8"),main=await readFile(new URL("../desktop/main.cjs",import.meta.url),"utf8");assert.match(route,/createNativeBackup\(await getDatabase\(\)\)/);assert.match(route,/timingSafeEqual/);assert.match(route,/ALKARNA_DESKTOP/);assert.match(main,/randomBytes\(32\)/);assert.ok(main.indexOf('fetchBackup')<main.indexOf('approveQuit'))});
+
+test("French backup failure is shown only once by the localized close flow", async () => {
+  const events = [];
+  const flow = createCloseFlow({
+    dialog: {
+      showMessageBox: async (_window, options) => { events.push(options); return { response: 0 }; },
+      showSaveDialog: async () => ({ canceled: false, filePath: "/tmp/fail.conta.json" }),
+    },
+    window: () => null, getLocale: async () => "fr",
+    fetchBackup: async () => { throw Error("failed"); },
+    writeBackup: async () => {}, onFailure: async () => {}, approveQuit: async () => { throw Error("should not quit"); },
+  });
+  assert.equal(await flow.requestClose(), false);
+  assert.equal(events.length, 2);
+  assert.match(events[0].message, /sauvegarde/);
+  assert.match(events[1].message, /Impossible de créer/);
+  const main=await readFile(new URL("../desktop/main.cjs",import.meta.url),"utf8");
+  assert.doesNotMatch(main, /onFailure:async error=>\{[^}]*dialog\.showMessageBox/);
+});

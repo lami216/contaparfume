@@ -71,7 +71,7 @@ test("the warning is emitted only after the successful sale reset and includes r
     stagePendingLowStockWarning([{ productId: "p1", productName: "منتج تجريبي", remaining: 3 }], storage);
     await finishSuccessfulCommand(() => clearPersistedSaleDraft(storage), async () => {});
     assert.equal(events.length, 1);
-    assert.equal(events[0].type, "alkarna:notice");
+    assert.equal(events[0].type, "alkarna:low-stock-warning");
     assert.match(events[0].detail, /منتج تجريبي/);
     assert.match(events[0].detail, /3/);
 
