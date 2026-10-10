@@ -26,6 +26,19 @@ type DraftLine = { key: string; productId: string; quantity: string; unitPrice: 
 const lineKey = () => crypto.randomUUID();
 const n = (value: string) => value.trim() === "" ? 0 : Number(value);
 
+// The normal invoice screens preserve drafts per browser session. Use isolated
+// keys here so specialized stock lines cannot appear in a normal invoice.
+function useDecantSessionDraft<T>(key: string, initial: T) {
+  const storageKey = `conta:decant-${key}`;
+  const [value, setValue] = useState<T>(() => {
+    if (typeof window === "undefined") return initial;
+    try { const stored = sessionStorage.getItem(storageKey); return stored ? JSON.parse(stored) as T : initial; }
+    catch { return initial; }
+  });
+  useEffect(() => { sessionStorage.setItem(storageKey, JSON.stringify(value)); }, [storageKey, value]);
+  return [value, setValue] as const;
+}
+
 function InvoicePanel({ title, className = "", children }: { title: string; className?: string; children: ReactNode }) {
   return <fieldset className={"erp-fieldset " + className}><legend>{title}</legend>{children}</fieldset>;
 }
@@ -173,10 +186,10 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
   const bottles = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "bottle"), [data.products]);
   const saleProducts = useMemo(() => [...decants, ...bottles], [decants, bottles]);
   const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-sale"), [data.documents]);
-  const [paymentMethod, setPaymentMethod] = useState("");
-  const [partyId, setPartyId] = useState("");
+  const [paymentMethod, setPaymentMethod] = useDecantSessionDraft("sale-payment", "");
+  const [partyId, setPartyId] = useDecantSessionDraft("sale-party", "");
   const [productId, setProductId] = useState("");
-  const [lines, setLines] = useState<DraftLine[]>([]);
+  const [lines, setLines] = useDecantSessionDraft<DraftLine[]>("sale-lines", []);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
   const [printAfterSave, setPrintAfterSave] = useState(false);
@@ -278,7 +291,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
           <div className="checkout-body">
             <PaymentModeButtons
               note={paymentMethod === "note"}
-              onDirect={() => setPaymentMethod(paymentMethod === "note" ? (accounts[0]?.id ?? "") : paymentMethod)}
+              onDirect={() => setPaymentMethod("")}
               onNote={() => setPaymentMethod("note")}
             />
             {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
@@ -302,10 +315,10 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
   const suppliers = data.parties.filter(party => party.partyType === "supplier" && party.isArchived !== true);
   const bottles = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "bottle"), [data.products]);
   const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-purchase"), [data.documents]);
-  const [paymentMethod, setPaymentMethod] = useState("");
-  const [partyId, setPartyId] = useState("");
+  const [paymentMethod, setPaymentMethod] = useDecantSessionDraft("purchase-payment", "");
+  const [partyId, setPartyId] = useDecantSessionDraft("purchase-party", "");
   const [productId, setProductId] = useState("");
-  const [lines, setLines] = useState<DraftLine[]>([]);
+  const [lines, setLines] = useDecantSessionDraft<DraftLine[]>("purchase-lines", []);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
   const [printAfterSave, setPrintAfterSave] = useState(false);
@@ -397,7 +410,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
             <PaymentModeButtons
               note={paymentMethod === "note"}
               purchase
-              onDirect={() => setPaymentMethod(paymentMethod === "note" ? (accounts[0]?.id ?? "") : paymentMethod)}
+              onDirect={() => setPaymentMethod("")}
               onNote={() => setPaymentMethod("note")}
             />
             {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
