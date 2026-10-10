@@ -17,6 +17,7 @@ import { tr } from "./i18n/messages";
 import { filterDocumentsByDate, localBusinessDay } from "./history-filters";
 import { SortableTableHeader, useSortableRows } from "./table-sorting";
 import { canUseCapability } from "./transaction-ui";
+import { useAppConfirm } from "./app-confirm";
 import PerfumeProductPicker, { type PerfumePickerItem } from "./perfume-product-picker";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
@@ -178,6 +179,7 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onVoid, busy, k
 }
 
 export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
+  const confirmAction = useAppConfirm();
   const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
   const warehouseId = defaultWarehouse?.id ?? "";
   const accounts = activePaymentAccounts(data.paymentAccounts);
@@ -203,7 +205,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
   })), [saleProducts, warehouseId]);
 
   const reset = () => { setLines([]); setPartyId(""); setPaymentMethod(""); setProductId(""); setLocalError(""); };
-  const newInvoice = () => { if (!lines.length && !partyId && !paymentMethod || window.confirm(tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟"))) reset(); };
+  const newInvoice = async () => { if ((!lines.length && !partyId && !paymentMethod) || await confirmAction({message:tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟")})) reset(); };
   const add = () => {
     const product = saleProducts.find(item => item.id === productId);
     if (!product || lines.some(line => line.productId === product.id)) return;
@@ -244,7 +246,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
     } finally { setBusy(false); }
   };
   const voidInvoice = async (document: DocumentRecord) => {
-    if (!window.confirm(tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document) + "؟")) return;
+    if (!await confirmAction({message:tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document) + "؟",confirmLabel:tr("إلغاء الفاتورة"),tone:"danger"})) return;
     setBusy(true);
     try { await run({ type: "decant-sale.void", documentId: document.id }, tr("تم إلغاء فاتورة التقسيمات")); }
     finally { setBusy(false); }
@@ -297,7 +299,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
             {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
             <label>{tr("العميل")}</label>
             <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={customers} isCustomer note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "customers.create")}/>
-            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length} onClick={() => { if (window.confirm(tr("هل تريد حذف مسودة الفاتورة؟"))) reset(); }}>{tr("حذف المسودة")}</button></div>
+            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length} onClick={() => { void (async () => { if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{tr("حذف المسودة")}</button></div>
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
@@ -310,6 +312,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
 }
 
 export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }: Props) {
+  const confirmAction = useAppConfirm();
   const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
   const accounts = activePaymentAccounts(data.paymentAccounts);
   const suppliers = data.parties.filter(party => party.partyType === "supplier" && party.isArchived !== true);
@@ -331,7 +334,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
   })), [bottles]);
 
   const reset = () => { setLines([]); setPartyId(""); setPaymentMethod(""); setProductId(""); setLocalError(""); };
-  const newInvoice = () => { if (!lines.length && !partyId && !paymentMethod || window.confirm(tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟"))) reset(); };
+  const newInvoice = async () => { if ((!lines.length && !partyId && !paymentMethod) || await confirmAction({message:tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟")})) reset(); };
   const add = () => {
     const product = bottles.find(item => item.id === productId);
     if (!product || lines.some(line => line.productId === product.id)) return;
@@ -363,7 +366,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
     } finally { setBusy(false); }
   };
   const voidInvoice = async (document: DocumentRecord) => {
-    if (!window.confirm(tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document) + "؟")) return;
+    if (!await confirmAction({message:tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document) + "؟",confirmLabel:tr("إلغاء الفاتورة"),tone:"danger"})) return;
     setBusy(true);
     try { await run({ type: "decant-purchase.void", documentId: document.id }, tr("تم إلغاء فاتورة شراء زجاج التقسيمات")); }
     finally { setBusy(false); }
@@ -416,7 +419,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
             {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
             <label>{tr("المورد")}</label>
             <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={suppliers} isCustomer={false} note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "suppliers.create")}/>
-            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length} onClick={() => { if (window.confirm(tr("هل تريد حذف مسودة الفاتورة؟"))) reset(); }}>{tr("حذف المسودة")}</button></div>
+            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length} onClick={() => { void (async () => { if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{tr("حذف المسودة")}</button></div>
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
