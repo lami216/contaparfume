@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { Banknote, PencilLine, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
+import { Banknote, PencilLine, Plus, X } from "lucide-react";
 import {
   activePaymentAccounts,
   activeProducts,
@@ -13,10 +14,13 @@ import {
   type DocumentRecord,
 } from "./domain";
 import { tr } from "./i18n/messages";
+import { filterDocumentsByDate, localBusinessDay } from "./history-filters";
+import { SortableTableHeader, useSortableRows } from "./table-sorting";
+import { canUseCapability } from "./transaction-ui";
 import PerfumeProductPicker, { type PerfumePickerItem } from "./perfume-product-picker";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
-type Props = { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void };
+type Props = { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void; requestPrint: (id: string) => void };
 type DraftLine = { key: string; productId: string; quantity: string; unitPrice: string; bottleProductId: string };
 
 const lineKey = () => crypto.randomUUID();
@@ -46,33 +50,115 @@ function PaymentModeButtons({ note, onDirect, onNote }: { note: boolean; onDirec
   </div>;
 }
 
-function InvoiceHistory({
-  title,
-  emptyLabel,
-  documents,
-  openDoc,
-  onVoid,
-  busy,
-}: {
-  title: string;
-  emptyLabel: string;
-  documents: DocumentRecord[];
-  openDoc: (id: string) => void;
-  onVoid: (document: DocumentRecord) => void;
-  busy: boolean;
+type PartyOption = { id: string; name: string; phone?: string };
+
+function QuickInvoiceParty({ kind, run, anchor, onDone, close }: {
+  kind: "customer" | "supplier"; run: RunCommand;
+  anchor: RefObject<HTMLButtonElement | null>; onDone: (id: string) => void; close: () => void;
 }) {
+  const [name, setName] = useState(""), [phone, setPhone] = useState(""), [saving, setSaving] = useState(false);
+  const rect = anchor.current?.getBoundingClientRect();
+  const style: CSSProperties = rect
+    ? { position: "fixed", zIndex: 1100, width: 250, top: rect.bottom + 5, left: Math.max(8, rect.right - 250) }
+    : {};
+  const isCustomer = kind === "customer";
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (saving || !name.trim()) return;
+    setSaving(true);
+    try {
+      const id = await run({ type: "party.create", partyType: kind, name: name.trim(), phone: phone.trim() },
+        isCustomer ? tr("تمت إضافة العميل") : tr("تمت إضافة المورد"));
+      if (typeof id === "string" && id) onDone(id);
+    } finally { setSaving(false); }
+  };
+  return createPortal(<form className="pos-quick-customer-popover" style={style} onSubmit={event => void submit(event)}
+    onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); close(); anchor.current?.focus(); } }}>
+    <label>{isCustomer ? tr("اسم العميل") : tr("اسم المورد *")}<input autoFocus required value={name} onChange={event => setName(event.target.value)}/></label>
+    <label>{tr("رقم الهاتف")} <small>{tr("اختياري")}</small><input dir="ltr" value={phone} onChange={event => setPhone(event.target.value)}/></label>
+    <div><button className="primary" disabled={saving || !name.trim()}>{tr("حفظ")}</button>
+      <button className="soft" type="button" onClick={close}>{tr("إلغاء")}</button></div>
+  </form>, document.body);
+}
+
+function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run, canCreate }: {
+  partyId: string; onChange: (value: string) => void; parties: PartyOption[];
+  isCustomer: boolean; note: boolean; run: RunCommand; canCreate: boolean;
+}) {
+  const [quick, setQuick] = useState(false), [open, setOpen] = useState(false), [search, setSearch] = useState("");
+  const buttonRef = useRef<HTMLButtonElement>(null), pickerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const outside = (event: MouseEvent) => { if (!pickerRef.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", outside);
+    return () => document.removeEventListener("mousedown", outside);
+  }, []);
+  const selected = parties.find(party => party.id === partyId);
+  const display = selected?.name ?? (note ? (isCustomer ? tr("اختر العميل") : tr("اختر المورد")) :
+    (isCustomer ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر")));
+  const visible = parties.filter(party => (party.name + " " + (party.phone ?? "")).toLocaleLowerCase().includes(search.toLocaleLowerCase()));
+  return <div className="decant-party-row">
+    <div ref={pickerRef} className="decant-party-picker">
+      <button type="button" className="combobox-trigger" aria-expanded={open} aria-label={isCustomer ? tr("العميل") : tr("المورد")}
+        onClick={() => setOpen(value => !value)}>{display}</button>
+      {open && <div className="decant-party-options">
+        <input autoFocus type="search" aria-label={tr("بحث بالاسم أو الهاتف")} placeholder={tr("بحث بالاسم أو الهاتف")}
+          value={search} onChange={event => setSearch(event.target.value)}
+          onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}/>
+        {!note && <button type="button" onClick={() => { onChange(""); setOpen(false); setSearch(""); }}>
+          {isCustomer ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر")}</button>}
+        {visible.map(party => <button type="button" key={party.id} onClick={() => { onChange(party.id); setOpen(false); setSearch(""); }}>
+          {party.name}{party.phone ? <small dir="ltr">{party.phone}</small> : null}</button>)}
+        {!visible.length && <div className="decant-party-empty">{tr("لا توجد نتائج")}</div>}
+      </div>}
+    </div>
+    {canCreate && <button ref={buttonRef} type="button" className="pos-quick-customer-button"
+      aria-label={isCustomer ? tr("إضافة العميل") : tr("إضافة المورد")}
+      title={isCustomer ? tr("إضافة العميل") : tr("إضافة المورد")}
+      onClick={() => { setOpen(false); setQuick(value => !value); }}><Plus/></button>}
+    {quick && canCreate && <QuickInvoiceParty kind={isCustomer ? "customer" : "supplier"} run={run} anchor={buttonRef}
+      close={() => setQuick(false)} onDone={id => { onChange(id); setQuick(false); }}/>}
+  </div>;
+}
+
+function InvoiceHistory({ title, emptyLabel, documents, openDoc, onVoid, busy, kind }: {
+  title: string; emptyLabel: string; documents: DocumentRecord[];
+  openDoc: (id: string) => void; onVoid: (document: DocumentRecord) => void; busy: boolean;
+  kind: "sale" | "purchase";
+}) {
+  const today = localBusinessDay(), [from, setFrom] = useState(today), [to, setTo] = useState(today),
+    [allTime, setAllTime] = useState(false);
+  const visible = filterDocumentsByDate(documents.filter(document => document.status === "posted"), from, to, allTime);
+  const statusParty = (document: DocumentRecord) => {
+    const isNote = document.paymentMethod === "note" || Number(document.dueTotal ?? 0) > 0;
+    const party = document.partyName?.trim() || (kind === "sale" ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر"));
+    return party + " · " + (isNote ? tr("ملاحظة") : tr("مدفوعة"));
+  };
+  const columns = useMemo(() => [
+    { key: "number", type: "number" as const, get: (document: DocumentRecord) => document.sequence ?? document.number },
+    { key: "party", type: "text" as const, get: (document: DocumentRecord) => statusParty(document) },
+    { key: "total", type: "money" as const, get: (document: DocumentRecord) => document.total },
+  ], [kind]);
+  const { sort, sortedRows, toggle } = useSortableRows(visible, columns);
   return <InvoicePanel title={title} className="quick-invoices decant-quick-invoices">
+    <div className="quick-invoice-head decant-history-dates">
+      <label>{tr("من")}<input type="date" value={allTime ? "" : from} onChange={event => { setFrom(event.target.value); setAllTime(false); }}/></label>
+      <label>{tr("إلى")}<input type="date" value={allTime ? "" : to} onChange={event => { setTo(event.target.value); setAllTime(false); }}/></label>
+      <button type="button" className="soft" aria-pressed={allTime} onClick={() => setAllTime(true)}>{tr("كل الوقت")}</button>
+    </div>
     <div className="erp-table-wrap quick-invoice-list">
       <table className="erp-table">
-        <colgroup><col style={{width:"20%"}}/><col style={{width:"24%"}}/><col style={{width:"24%"}}/><col style={{width:"18%"}}/><col style={{width:"14%"}}/></colgroup>
-        <thead><tr><th>{tr("رقم الفاتورة")}</th><th>{tr("التاريخ")}</th><th>{tr("الحالة / العميل")}</th><th>{tr("المبلغ")}</th><th>{tr("إجراء")}</th></tr></thead>
-        <tbody>{documents.length === 0 ? <tr><td colSpan={5}>{emptyLabel}</td></tr> : documents.map(document => <tr key={document.id} onClick={() => openDoc(document.id)}>
+        <colgroup><col style={{ width: "28%" }}/><col style={{ width: "46%" }}/><col style={{ width: "26%" }}/></colgroup>
+        <thead><tr><SortableTableHeader column="number" label={tr("رقم الفاتورة")} sort={sort} toggle={toggle}/>
+          <SortableTableHeader column="party" label={tr("الحالة / العميل")} sort={sort} toggle={toggle}/>
+          <SortableTableHeader column="total" label={tr("المبلغ")} sort={sort} toggle={toggle}/></tr></thead>
+        <tbody>{sortedRows.map(document => <tr key={document.id} onClick={() => openDoc(document.id)}>
           <td dir="ltr">{displayDocumentNumber(document)}</td>
-          <td>{new Date(document.occurredAt).toLocaleDateString()}</td>
-          <td>{document.partyName || (document.kind === "decant-sale" ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر"))} · {document.status === "posted" ? tr("معتمدة") : tr("ملغاة")}</td>
+          <td><div className="decant-history-party"><span>{statusParty(document)}</span>
+            <button className="soft danger-text" type="button" disabled={busy}
+              aria-label={tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document)}
+              onClick={event => { event.stopPropagation(); onVoid(document); }}>{tr("إلغاء الفاتورة")}</button></div></td>
           <td className="num-cell">{money(document.total)}</td>
-          <td className="action-cell">{document.status === "posted" && <button className="soft danger-text" type="button" disabled={busy} onClick={event => { event.stopPropagation(); onVoid(document); }}>{tr("إلغاء الفاتورة")}</button>}</td>
-        </tr>)}</tbody>
+        </tr>)}{!sortedRows.length && <tr><td colSpan={3}>{allTime ? emptyLabel : tr("لا توجد فواتير في هذه الفترة")}</td></tr>}</tbody>
       </table>
     </div>
   </InvoicePanel>;
