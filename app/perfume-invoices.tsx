@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { Banknote, PencilLine, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
+import { Banknote, PencilLine, Plus, X } from "lucide-react";
 import {
   activePaymentAccounts,
   activeProducts,
@@ -13,14 +14,31 @@ import {
   type DocumentRecord,
 } from "./domain";
 import { tr } from "./i18n/messages";
+import { filterDocumentsByDate, localBusinessDay } from "./history-filters";
+import { SortableTableHeader, useSortableRows } from "./table-sorting";
+import { canUseCapability } from "./transaction-ui";
+import { useAppConfirm } from "./app-confirm";
 import PerfumeProductPicker, { type PerfumePickerItem } from "./perfume-product-picker";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
-type Props = { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void };
+type Props = { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void; requestPrint: (id: string) => void };
 type DraftLine = { key: string; productId: string; quantity: string; unitPrice: string; bottleProductId: string };
 
 const lineKey = () => crypto.randomUUID();
 const n = (value: string) => value.trim() === "" ? 0 : Number(value);
+
+// The normal invoice screens preserve drafts per browser session. Use isolated
+// keys here so specialized stock lines cannot appear in a normal invoice.
+function useDecantSessionDraft<T>(key: string, initial: T) {
+  const storageKey = `conta:decant-${key}`;
+  const [value, setValue] = useState<T>(() => {
+    if (typeof window === "undefined") return initial;
+    try { const stored = sessionStorage.getItem(storageKey); return stored ? JSON.parse(stored) as T : initial; }
+    catch { return initial; }
+  });
+  useEffect(() => { sessionStorage.setItem(storageKey, JSON.stringify(value)); }, [storageKey, value]);
+  return [value, setValue] as const;
+}
 
 function InvoicePanel({ title, className = "", children }: { title: string; className?: string; children: ReactNode }) {
   return <fieldset className={"erp-fieldset " + className}><legend>{title}</legend>{children}</fieldset>;
@@ -35,50 +53,133 @@ function InvoiceToolbar({ number: invoiceNumber, onNew }: { number: string; onNe
   </div>;
 }
 
-function PaymentModeButtons({ note, onDirect, onNote }: { note: boolean; onDirect: () => void; onNote: () => void }) {
+function PaymentModeButtons({ note, onDirect, onNote, purchase = false }: { note: boolean; onDirect: () => void; onNote: () => void; purchase?: boolean }) {
   return <div className="invoice-meta-row" aria-label={tr("نوع الفاتورة")}>
     <button type="button" className="meta-option selection-option" aria-pressed={!note} onClick={onDirect}>
       <Banknote/><span><small>{tr("طريقة التحصيل")}</small><b>{tr("دفع مباشر")}</b></span>
     </button>
     <button type="button" className="meta-option selection-option secondary" aria-pressed={note} onClick={onNote}>
-      <PencilLine/><span><small>{tr("نوع البيع")}</small><b>{tr("ملاحظة")}</b></span>
+      <PencilLine/><span><small>{purchase ? tr("نوع التسوية") : tr("نوع البيع")}</small><b>{tr("ملاحظة")}</b></span>
     </button>
   </div>;
 }
 
-function InvoiceHistory({
-  title,
-  emptyLabel,
-  documents,
-  openDoc,
-  onVoid,
-  busy,
-}: {
-  title: string;
-  emptyLabel: string;
-  documents: DocumentRecord[];
-  openDoc: (id: string) => void;
-  onVoid: (document: DocumentRecord) => void;
-  busy: boolean;
+type PartyOption = { id: string; name: string; phone?: string };
+
+function QuickInvoiceParty({ kind, run, anchor, onDone, close }: {
+  kind: "customer" | "supplier"; run: RunCommand;
+  anchor: RefObject<HTMLButtonElement | null>; onDone: (id: string) => void; close: () => void;
 }) {
+  const [name, setName] = useState(""), [phone, setPhone] = useState(""), [saving, setSaving] = useState(false);
+  const rect = anchor.current?.getBoundingClientRect();
+  const style: CSSProperties = rect
+    ? { position: "fixed", zIndex: 1100, width: 250, top: rect.bottom + 5, left: Math.max(8, rect.right - 250) }
+    : {};
+  const isCustomer = kind === "customer";
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (saving || !name.trim()) return;
+    setSaving(true);
+    try {
+      const id = await run({ type: "party.create", partyType: kind, name: name.trim(), phone: phone.trim() },
+        isCustomer ? tr("تمت إضافة العميل") : tr("تمت إضافة المورد"));
+      if (typeof id === "string" && id) onDone(id);
+    } finally { setSaving(false); }
+  };
+  return createPortal(<form className="pos-quick-customer-popover" style={style} onSubmit={event => void submit(event)}
+    onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); close(); anchor.current?.focus(); } }}>
+    <label>{isCustomer ? tr("اسم العميل") : tr("اسم المورد *")}<input autoFocus required value={name} onChange={event => setName(event.target.value)}/></label>
+    <label>{tr("رقم الهاتف")} <small>{tr("اختياري")}</small><input dir="ltr" value={phone} onChange={event => setPhone(event.target.value)}/></label>
+    <div><button className="primary" disabled={saving || !name.trim()}>{tr("حفظ")}</button>
+      <button className="soft" type="button" onClick={close}>{tr("إلغاء")}</button></div>
+  </form>, document.body);
+}
+
+function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run, canCreate }: {
+  partyId: string; onChange: (value: string) => void; parties: PartyOption[];
+  isCustomer: boolean; note: boolean; run: RunCommand; canCreate: boolean;
+}) {
+  const [quick, setQuick] = useState(false), [open, setOpen] = useState(false), [search, setSearch] = useState("");
+  const buttonRef = useRef<HTMLButtonElement>(null), pickerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const outside = (event: MouseEvent) => { if (!pickerRef.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", outside);
+    return () => document.removeEventListener("mousedown", outside);
+  }, []);
+  const selected = parties.find(party => party.id === partyId);
+  const display = selected?.name ?? (note ? (isCustomer ? tr("اختر العميل") : tr("اختر المورد")) :
+    (isCustomer ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر")));
+  const visible = parties.filter(party => (party.name + " " + (party.phone ?? "")).toLocaleLowerCase().includes(search.toLocaleLowerCase()));
+  return <div className="decant-party-row">
+    <div ref={pickerRef} className="decant-party-picker">
+      <button type="button" className="combobox-trigger" aria-expanded={open} aria-label={isCustomer ? tr("العميل") : tr("المورد")}
+        onClick={() => setOpen(value => !value)}>{display}</button>
+      {open && <div className="decant-party-options">
+        <input autoFocus type="search" aria-label={tr("بحث بالاسم أو الهاتف")} placeholder={tr("بحث بالاسم أو الهاتف")}
+          value={search} onChange={event => setSearch(event.target.value)}
+          onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}/>
+        {!note && <button type="button" onClick={() => { onChange(""); setOpen(false); setSearch(""); }}>
+          {isCustomer ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر")}</button>}
+        {visible.map(party => <button type="button" key={party.id} onClick={() => { onChange(party.id); setOpen(false); setSearch(""); }}>
+          {party.name}{party.phone ? <small dir="ltr">{party.phone}</small> : null}</button>)}
+        {!visible.length && <div className="decant-party-empty">{tr("لا توجد نتائج")}</div>}
+      </div>}
+    </div>
+    {canCreate && <button ref={buttonRef} type="button" className="pos-quick-customer-button"
+      aria-label={isCustomer ? tr("إضافة العميل") : tr("إضافة المورد")}
+      title={isCustomer ? tr("إضافة العميل") : tr("إضافة المورد")}
+      onClick={() => { setOpen(false); setQuick(value => !value); }}><Plus/></button>}
+    {quick && canCreate && <QuickInvoiceParty kind={isCustomer ? "customer" : "supplier"} run={run} anchor={buttonRef}
+      close={() => setQuick(false)} onDone={id => { onChange(id); setQuick(false); }}/>}
+  </div>;
+}
+
+function InvoiceHistory({ title, emptyLabel, documents, openDoc, onVoid, busy, kind }: {
+  title: string; emptyLabel: string; documents: DocumentRecord[];
+  openDoc: (id: string) => void; onVoid: (document: DocumentRecord) => void; busy: boolean;
+  kind: "sale" | "purchase";
+}) {
+  const today = localBusinessDay(), [from, setFrom] = useState(today), [to, setTo] = useState(today),
+    [allTime, setAllTime] = useState(false);
+  const visible = filterDocumentsByDate(documents.filter(document => document.status === "posted"), from, to, allTime);
+  const statusParty = (document: DocumentRecord) => {
+    const isNote = document.paymentMethod === "note" || Number(document.dueTotal ?? 0) > 0;
+    const party = document.partyName?.trim() || (kind === "sale" ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر"));
+    return party + " · " + (isNote ? tr("ملاحظة") : tr("مدفوعة"));
+  };
+  const columns = useMemo(() => [
+    { key: "number", type: "number" as const, get: (document: DocumentRecord) => document.sequence ?? document.number },
+    { key: "party", type: "text" as const, get: (document: DocumentRecord) => statusParty(document) },
+    { key: "total", type: "money" as const, get: (document: DocumentRecord) => document.total },
+  ], [kind]);
+  const { sort, sortedRows, toggle } = useSortableRows(visible, columns);
   return <InvoicePanel title={title} className="quick-invoices decant-quick-invoices">
+    <div className="quick-invoice-head decant-history-dates">
+      <label>{tr("من")}<input type="date" value={allTime ? "" : from} onChange={event => { setFrom(event.target.value); setAllTime(false); }}/></label>
+      <label>{tr("إلى")}<input type="date" value={allTime ? "" : to} onChange={event => { setTo(event.target.value); setAllTime(false); }}/></label>
+      <button type="button" className="soft" aria-pressed={allTime} onClick={() => setAllTime(true)}>{tr("عرض الكل")}</button>
+    </div>
     <div className="erp-table-wrap quick-invoice-list">
       <table className="erp-table">
-        <colgroup><col style={{width:"20%"}}/><col style={{width:"24%"}}/><col style={{width:"24%"}}/><col style={{width:"18%"}}/><col style={{width:"14%"}}/></colgroup>
-        <thead><tr><th>{tr("رقم الفاتورة")}</th><th>{tr("التاريخ")}</th><th>{tr("الحالة / العميل")}</th><th>{tr("المبلغ")}</th><th>{tr("إجراء")}</th></tr></thead>
-        <tbody>{documents.length === 0 ? <tr><td colSpan={5}>{emptyLabel}</td></tr> : documents.map(document => <tr key={document.id} onClick={() => openDoc(document.id)}>
+        <colgroup><col style={{ width: "28%" }}/><col style={{ width: "46%" }}/><col style={{ width: "26%" }}/></colgroup>
+        <thead><tr><SortableTableHeader column="number" label={tr("رقم الفاتورة")} sort={sort} toggle={toggle}/>
+          <SortableTableHeader column="party" label={tr("الحالة / العميل")} sort={sort} toggle={toggle}/>
+          <SortableTableHeader column="total" label={tr("المبلغ")} sort={sort} toggle={toggle}/></tr></thead>
+        <tbody>{sortedRows.map(document => <tr key={document.id} onClick={() => openDoc(document.id)}>
           <td dir="ltr">{displayDocumentNumber(document)}</td>
-          <td>{new Date(document.occurredAt).toLocaleDateString()}</td>
-          <td>{document.partyName || (document.kind === "decant-sale" ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر"))} · {document.status === "posted" ? tr("معتمدة") : tr("ملغاة")}</td>
+          <td><div className="decant-history-party"><span>{statusParty(document)}</span>
+            <button className="soft danger-text" type="button" disabled={busy}
+              aria-label={tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document)}
+              onClick={event => { event.stopPropagation(); onVoid(document); }}>{tr("إلغاء الفاتورة")}</button></div></td>
           <td className="num-cell">{money(document.total)}</td>
-          <td className="action-cell">{document.status === "posted" && <button className="soft danger-text" type="button" disabled={busy} onClick={event => { event.stopPropagation(); onVoid(document); }}>{tr("إلغاء الفاتورة")}</button>}</td>
-        </tr>)}</tbody>
+        </tr>)}{!sortedRows.length && <tr><td colSpan={3}>{allTime ? emptyLabel : tr("لا توجد فواتير في هذه الفترة")}</td></tr>}</tbody>
       </table>
     </div>
   </InvoicePanel>;
 }
 
-export function DecantSaleInvoice({ data, run, openDoc }: Props) {
+export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
+  const confirmAction = useAppConfirm();
   const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
   const warehouseId = defaultWarehouse?.id ?? "";
   const accounts = activePaymentAccounts(data.paymentAccounts);
@@ -86,13 +187,14 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
   const decants = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "decant"), [data.products]);
   const bottles = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "bottle"), [data.products]);
   const saleProducts = useMemo(() => [...decants, ...bottles], [decants, bottles]);
-  const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-sale").slice(0, 20), [data.documents]);
-  const [paymentMethod, setPaymentMethod] = useState("");
-  const [partyId, setPartyId] = useState("");
+  const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-sale"), [data.documents]);
+  const [paymentMethod, setPaymentMethod] = useDecantSessionDraft("sale-payment", "");
+  const [partyId, setPartyId] = useDecantSessionDraft("sale-party", "");
   const [productId, setProductId] = useState("");
-  const [lines, setLines] = useState<DraftLine[]>([]);
+  const [lines, setLines] = useDecantSessionDraft<DraftLine[]>("sale-lines", []);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [printAfterSave, setPrintAfterSave] = useState(false);
   const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
   const pickerItems = useMemo<PerfumePickerItem[]>(() => saleProducts.map(product => ({
     id: product.id,
@@ -103,6 +205,7 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
   })), [saleProducts, warehouseId]);
 
   const reset = () => { setLines([]); setPartyId(""); setPaymentMethod(""); setProductId(""); setLocalError(""); };
+  const newInvoice = async () => { if ((!lines.length && !partyId && !paymentMethod) || await confirmAction({message:tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟")})) reset(); };
   const add = () => {
     const product = saleProducts.find(item => item.id === productId);
     if (!product || lines.some(line => line.productId === product.id)) return;
@@ -131,7 +234,7 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
     }
     setBusy(true);
     try {
-      await run({
+      const savedId = await run({
         type: "decant-sale.post",
         paymentMethod,
         partyId: partyId || null,
@@ -139,10 +242,11 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
         lines: lines.map(line => ({ productId: line.productId, quantity: n(line.quantity), unitPrice: n(line.unitPrice), bottleProductId: line.bottleProductId || null })),
       }, tr("تم اعتماد فاتورة التقسيمات"));
       reset();
+      if (printAfterSave && typeof savedId === "string" && savedId) requestPrint(savedId);
     } finally { setBusy(false); }
   };
   const voidInvoice = async (document: DocumentRecord) => {
-    if (!window.confirm(tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document) + "؟")) return;
+    if (!await confirmAction({message:tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document) + "؟",confirmLabel:tr("إلغاء الفاتورة"),tone:"danger"})) return;
     setBusy(true);
     try { await run({ type: "decant-sale.void", documentId: document.id }, tr("تم إلغاء فاتورة التقسيمات")); }
     finally { setBusy(false); }
@@ -158,11 +262,11 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
             <button className="soft" type="button" disabled={!productId} onClick={add}>{tr("إضافة")}</button>
           </div>
         </InvoicePanel>
-        <InvoiceHistory title={tr("سجل الفواتير")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
+        <InvoiceHistory kind="sale" title={tr("سجل الفواتير")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
       </div>
 
       <InvoicePanel title={tr("فاتورة بيع")} className="invoice-card workspace-invoice">
-        <InvoiceToolbar number={String(data.nextDocumentSequences.decantSale)} onNew={reset}/>
+        <InvoiceToolbar number={String(data.nextDocumentSequences.decantSale)} onNew={newInvoice}/>
         <div className={lines.length ? "invoice-preview has-items" : "invoice-preview"}>
           <div className="erp-table-wrap invoice-preview-list">
             <table className="erp-table invoice-table" aria-label={tr("فاتورة التقسيمات")}>
@@ -189,12 +293,13 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
           <div className="checkout-body">
             <PaymentModeButtons
               note={paymentMethod === "note"}
-              onDirect={() => setPaymentMethod(paymentMethod === "note" ? (accounts[0]?.id ?? "") : paymentMethod)}
+              onDirect={() => setPaymentMethod("")}
               onNote={() => setPaymentMethod("note")}
             />
             {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
-            <label>{tr("العميل")}<select value={partyId} onChange={event => setPartyId(event.target.value)}><option value="">{paymentMethod === "note" ? tr("اختر العميل") : tr("بيع تقسيمات مباشر")}</option>{customers.map(customer => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
-            <div className="checkout-invoice-actions"><button type="button" className="invoice-void" disabled={!lines.length} onClick={reset}>{tr("حذف المسودة")}</button></div>
+            <label>{tr("العميل")}</label>
+            <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={customers} isCustomer note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "customers.create")}/>
+            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length} onClick={() => { void (async () => { if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{tr("حذف المسودة")}</button></div>
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
@@ -206,18 +311,20 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
   </section>;
 }
 
-export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
+export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }: Props) {
+  const confirmAction = useAppConfirm();
   const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
   const accounts = activePaymentAccounts(data.paymentAccounts);
   const suppliers = data.parties.filter(party => party.partyType === "supplier" && party.isArchived !== true);
   const bottles = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "bottle"), [data.products]);
-  const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-purchase").slice(0, 20), [data.documents]);
-  const [paymentMethod, setPaymentMethod] = useState("");
-  const [partyId, setPartyId] = useState("");
+  const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-purchase"), [data.documents]);
+  const [paymentMethod, setPaymentMethod] = useDecantSessionDraft("purchase-payment", "");
+  const [partyId, setPartyId] = useDecantSessionDraft("purchase-party", "");
   const [productId, setProductId] = useState("");
-  const [lines, setLines] = useState<DraftLine[]>([]);
+  const [lines, setLines] = useDecantSessionDraft<DraftLine[]>("purchase-lines", []);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [printAfterSave, setPrintAfterSave] = useState(false);
   const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
   const pickerItems = useMemo<PerfumePickerItem[]>(() => bottles.map(product => ({
     id: product.id,
@@ -227,6 +334,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
   })), [bottles]);
 
   const reset = () => { setLines([]); setPartyId(""); setPaymentMethod(""); setProductId(""); setLocalError(""); };
+  const newInvoice = async () => { if ((!lines.length && !partyId && !paymentMethod) || await confirmAction({message:tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟")})) reset(); };
   const add = () => {
     const product = bottles.find(item => item.id === productId);
     if (!product || lines.some(line => line.productId === product.id)) return;
@@ -246,7 +354,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
     if (lines.some(line => !Number.isInteger(n(line.quantity)) || n(line.quantity) <= 0 || n(line.unitPrice) <= 0)) { setLocalError(tr("راجع الكمية وسعر الشراء")); return; }
     setBusy(true);
     try {
-      await run({
+      const savedId = await run({
         type: "decant-purchase.post",
         paymentMethod,
         partyId: partyId || null,
@@ -254,10 +362,11 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
         lines: lines.map(line => ({ productId: line.productId, quantity: n(line.quantity), unitPrice: n(line.unitPrice) })),
       }, tr("تم اعتماد فاتورة شراء زجاج التقسيمات"));
       reset();
+      if (printAfterSave && typeof savedId === "string" && savedId) requestPrint(savedId);
     } finally { setBusy(false); }
   };
   const voidInvoice = async (document: DocumentRecord) => {
-    if (!window.confirm(tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document) + "؟")) return;
+    if (!await confirmAction({message:tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document) + "؟",confirmLabel:tr("إلغاء الفاتورة"),tone:"danger"})) return;
     setBusy(true);
     try { await run({ type: "decant-purchase.void", documentId: document.id }, tr("تم إلغاء فاتورة شراء زجاج التقسيمات")); }
     finally { setBusy(false); }
@@ -273,11 +382,11 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
             <button className="soft" type="button" disabled={!productId} onClick={add}>{tr("إضافة")}</button>
           </div>
         </InvoicePanel>
-        <InvoiceHistory title={tr("سجل فواتير الشراء")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
+        <InvoiceHistory kind="purchase" title={tr("سجل فواتير الشراء")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
       </div>
 
       <InvoicePanel title={tr("فاتورة شراء")} className="invoice-card workspace-invoice">
-        <InvoiceToolbar number={String(data.nextDocumentSequences.decantPurchase)} onNew={reset}/>
+        <InvoiceToolbar number={String(data.nextDocumentSequences.decantPurchase)} onNew={newInvoice}/>
         <div className={lines.length ? "invoice-preview has-items" : "invoice-preview"}>
           <div className="erp-table-wrap invoice-preview-list">
             <table className="erp-table invoice-table" aria-label={tr("فاتورة شراء زجاج التقسيمات")}>
@@ -303,12 +412,14 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
           <div className="checkout-body purchase-details">
             <PaymentModeButtons
               note={paymentMethod === "note"}
-              onDirect={() => setPaymentMethod(paymentMethod === "note" ? (accounts[0]?.id ?? "") : paymentMethod)}
+              purchase
+              onDirect={() => setPaymentMethod("")}
               onNote={() => setPaymentMethod("note")}
             />
             {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
-            <label>{tr("المورد")}<select value={partyId} onChange={event => setPartyId(event.target.value)}><option value="">{paymentMethod === "note" ? tr("اختر المورد") : tr("شراء زجاج مباشر")}</option>{suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
-            <div className="checkout-invoice-actions"><button type="button" className="invoice-void" disabled={!lines.length} onClick={reset}>{tr("حذف المسودة")}</button></div>
+            <label>{tr("المورد")}</label>
+            <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={suppliers} isCustomer={false} note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "suppliers.create")}/>
+            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length} onClick={() => { void (async () => { if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{tr("حذف المسودة")}</button></div>
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>

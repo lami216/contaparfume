@@ -8,10 +8,10 @@ import PerfumeDivisions from "./perfume-divisions";
 import { DecantBottlePurchaseInvoice, DecantSaleInvoice } from "./perfume-invoices";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
-type Props = { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void };
+type Props = { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void; requestPrint: (id: string) => void };
 type DecantInvoiceMode = "sale" | "purchase" | "management";
 
-export default function DecantInvoicesPage({ data, run, openDoc }: Props) {
+export default function DecantInvoicesPage({ data, run, openDoc, requestPrint }: Props) {
   const [mode, setMode] = useState<DecantInvoiceMode>("sale");
   const description = mode === "sale"
     ? tr("بيع عطر التقسيمات مع اختيار الزجاجة، أو بيع زجاج التقسيمات فارغًا.")
@@ -36,9 +36,9 @@ export default function DecantInvoicesPage({ data, run, openDoc }: Props) {
     </section>
     <div className={`decant-invoices-hub-body${mode === "management" ? " management" : ""}`} role="tabpanel">
       {mode === "sale"
-        ? <DecantSaleInvoice data={data} run={run} openDoc={openDoc}/>
+        ? <DecantSaleInvoice data={data} run={run} openDoc={openDoc} requestPrint={requestPrint}/>
         : mode === "purchase"
-          ? <DecantBottlePurchaseInvoice data={data} run={run} openDoc={openDoc}/>
+          ? <DecantBottlePurchaseInvoice data={data} run={run} openDoc={openDoc} requestPrint={requestPrint}/>
           : <PerfumeDivisions data={data} run={run}/>
       }
     </div>
