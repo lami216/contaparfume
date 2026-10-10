@@ -143,7 +143,7 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onVoid, busy, k
     <div className="quick-invoice-head decant-history-dates">
       <label>{tr("من")}<input type="date" value={allTime ? "" : from} onChange={event => { setFrom(event.target.value); setAllTime(false); }}/></label>
       <label>{tr("إلى")}<input type="date" value={allTime ? "" : to} onChange={event => { setTo(event.target.value); setAllTime(false); }}/></label>
-      <button type="button" className="soft" aria-pressed={allTime} onClick={() => setAllTime(true)}>{tr("كل الوقت")}</button>
+      <button type="button" className="soft" aria-pressed={allTime} onClick={() => setAllTime(true)}>{tr("عرض الكل")}</button>
     </div>
     <div className="erp-table-wrap quick-invoice-list">
       <table className="erp-table">
