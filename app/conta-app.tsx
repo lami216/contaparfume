@@ -525,7 +525,7 @@ function ContaAppContent() {
               {view === "pos" && (
                 <Pos data={data} run={run} openDoc={openDoc} editRequest={saleEditRequest} clearEditRequest={() => setSaleEditRequest(null)} requestPrint={setAutoPrintId} openStockAdjustment={openStockAdjustment} registerEditorGuard={registerEditorGuard} />
               )}{" "}
-              {view === "decantInvoices" && <DecantInvoicesPage data={data} run={run} openDoc={openDoc} />}{" "}
+              {view === "decantInvoices" && <DecantInvoicesPage data={data} run={run} openDoc={openDoc} requestPrint={setAutoPrintId} />}{" "}
               {view === "purchases" && (
                 <Purchases data={data} run={run} openDoc={openDoc} editRequest={purchaseEditRequest} clearEditRequest={() => setPurchaseEditRequest(null)} requestPrint={setAutoPrintId} registerEditorGuard={registerEditorGuard} />
               )}{" "}
