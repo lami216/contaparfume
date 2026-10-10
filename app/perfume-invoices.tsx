@@ -164,7 +164,7 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onVoid, busy, k
   </InvoicePanel>;
 }
 
-export function DecantSaleInvoice({ data, run, openDoc }: Props) {
+export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
   const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
   const warehouseId = defaultWarehouse?.id ?? "";
   const accounts = activePaymentAccounts(data.paymentAccounts);
@@ -172,13 +172,14 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
   const decants = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "decant"), [data.products]);
   const bottles = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "bottle"), [data.products]);
   const saleProducts = useMemo(() => [...decants, ...bottles], [decants, bottles]);
-  const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-sale").slice(0, 20), [data.documents]);
+  const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-sale"), [data.documents]);
   const [paymentMethod, setPaymentMethod] = useState("");
   const [partyId, setPartyId] = useState("");
   const [productId, setProductId] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [printAfterSave, setPrintAfterSave] = useState(false);
   const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
   const pickerItems = useMemo<PerfumePickerItem[]>(() => saleProducts.map(product => ({
     id: product.id,
@@ -189,6 +190,7 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
   })), [saleProducts, warehouseId]);
 
   const reset = () => { setLines([]); setPartyId(""); setPaymentMethod(""); setProductId(""); setLocalError(""); };
+  const newInvoice = () => { if (!lines.length && !partyId && !paymentMethod || window.confirm(tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟"))) reset(); };
   const add = () => {
     const product = saleProducts.find(item => item.id === productId);
     if (!product || lines.some(line => line.productId === product.id)) return;
@@ -217,7 +219,7 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
     }
     setBusy(true);
     try {
-      await run({
+      const savedId = await run({
         type: "decant-sale.post",
         paymentMethod,
         partyId: partyId || null,
@@ -225,6 +227,7 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
         lines: lines.map(line => ({ productId: line.productId, quantity: n(line.quantity), unitPrice: n(line.unitPrice), bottleProductId: line.bottleProductId || null })),
       }, tr("تم اعتماد فاتورة التقسيمات"));
       reset();
+      if (printAfterSave && typeof savedId === "string" && savedId) requestPrint(savedId);
     } finally { setBusy(false); }
   };
   const voidInvoice = async (document: DocumentRecord) => {
@@ -244,11 +247,11 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
             <button className="soft" type="button" disabled={!productId} onClick={add}>{tr("إضافة")}</button>
           </div>
         </InvoicePanel>
-        <InvoiceHistory title={tr("سجل الفواتير")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
+        <InvoiceHistory kind="sale" title={tr("سجل الفواتير")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
       </div>
 
       <InvoicePanel title={tr("فاتورة بيع")} className="invoice-card workspace-invoice">
-        <InvoiceToolbar number={String(data.nextDocumentSequences.decantSale)} onNew={reset}/>
+        <InvoiceToolbar number={String(data.nextDocumentSequences.decantSale)} onNew={newInvoice}/>
         <div className={lines.length ? "invoice-preview has-items" : "invoice-preview"}>
           <div className="erp-table-wrap invoice-preview-list">
             <table className="erp-table invoice-table" aria-label={tr("فاتورة التقسيمات")}>
@@ -279,8 +282,9 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
               onNote={() => setPaymentMethod("note")}
             />
             {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
-            <label>{tr("العميل")}<select value={partyId} onChange={event => setPartyId(event.target.value)}><option value="">{paymentMethod === "note" ? tr("اختر العميل") : tr("بيع تقسيمات مباشر")}</option>{customers.map(customer => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
-            <div className="checkout-invoice-actions"><button type="button" className="invoice-void" disabled={!lines.length} onClick={reset}>{tr("حذف المسودة")}</button></div>
+            <label>{tr("العميل")}</label>
+            <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={customers} isCustomer note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "customers.create")}/>
+            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length} onClick={() => { if (window.confirm(tr("هل تريد حذف مسودة الفاتورة؟"))) reset(); }}>{tr("حذف المسودة")}</button></div>
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
@@ -292,18 +296,19 @@ export function DecantSaleInvoice({ data, run, openDoc }: Props) {
   </section>;
 }
 
-export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
+export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }: Props) {
   const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
   const accounts = activePaymentAccounts(data.paymentAccounts);
   const suppliers = data.parties.filter(party => party.partyType === "supplier" && party.isArchived !== true);
   const bottles = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "bottle"), [data.products]);
-  const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-purchase").slice(0, 20), [data.documents]);
+  const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-purchase"), [data.documents]);
   const [paymentMethod, setPaymentMethod] = useState("");
   const [partyId, setPartyId] = useState("");
   const [productId, setProductId] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [printAfterSave, setPrintAfterSave] = useState(false);
   const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
   const pickerItems = useMemo<PerfumePickerItem[]>(() => bottles.map(product => ({
     id: product.id,
@@ -313,6 +318,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
   })), [bottles]);
 
   const reset = () => { setLines([]); setPartyId(""); setPaymentMethod(""); setProductId(""); setLocalError(""); };
+  const newInvoice = () => { if (!lines.length && !partyId && !paymentMethod || window.confirm(tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟"))) reset(); };
   const add = () => {
     const product = bottles.find(item => item.id === productId);
     if (!product || lines.some(line => line.productId === product.id)) return;
@@ -332,7 +338,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
     if (lines.some(line => !Number.isInteger(n(line.quantity)) || n(line.quantity) <= 0 || n(line.unitPrice) <= 0)) { setLocalError(tr("راجع الكمية وسعر الشراء")); return; }
     setBusy(true);
     try {
-      await run({
+      const savedId = await run({
         type: "decant-purchase.post",
         paymentMethod,
         partyId: partyId || null,
@@ -340,6 +346,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
         lines: lines.map(line => ({ productId: line.productId, quantity: n(line.quantity), unitPrice: n(line.unitPrice) })),
       }, tr("تم اعتماد فاتورة شراء زجاج التقسيمات"));
       reset();
+      if (printAfterSave && typeof savedId === "string" && savedId) requestPrint(savedId);
     } finally { setBusy(false); }
   };
   const voidInvoice = async (document: DocumentRecord) => {
@@ -359,11 +366,11 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
             <button className="soft" type="button" disabled={!productId} onClick={add}>{tr("إضافة")}</button>
           </div>
         </InvoicePanel>
-        <InvoiceHistory title={tr("سجل فواتير الشراء")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
+        <InvoiceHistory kind="purchase" title={tr("سجل فواتير الشراء")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
       </div>
 
       <InvoicePanel title={tr("فاتورة شراء")} className="invoice-card workspace-invoice">
-        <InvoiceToolbar number={String(data.nextDocumentSequences.decantPurchase)} onNew={reset}/>
+        <InvoiceToolbar number={String(data.nextDocumentSequences.decantPurchase)} onNew={newInvoice}/>
         <div className={lines.length ? "invoice-preview has-items" : "invoice-preview"}>
           <div className="erp-table-wrap invoice-preview-list">
             <table className="erp-table invoice-table" aria-label={tr("فاتورة شراء زجاج التقسيمات")}>
@@ -393,8 +400,9 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc }: Props) {
               onNote={() => setPaymentMethod("note")}
             />
             {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
-            <label>{tr("المورد")}<select value={partyId} onChange={event => setPartyId(event.target.value)}><option value="">{paymentMethod === "note" ? tr("اختر المورد") : tr("شراء زجاج مباشر")}</option>{suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
-            <div className="checkout-invoice-actions"><button type="button" className="invoice-void" disabled={!lines.length} onClick={reset}>{tr("حذف المسودة")}</button></div>
+            <label>{tr("المورد")}</label>
+            <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={suppliers} isCustomer={false} note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "suppliers.create")}/>
+            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length} onClick={() => { if (window.confirm(tr("هل تريد حذف مسودة الفاتورة؟"))) reset(); }}>{tr("حذف المسودة")}</button></div>
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
