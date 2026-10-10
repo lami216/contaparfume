@@ -114,3 +114,17 @@ test("the special invoice lifecycle retains separate stock commands and does not
   assert.doesNotMatch(invoices, /type: "sale.post"/);
   assert.doesNotMatch(invoices, /type: "purchase.post"/);
 });
+
+
+test("regular and specialized invoices keep separate session drafts", async () => {
+  const [normal, specialized] = await Promise.all([
+    source("app/conta-app.tsx"), source("app/perfume-invoices.tsx"),
+  ]);
+  assert.match(normal, /useSessionDraft<DraftLine\[\]>\("sale-lines"/);
+  assert.match(normal, /useSessionDraft<DraftLine\[\]>\("purchase-lines"/);
+  assert.match(specialized, /useDecantSessionDraft<DraftLine\[\]>\("sale-lines", \[\]\)/);
+  assert.match(specialized, /useDecantSessionDraft<DraftLine\[\]>\("purchase-lines", \[\]\)/);
+  assert.match(specialized, /const storageKey = `conta:decant-\$\{key\}`/);
+  assert.match(specialized, /sessionStorage\.setItem\(storageKey, JSON\.stringify\(value\)\)/);
+  assert.doesNotMatch(specialized, /const \[lines, setLines\] = useState<DraftLine\[\]>\(\[\]\)/);
+});
