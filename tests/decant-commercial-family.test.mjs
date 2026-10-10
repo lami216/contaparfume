@@ -79,3 +79,38 @@ test("management arranges conversion beside batches with full-width reconciliati
   assert.deepEqual([...positions].sort((a, b) => a - b), positions, "keyboard order matches the visible desktop and mobile order");
   assert.doesNotMatch(css, /grid-template-areas:\s*"split reconciliation"\s*"bottles batches"/s);
 });
+
+
+test("special sale and purchase invoices reuse the ordinary quick-browse and new-party controls", async () => {
+  const [invoices, hub, app, css] = await Promise.all([
+    source("app/perfume-invoices.tsx"), source("app/decant-invoices-page.tsx"),
+    source("app/conta-app.tsx"), source("app/perfume-ui-fixes.css"),
+  ]);
+  assert.match(invoices, /function InvoicePartyPicker/);
+  assert.match(invoices, /function QuickInvoiceParty/);
+  assert.match(invoices, /type: "party.create", partyType: kind/);
+  assert.match(invoices, /canUseCapability\(data\.principal, "customers.create"\)/);
+  assert.match(invoices, /canUseCapability\(data\.principal, "suppliers.create"\)/);
+  assert.match(invoices, /onDone=\{id => \{ onChange\(id\); setQuick\(false\); \}\}/);
+  assert.match(invoices, /filterDocumentsByDate\(documents\.filter\(document => document\.status === "posted"\)/);
+  assert.match(invoices, /SortableTableHeader column="number"/);
+  assert.match(invoices, /SortableTableHeader column="party"/);
+  assert.match(invoices, /SortableTableHeader column="total"/);
+  assert.match(invoices, /displayDocumentNumber\(document\)/);
+  assert.match(invoices, /event\.stopPropagation\(\); onVoid\(document\)/);
+  assert.match(invoices, /printAfterSave && typeof savedId === "string" && savedId\) requestPrint\(savedId\)/);
+  assert.match(hub, /requestPrint=\{requestPrint\}/);
+  assert.match(app, /<DecantInvoicesPage[^>]*requestPrint=\{setAutoPrintId\}/);
+  assert.match(css, /\.decant-history-dates \{/);
+  assert.match(css, /\.decant-party-row \{/);
+});
+
+test("the special invoice lifecycle retains separate stock commands and does not simulate an edit by replacing an invoice", async () => {
+  const invoices = await source("app/perfume-invoices.tsx");
+  assert.match(invoices, /type: "decant-sale.post"/);
+  assert.match(invoices, /type: "decant-purchase.post"/);
+  assert.match(invoices, /type: "decant-sale.void"/);
+  assert.match(invoices, /type: "decant-purchase.void"/);
+  assert.doesNotMatch(invoices, /type: "sale.post"/);
+  assert.doesNotMatch(invoices, /type: "purchase.post"/);
+});
