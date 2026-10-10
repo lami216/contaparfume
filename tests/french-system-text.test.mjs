@@ -80,3 +80,21 @@ test("French import progress uses semantic phase and group keys", () => {
   assert.equal(translate("fr", "فحص الملف"), "Analyse du fichier");
   assert.equal(translate("fr", "أرصدة المخزون"), "Soldes de stock");
 });
+
+test("common bank, party and history UI messages follow the selected language", () => {
+  assert.match(app, /movementScope\.period&&`\$\{tr\("من"\)\}/);
+  assert.match(app, /<FramedSection title=\{customer\?tr\("إدارة العملاء"\):tr\("إدارة الموردين"\)\}/);
+  assert.match(app, /customer\?tr\("تمت إضافة العميل"\):tr\("تمت إضافة المورد"\)/);
+  assert.match(app, /placeholder=\{customer\?tr\("اسم العميل"\):tr\("اسم المورد"\)\}/);
+  assert.match(app, /if \(credit\) return `\$\{customer\} · \$\{tr\("ملاحظة"\)\}`/);
+  assert.match(app, /setFailure\(error instanceof Error\?translateApiError\(locale,error\.message\):tr\("تعذر تحميل السجلات"\)\)/);
+  for (const label of ["إدارة العملاء", "إدارة الموردين", "تمت إضافة العميل", "تمت إضافة المورد", "اسم العميل", "اسم المورد", "ملاحظة", "من", "إلى"]) {
+    assert.doesNotMatch(translate("fr", label), /[\u0600-\u06FF]/, label);
+  }
+});
+
+test("low stock alert remains visible until dismissed in either locale", () => {
+  assert.match(app, /import LowStockWarningDialog from "\.\/low-stock-warning-dialog"/);
+  assert.match(app, /window\.addEventListener\("alkarna:low-stock-warning", receive\)/);
+  assert.match(app, /<LowStockWarningDialog message=\{lowStockWarning\} locale=\{locale\} onClose=/);
+});
