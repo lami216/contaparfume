@@ -39,13 +39,13 @@ function InvoiceToolbar({ number: invoiceNumber, onNew }: { number: string; onNe
   </div>;
 }
 
-function PaymentModeButtons({ note, onDirect, onNote }: { note: boolean; onDirect: () => void; onNote: () => void }) {
+function PaymentModeButtons({ note, onDirect, onNote, purchase = false }: { note: boolean; onDirect: () => void; onNote: () => void; purchase?: boolean }) {
   return <div className="invoice-meta-row" aria-label={tr("نوع الفاتورة")}>
     <button type="button" className="meta-option selection-option" aria-pressed={!note} onClick={onDirect}>
       <Banknote/><span><small>{tr("طريقة التحصيل")}</small><b>{tr("دفع مباشر")}</b></span>
     </button>
     <button type="button" className="meta-option selection-option secondary" aria-pressed={note} onClick={onNote}>
-      <PencilLine/><span><small>{tr("نوع البيع")}</small><b>{tr("ملاحظة")}</b></span>
+      <PencilLine/><span><small>{purchase ? tr("نوع التسوية") : tr("نوع البيع")}</small><b>{tr("ملاحظة")}</b></span>
     </button>
   </div>;
 }
@@ -396,6 +396,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
           <div className="checkout-body purchase-details">
             <PaymentModeButtons
               note={paymentMethod === "note"}
+              purchase
               onDirect={() => setPaymentMethod(paymentMethod === "note" ? (accounts[0]?.id ?? "") : paymentMethod)}
               onNote={() => setPaymentMethod("note")}
             />
