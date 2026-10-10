@@ -796,6 +796,145 @@
 }
 
 
+/* Commercial perfume invoices mirror the ordinary invoice browser and checkout.
+   Keep stock/bottle-specific columns and decant management selectors separate. */
+.decant-history-dates {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-block: 3px 8px;
+}
+.decant-history-dates label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  font-size: 10px;
+}
+.decant-history-dates input {
+  box-sizing: border-box;
+  width: min(117px, 100%);
+  height: 31px;
+  min-height: 31px;
+  padding: 3px 5px;
+  font-size: 10px;
+}
+.decant-history-dates > button {
+  min-height: 31px;
+  padding: 3px 8px;
+  font-size: 10px;
+}
+.decant-history-party {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: space-between;
+  min-width: 0;
+}
+.decant-history-party > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.decant-history-party > button {
+  flex: 0 0 auto;
+  min-width: 0;
+  height: auto;
+  min-height: 27px;
+  padding: 3px 5px;
+  font-size: 9px;
+}
+.decant-party-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.decant-party-picker {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+.decant-party-picker > .combobox-trigger {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  min-height: 36px;
+  padding: 5px 9px;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.decant-party-options {
+  position: absolute;
+  z-index: 100;
+  inset-inline: 0;
+  top: calc(100% + 4px);
+  display: grid;
+  gap: 0;
+  max-height: 225px;
+  overflow-y: auto;
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 10px 30px #0002;
+}
+.decant-party-options > input {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 37px;
+  padding: 5px 8px;
+  border-radius: 0;
+  background: #fff;
+}
+.decant-party-options > button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 9px;
+  border: none;
+  border-bottom: 1px solid #e5eaf0;
+  border-radius: 0;
+  background: #fff;
+  text-align: start;
+  font-size: 11px;
+}
+.decant-party-options > button:hover,
+.decant-party-options > button:focus-visible {
+  background: var(--section-soft, #e9f1fb);
+}
+.decant-party-options small {
+  color: var(--muted, #667085);
+  font-size: 10px;
+}
+.decant-party-empty {
+  padding: 9px;
+  color: var(--muted, #667085);
+  font-size: 11px;
+}
+.decant-checkout .pos-quick-customer-button {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+}
+@media(max-width: 760px) {
+  .decant-history-party {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .decant-history-dates input { width: 100%; }
+}
+
 /* Decant stock reconciliation keeps stock corrections separate from sales,
    purchases and cash while staying compact inside the management workspace. */
 .perfume-reconciliation-card {
