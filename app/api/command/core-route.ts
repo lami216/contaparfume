@@ -702,6 +702,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     }
     const product=await db.collection("products").findOne({id:productId},{session}); if(!product)throw new CommandError("المنتج غير موجود",404);
     const replaceOpeningStock = body.replaceOpeningStock === true;
+    if (replaceOpeningStock && ["decant", "partial", "bottle"].includes(String(product.perfumeForm ?? ""))) throw new CommandError("رصيد بداية المنتجات المولدة من التقسيمات يُدار من عمليات العطور وليس تعديل المنتج", 409);
     if (!replaceOpeningStock) {
       if (Number(body.openingStock ?? 0) > 0 && Number(body.openingStock) !== Number(product.openingStock ?? 0)) throw new CommandError("تعديل رصيد البداية يحتاج طلب تصحيح صريح", 409);
       await db.collection("products").updateOne({id:productId},{$set:values},{session});
@@ -752,6 +753,8 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     if (party && party.partyType !== (isSale ? "customer" : "supplier")) throw new CommandError(isSale ? "يجب اختيار عميل صالح" : "يجب اختيار مورد صالح");
     const historicalPayment = paymentMethod !== "note" ? await paymentAccountForHistoricalEdit(db, session, paymentMethod, original.paymentMethod) : null;
     const oldLines = original.lines as Line[],oldProductIds=new Set(oldLines.map(line=>String(line.productId))),newProducts=await productsForUpdate(db,session,input,oldProductIds), oldByProduct = new Map(oldLines.map(line => [line.productId, line]));
+    if (isSale && input.some(line => ["decant", "bottle"].includes(String(newProducts.get(line.productId)?.perfumeForm ?? "")))) throw new CommandError("عطر التقسيمات وزجاجه يُباعان من فاتورة التقسيمات فقط", 409);
+    if (!isSale && input.some(line => ["decant", "partial", "bottle"].includes(String(newProducts.get(line.productId)?.perfumeForm ?? "")))) throw new CommandError("التقسيمات المولدة وزجاجها لا تُشترى من فاتورة الشراء العادية", 409);
     if (isSale && input.some(line => isProductExpired(newProducts.get(line.productId)!, String(original.businessDate ?? String(original.occurredAt).slice(0, 10))))) throw new CommandError("انتهت صلاحية هذا المنتج ولا يمكن بيعه.");
     const calculated = [] as Record<string, unknown>[];
     for (const line of input) {
@@ -768,6 +771,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     if (!oldWarehouse) throw new CommandError("مخزن الفاتورة الأصلي غير موجود", 409);
     const allIds = [...new Set([...oldLines.map(line => line.productId), ...input.map(line => line.productId)])], allProducts = await db.collection("products").find({ id: { $in: allIds } }, { session }).toArray(), productMap = new Map(allProducts.map(product => [String(product.id), product]));
     if (productMap.size !== allIds.length) throw new CommandError("أحد منتجات الفاتورة لم يعد موجودًا", 409);
+    if (allIds.some(productId => (isSale ? ["decant", "bottle"] : ["decant", "partial", "bottle"]).includes(String(productMap.get(productId)?.perfumeForm ?? "")))) throw new CommandError("لا يمكن تعديل فاتورة عادية تشمل منتج تقسيمات متخصص؛ استخدم فاتورة التقسيمات", 409);
     const newByProduct = new Map(input.map(line => [line.productId, line.quantity]));
     if (!isSale && warehouseId !== String(original.warehouseId)) {
       for (const old of oldLines) try { await changeStock(db, session, productMap.get(old.productId)!, oldWarehouse, -old.quantity, { ...original, occurredAt: new Date().toISOString(), revision: Number(original.revision ?? 0) + 1 }, "purchase-edit-reversal"); } catch (error) { if (error instanceof CommandError && /المخزون غير كاف/.test(error.message)) throw new CommandError("لا يمكن تعديل الفاتورة لأن جزءًا من مخزونها تم التصرف فيه.", 409); throw error; }
@@ -801,6 +805,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     const warehouse = await warehouses(db).findOne({ _id: String(original.warehouseId) }, { session });
     if (!warehouse) throw new CommandError("مخزن الفاتورة غير موجود", 409);
     const oldLines = original.lines as Line[], found = await db.collection("products").find({ id: { $in: oldLines.map(line => line.productId) } }, { session }).toArray(), map = new Map(found.map(product => [String(product.id), product]));
+    if (oldLines.some(line => (isSale ? ["decant", "bottle"] : ["decant", "partial", "bottle"]).includes(String(map.get(String(line.productId))?.perfumeForm ?? "")))) throw new CommandError("لا يمكن إلغاء فاتورة عادية تشمل مخزون تقسيمات متخصص عبر المحرك العام", 409);
     for (const line of oldLines) try { await changeStock(db, session, map.get(line.productId)!, warehouse, isSale ? line.quantity : -line.quantity, { ...original, occurredAt: new Date().toISOString(), revision: Number(original.revision ?? 0) + 1 }, `${kind}-void`); } catch (error) { if (!isSale && error instanceof CommandError && /المخزون غير كاف/.test(error.message)) throw new CommandError("لا يمكن حذف الفاتورة لأن جزءًا من مخزونها تم التصرف فيه.", 409); throw error; }
     if (Number(original.dueTotal) > 0) await changePartyDebt(db, session, original.partyId, kind, -Number(original.dueTotal), true);
     await reverseInvoicePayment(db, session, original, kind);
@@ -810,6 +815,8 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
   }
   if (type === "sale.post" || type === "purchase.post") {
     const input = lines(body), isSale = type === "sale.post", { warehouse, party, warehouseId, partyId } = await refs(db, session, body, text(body.paymentMethod) === "note"), map = await products(db, session, input), paymentMethod = text(body.paymentMethod);
+    if (isSale && input.some(line => ["decant", "bottle"].includes(String(map.get(line.productId)?.perfumeForm ?? "")))) throw new CommandError("عطر التقسيمات وزجاجه يُباعان من فاتورة التقسيمات فقط", 409);
+    if (!isSale && input.some(line => ["decant", "partial", "bottle"].includes(String(map.get(line.productId)?.perfumeForm ?? "")))) throw new CommandError("التقسيمات المولدة وزجاجها لا تُشترى من فاتورة الشراء العادية", 409);
     if(partyId&&!party)throw new CommandError(isSale?"يجب اختيار عميل صالح":"يجب اختيار مورد صالح",404);
     if (party && party.partyType !== (isSale ? "customer" : "supplier")) throw new CommandError(isSale ? "يجب اختيار عميل صالح" : "يجب اختيار مورد صالح");
     if (isSale && input.some(line => isProductExpired(map.get(line.productId)!, new Date().toISOString().slice(0, 10)))) throw new CommandError("انتهت صلاحية هذا المنتج ولا يمكن بيعه.");
@@ -881,6 +888,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     });
     const { warehouse, warehouseId } = await refs(db, session, body), map = await products(db, session, input), reason = text(body.reason);
     if (!reason) throw new CommandError("سبب التصحيح مطلوب");
+    if (input.some(line => ["decant", "partial"].includes(String(map.get(line.productId)?.perfumeForm ?? "")))) throw new CommandError("لا يمكن تصحيح مخزون التقسيمات أو العطر الناقص يدويًا", 409);
     const costs = new Map<string, number | null>();
     for (const line of input) {
       const product = map.get(line.productId)!;

@@ -426,6 +426,7 @@ const parseAdjustmentLines = (body: Input) => {
 async function updateAdjustment(db: Db, session: ClientSession, body: Input) {
   const documentId = text(body.documentId), reason = text(body.reason), original = await db.collection("documents").findOne({ id: documentId, kind: "adjustment", status: "posted" }, { session });
   if (!original) throw new LifecycleCommandError("تصحيح المخزون غير موجود أو ملغى", 404);
+  if (original.perfumeStockOperationType || original.perfumeConversionType) throw new LifecycleCommandError("لا يمكن تعديل عملية مخزون تقسيمات بسند التصحيح العام", 409);
   if (openingAdjustment(original)) throw new LifecycleCommandError("رصيد البداية يُصحح من شاشة رصيد البداية ولا يُعدّل كسند مخزون عادي", 409);
   if (original.productArchiveStockClearance === true) throw new LifecycleCommandError("تصحيح المخزون المرتبط بأرشفة المنتج سجل نهائي وغير قابل للتعديل", 409);
   if (!reason) throw new LifecycleCommandError("سبب التصحيح مطلوب");
@@ -435,6 +436,7 @@ async function updateAdjustment(db: Db, session: ClientSession, body: Input) {
   if (!warehouse) throw new LifecycleCommandError("مخزن التصحيح غير موجود", 409);
   const warehouseWasArchived=warehouse.isArchived===true,warehouseArchivedAt=warehouse.archivedAt;
   const products = await loadProducts(db, session, oldIds), revision = Number(original.revision ?? 0) + 1, audit = stockAuditDocument(original, revision);
+  if (oldIds.some(productId => ["decant", "partial"].includes(String(products.get(productId)?.perfumeForm ?? "")))) throw new LifecycleCommandError("لا يمكن تعديل تصحيح مرتبط بمخزون التقسيمات عبر السند العام", 409);
   const revisedLines: Stored[] = [];
   for (const line of input) {
     const old = oldLines.find(item => String(item.productId) === line.productId)!;
@@ -455,6 +457,7 @@ async function updateAdjustment(db: Db, session: ClientSession, body: Input) {
 async function voidAdjustment(db: Db, session: ClientSession, body: Input) {
   const documentId = text(body.documentId), original = await db.collection("documents").findOne({ id: documentId, kind: "adjustment", status: "posted" }, { session });
   if (!original) throw new LifecycleCommandError("تصحيح المخزون غير موجود أو ملغى", 404);
+  if (original.perfumeStockOperationType || original.perfumeConversionType) throw new LifecycleCommandError("لا يمكن إلغاء عملية مخزون تقسيمات بسند التصحيح العام", 409);
   if (openingAdjustment(original)) throw new LifecycleCommandError("لا يمكن إلغاء سجل رصيد البداية؛ استخدم تصحيح رصيد بداية جديدًا", 409);
   if (original.productArchiveStockClearance === true) {
     await restoreProductArchiveStockClearance(db, session, { documentId });
@@ -463,6 +466,7 @@ async function voidAdjustment(db: Db, session: ClientSession, body: Input) {
   const warehouse = await db.collection("warehouses").findOne({ _id: String(original.warehouseId) }, { session });
   if (!warehouse) throw new LifecycleCommandError("مخزن التصحيح غير موجود", 409);
   const lines = (original.lines ?? []) as Stored[], products = await loadProducts(db, session, lines.map(line => String(line.productId))), revision = Number(original.revision ?? 0) + 1, audit = stockAuditDocument(original, revision);
+  if (lines.some(line => ["decant", "partial"].includes(String(products.get(String(line.productId))?.perfumeForm ?? "")))) throw new LifecycleCommandError("لا يمكن إلغاء تصحيح مرتبط بمخزون التقسيمات عبر السند العام", 409);
   for (const line of lines) {
     try { await changeStock(db, session, products.get(String(line.productId))!, warehouse, -Number(line.quantity ?? 0), audit, "adjustment-void"); }
     catch (error) { if (error instanceof LifecycleCommandError && /المخزون غير كاف/.test(error.message)) throw new LifecycleCommandError("لا يمكن إلغاء التصحيح لأن مخزونًا ناتجًا عنه تم التصرف فيه.", 409); throw error; }

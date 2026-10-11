@@ -20,6 +20,8 @@ const canAny = (can: DocumentReadAccess["can"], capabilities: readonly string[])
 // Existing-record reads follow view/edit/delete authority. Create-only authority
 // stays separate so it never broadens historical visibility by itself.
 const saleAccess = ["pos.view", "pos.edit", "pos.delete"] as const;
+const perfumeAccess = ["perfume.divisions.view"] as const;
+const perfumeOperations = ["opening", "consumption", "yield-correction"] as const;
 const purchaseAccess = ["purchases.view", "purchases.edit", "purchases.delete"] as const;
 const expenseAccess = ["expenses.view", "expenses.edit", "expenses.delete"] as const;
 const customerAccess = ["customers.view", "customers.edit", "customers.delete", "customers.collect.edit", "customers.collect.delete"] as const;
@@ -41,11 +43,11 @@ export function isOperationalDocument(document: ReadModelDocument) {
 /** Coarse kind authorization, used before historical queries expose a kind. */
 export function canReadDocumentKind(kind: string, access: Pick<DocumentReadAccess, "can">) {
   if (access.can("records.view")) return true;
-  if (kind === "sale") return canAny(access.can, saleAccess) || canAny(access.can, customerAccess);
-  if (kind === "purchase") return canAny(access.can, purchaseAccess) || canAny(access.can, supplierAccess);
+  if (kind === "sale" || kind === "decant-sale") return canAny(access.can, saleAccess) || canAny(access.can, customerAccess) || (kind === "decant-sale" && canAny(access.can, perfumeAccess));
+  if (kind === "purchase" || kind === "decant-purchase") return canAny(access.can, purchaseAccess) || canAny(access.can, supplierAccess) || (kind === "decant-purchase" && canAny(access.can, perfumeAccess));
   if (kind === "expense") return canAny(access.can, expenseAccess);
   if (kind === "transfer") return canAny(access.can, transferAccess);
-  if (kind === "adjustment") return canAny(access.can, adjustmentAccess);
+  if (kind === "adjustment") return canAny(access.can, adjustmentAccess) || canAny(access.can, perfumeAccess);
   if (kind === "account-transfer") return canAny(access.can, accountTransferAccess);
   if (kind === "account-adjustment") return canAny(access.can, accountAdjustmentAccess);
   if (["payment", "settlement", "offset", "return"].includes(kind)) return canAny(access.can, customerAccess) || canAny(access.can, supplierAccess);
@@ -60,11 +62,11 @@ export function canReadDocument(document: ReadModelDocument, access: DocumentRea
   const customerParty = Boolean(partyId) && access.customerPartyIds.has(partyId);
   const supplierParty = Boolean(partyId) && access.supplierPartyIds.has(partyId);
 
-  if (kind === "sale") return canAny(access.can, saleAccess) || (customerParty && canAny(access.can, customerAccess));
-  if (kind === "purchase") return canAny(access.can, purchaseAccess) || (supplierParty && canAny(access.can, supplierAccess));
+  if (kind === "sale" || kind === "decant-sale") return canAny(access.can, saleAccess) || (customerParty && canAny(access.can, customerAccess)) || (kind === "decant-sale" && canAny(access.can, perfumeAccess));
+  if (kind === "purchase" || kind === "decant-purchase") return canAny(access.can, purchaseAccess) || (supplierParty && canAny(access.can, supplierAccess)) || (kind === "decant-purchase" && canAny(access.can, perfumeAccess));
   if (kind === "expense") return canAny(access.can, expenseAccess);
   if (kind === "transfer") return canAny(access.can, transferAccess);
-  if (kind === "adjustment") return canAny(access.can, adjustmentAccess);
+  if (kind === "adjustment") return canAny(access.can, adjustmentAccess) || (canAny(access.can, perfumeAccess) && perfumeOperations.includes(String(document.perfumeStockOperationType ?? "") as typeof perfumeOperations[number]));
   if (kind === "account-transfer") return canAny(access.can, accountTransferAccess);
   if (kind === "account-adjustment") return canAny(access.can, accountAdjustmentAccess);
   if (["payment", "settlement", "offset", "return"].includes(kind)) {

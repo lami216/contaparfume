@@ -1,6 +1,7 @@
 import type { SqliteDatabase as Db, SqliteSession as ClientSession } from "../lib/sqlite.ts";
 import { nextDocumentSequence } from "../lib/document-sequences.ts";
 import { normalizePartyNet, partyNet } from "./party-balance.ts";
+import { findActiveFinancialMovement, reverseFinancialMovement as reverseRecordedFinancialMovement, LifecycleCommandError } from "../lib/transaction-lifecycle.ts";
 import type { PerfumeAllocation, PerfumeLot } from "./perfume-logic.ts";
 
 type Input = Record<string, unknown>;
@@ -77,17 +78,21 @@ async function financialMovement(db: Db, session: ClientSession, document: Recor
     id: id("fin"), paymentMethod: account.id, paymentCode: account.code, direction, amount,
     documentId: document.id, documentNumber: document.number, partyId: document.partyId ?? null,
     partyName: document.partyName ?? null, type, occurredAt: document.occurredAt,
+    status: "posted", revision: Number(document.revision ?? 0),
   }, { session });
 }
 
 async function reverseFinancialMovement(db: Db, session: ClientSession, document: Record<string, unknown>, kind: "decant-sale" | "decant-purchase") {
   const amount = Number(document.cashAmount ?? document.paidTotal ?? 0);
   if (!amount) return;
-  const movement = await db.collection("financialMovements").findOne({ documentId: document.id, type: kind }, { session });
+  const movement = await findActiveFinancialMovement(db, session, { documentId: document.id, type: kind });
   if (!movement) throw new PerfumeInvoiceCommandError("تعذر العثور على حركة الدفع الأصلية للفاتورة", 409);
-  const account = await paymentAccount(db, session, movement.paymentMethod, false);
-  await db.collection("paymentAccounts").updateOne({ id: account.id }, { $inc: { balance: kind === "decant-sale" ? -amount : amount } }, { session });
-  await db.collection("financialMovements").deleteOne({ _id: movement._id }, { session });
+  if (Number(movement.amount) !== amount) throw new PerfumeInvoiceCommandError("مبلغ الحركة المالية لا يطابق فاتورة التقسيمات", 409);
+  try { await reverseRecordedFinancialMovement(db, session, movement, "إلغاء فاتورة التقسيمات"); }
+  catch (error) {
+    if (error instanceof LifecycleCommandError) throw new PerfumeInvoiceCommandError(error.message, error.status);
+    throw error;
+  }
 }
 
 async function applyPartyNetDelta(db: Db, session: ClientSession, partyId: unknown, delta: number) {
@@ -102,7 +107,7 @@ async function applyPartyNetDelta(db: Db, session: ClientSession, partyId: unkno
 
 async function authoritativeCost(db: Db, session: ClientSession, product: ProductDoc) {
   if (product.perfumeForm === "partial" && Number.isFinite(Number(product.pieceCost))) return Number(product.pieceCost);
-  if (Number.isFinite(Number(product.lastPurchaseCost))) return Number(product.lastPurchaseCost);
+  if (product.lastPurchaseCost != null && product.lastPurchaseCost !== "" && Number.isFinite(Number(product.lastPurchaseCost))) return Number(product.lastPurchaseCost);
   const latest = await db.collection("documents").findOne(
     { kind: { $in: ["purchase", "decant-purchase"] }, status: "posted", "lines.productId": product.id },
     { session, sort: { occurredAt: -1 }, projection: { lines: 1, occurredAt: 1 } },
@@ -153,13 +158,20 @@ async function consumeLiquidLots(db: Db, session: ClientSession, product: Produc
   const lots = perfumeLots(product).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
   let remaining = quantity, totalCost = 0;
   const allocations: PerfumeAllocation[] = [];
+  const visibleStock = Number((product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0);
+  const lotStock = lots.reduce((sum, lot) => sum + Number(lot.stocks?.[warehouseId] ?? 0), 0);
+  if (!Number.isInteger(visibleStock) || visibleStock !== lotStock) throw new PerfumeInvoiceCommandError("رصيد التقسيمات لا يطابق دفعات العطر في هذا المخزن", 409);
   for (const lot of lots) {
     const available = Number(lot.stocks?.[warehouseId] ?? 0);
+    const totalRemaining = Number(lot.remainingQuantity ?? 0);
+    const totalByWarehouses = Object.values(lot.stocks ?? {}).reduce((sum, value) => sum + Number(value), 0);
+    const unitCost = Number(lot.liquidUnitCost ?? lot.landedUnitCost);
+    if (!Number.isInteger(available) || available < 0 || !Number.isInteger(totalRemaining) || totalRemaining < 0 || totalRemaining !== totalByWarehouses || !Number.isFinite(unitCost) || unitCost < 0) throw new PerfumeInvoiceCommandError("بيانات دفعة التقسيم غير متطابقة؛ راجع تسوية المخزون", 409);
     if (available <= 0 || remaining <= 0) continue;
     const take = Math.min(available, remaining);
     lot.stocks = { ...(lot.stocks ?? {}), [warehouseId]: available - take };
     lot.remainingQuantity = Math.max(0, Number(lot.remainingQuantity ?? 0) - take);
-    const liquidUnitCost = Number(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0);
+    const liquidUnitCost = unitCost;
     totalCost += take * liquidUnitCost;
     allocations.push({ lotId: lot.id, quantity: take, unitCost: liquidUnitCost, warehouseId });
     remaining -= take;
@@ -168,15 +180,25 @@ async function consumeLiquidLots(db: Db, session: ClientSession, product: Produc
   await savePerfumeLots(db, session, product, lots);
   return { allocations, totalCost };
 }
-async function restoreLiquidAllocations(db: Db, session: ClientSession, product: ProductDoc, allocations: PerfumeAllocation[] | undefined) {
-  if (product.perfumeForm !== "decant" || !allocations?.length) return;
+async function restoreLiquidAllocations(db: Db, session: ClientSession, product: ProductDoc, allocations: PerfumeAllocation[] | undefined, warehouseId: string, expectedQuantity: number) {
+  if (product.perfumeForm !== "decant" || !allocations?.length) throw new PerfumeInvoiceCommandError("فاتورة التقسيمات لا تحتوي بيانات الدفعات اللازمة للإلغاء الآمن", 409);
+  const total = allocations.reduce((sum, allocation) => sum + Number(allocation.quantity), 0);
+  if (total !== expectedQuantity) throw new PerfumeInvoiceCommandError("كمية الدفعات لا تطابق كمية فاتورة التقسيمات", 409);
   const lots = perfumeLots(product), byId = new Map(lots.map(lot => [lot.id, lot]));
   for (const allocation of allocations) {
     const lot = byId.get(allocation.lotId);
     if (!lot) throw new PerfumeInvoiceCommandError("تعذر العثور على دفعة التقسيم الأصلية", 409);
-    const amount = Number(allocation.quantity), warehouseId = String(allocation.warehouseId);
+    const amount = Number(allocation.quantity);
+    const originalCost = Number(allocation.unitCost);
+    const currentCost = Number(lot.liquidUnitCost ?? lot.landedUnitCost);
+    if (String(allocation.warehouseId) !== warehouseId || !Number.isInteger(amount) || amount <= 0 || !Number.isFinite(originalCost) || !Number.isFinite(currentCost) || Math.abs(originalCost - currentCost) > 1e-8 || lot.recombinedAt) {
+      throw new PerfumeInvoiceCommandError("لا يمكن إلغاء الفاتورة بعد تغيير تكلفة الدفعة أو إعادة تجميعها؛ راجع حركة الدفعة", 409);
+    }
+    const remaining = Number(lot.remainingQuantity);
+    const warehouseSum = Object.values(lot.stocks ?? {}).reduce((sum, value) => sum + Number(value), 0);
+    if (!Number.isInteger(remaining) || remaining !== warehouseSum) throw new PerfumeInvoiceCommandError("أرصدة الدفعة لا تتطابق مع المخازن", 409);
     lot.stocks = { ...(lot.stocks ?? {}), [warehouseId]: Number(lot.stocks?.[warehouseId] ?? 0) + amount };
-    lot.remainingQuantity = Number(lot.remainingQuantity ?? 0) + amount;
+    lot.remainingQuantity = remaining + amount;
   }
   await savePerfumeLots(db, session, product, lots);
 }
@@ -197,9 +219,10 @@ async function refs(db: Db, session: ClientSession, body: Input, partyType: "cus
   const partyId = text(body.partyId);
   const [warehouse, party] = await Promise.all([
     warehouses(db).findOne({ isSalesDefault: true, isArchived: { $ne: true } }, { session }),
-    partyId ? db.collection("parties").findOne({ id: partyId }, { session }) : null,
+    partyId ? db.collection("parties").findOne({ id: partyId, isArchived: { $ne: true } }, { session }) : null,
   ]);
   if (!warehouse) throw new PerfumeInvoiceCommandError("عيّن مخزن البيع الافتراضي من إدارة المخازن أولًا.", 409);
+  if (partyId && !party) throw new PerfumeInvoiceCommandError("العميل أو المورد غير موجود أو مؤرشف", 404);
   if (party && party.partyType !== partyType) throw new PerfumeInvoiceCommandError(partyType === "customer" ? "يجب اختيار عميل صالح" : "يجب اختيار مورد صالح");
   return { warehouse, warehouseId: String(warehouse._id), party, partyId };
 }
@@ -321,7 +344,7 @@ async function voidSale(db: Db, session: ClientSession, body: Input) {
   for (const line of lines) {
     const product = products.get(line.productId)!;
     if (product.perfumeForm === "decant") {
-      await restoreLiquidAllocations(db, session, product, line.perfumeAllocations);
+      await restoreLiquidAllocations(db, session, product, line.perfumeAllocations, String(warehouse._id), line.quantity);
       await changeStock(db, session, product, warehouse, line.quantity, original, "decant-sale-void-liquid");
       if (line.bottleProductId) await changeStock(db, session, products.get(line.bottleProductId)!, warehouse, Number(line.bottleQuantity ?? line.quantity), original, "decant-sale-void-bottle");
     } else await changeStock(db, session, product, warehouse, line.quantity, original, "decant-sale-void-empty-bottle");
