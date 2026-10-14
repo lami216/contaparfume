@@ -12,6 +12,7 @@ import {
   stockInWarehouse,
   type BootstrapData,
   type DocumentRecord,
+  type Product,
 } from "./domain";
 import { tr } from "./i18n/messages";
 import { filterDocumentsByDate, localBusinessDay } from "./history-filters";
@@ -44,13 +45,48 @@ function InvoicePanel({ title, className = "", children }: { title: string; clas
   return <fieldset className={`erp-fieldset ${className}`.trim()}><legend>{title}</legend>{children}</fieldset>;
 }
 
-function InvoiceToolbar({ number: invoiceNumber, onNew }: { number: string; onNew: () => void }) {
+function InvoiceToolbar({ number: invoiceNumber, onNew, scanner }: { number: string; onNew: () => void; scanner?: ReactNode }) {
   return <div className="invoice-editor-toolbar">
     <div className="invoice-toolbar-main">
       <button type="button" className="invoice-new-button" onClick={onNew}>{tr("فاتورة جديدة")}</button>
       <span className="invoice-number-status">{tr("رقم")} <b>{invoiceNumber}</b></span>
     </div>
+    {scanner && <div className="invoice-toolbar-scanner">{scanner}</div>}
   </div>;
+}
+
+function InvoiceBarcodeScanner({ products, onPick, onError }: {
+  products: Product[]; onPick: (productId: string) => void; onError: (message: string) => void;
+}) {
+  const [active, setActive] = useState(false);
+  const buffer = useRef("");
+  const lastKeyAt = useRef(0);
+  useEffect(() => {
+    if (!active) { buffer.current = ""; return; }
+    const keydown = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
+      const target = event.target as HTMLElement | null;
+      const editable = target?.closest("input, textarea, select, [contenteditable='true']");
+      if (editable && !(target instanceof HTMLInputElement && target.dataset.barcodeScannerInput === "true")) return;
+      const now = performance.now();
+      if (now - lastKeyAt.current > 120) buffer.current = "";
+      lastKeyAt.current = now;
+      if (event.key === "Enter" || event.key === "Tab") {
+        const barcode = buffer.current.trim();
+        buffer.current = "";
+        if (!barcode) return;
+        event.preventDefault();
+        const product = products.find(item => !item.isArchived && item.barcode === barcode);
+        if (product) onPick(product.id); else onError(tr("لا يوجد منتج بهذا الباركود"));
+      } else if (event.key.length === 1) buffer.current += event.key;
+    };
+    window.addEventListener("keydown", keydown, true);
+    return () => window.removeEventListener("keydown", keydown, true);
+  }, [active, products, onPick, onError]);
+  return <button type="button" className="scanner-switch" aria-pressed={active} onClick={() => setActive(value => !value)}>
+    <span className="scanner-indicator" aria-hidden="true">{active && <span className="scanner-indicator-dot"/>}</span>
+    <span>{tr("قارئ الباركود")}</span>
+  </button>;
 }
 
 function PaymentModeButtons({ note, onDirect, onNote, purchase = false }: { note: boolean; onDirect: () => void; onNote: () => void; purchase?: boolean }) {
@@ -291,7 +327,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
       </div>
 
       <InvoicePanel title={tr("الفاتورة")} className="invoice-card workspace-invoice">
-        <InvoiceToolbar number={editingDocument ? displayDocumentNumber(editingDocument) : String(data.nextDocumentSequences.decantSale)} onNew={newInvoice}/>
+        <InvoiceToolbar number={editingDocument ? displayDocumentNumber(editingDocument) : String(data.nextDocumentSequences.decantSale)} onNew={newInvoice} scanner={<InvoiceBarcodeScanner products={saleProducts} onPick={add} onError={setLocalError}/>}/>
         <div className={lines.length ? "invoice-preview has-items" : "invoice-preview"}>
           <div className="erp-table-wrap invoice-preview-list">
             <table className="erp-table invoice-table" aria-label={tr("فاتورة التقسيمات")}>
@@ -444,7 +480,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint, 
       </div>
 
       <InvoicePanel title={tr("فاتورة الشراء")} className="invoice-card workspace-invoice">
-        <InvoiceToolbar number={editingDocument ? displayDocumentNumber(editingDocument) : String(data.nextDocumentSequences.decantPurchase)} onNew={newInvoice}/>
+        <InvoiceToolbar number={editingDocument ? displayDocumentNumber(editingDocument) : String(data.nextDocumentSequences.decantPurchase)} onNew={newInvoice} scanner={<InvoiceBarcodeScanner products={bottles} onPick={add} onError={setLocalError}/>}/>
         <div className={lines.length ? "invoice-preview has-items" : "invoice-preview"}>
           <div className="erp-table-wrap invoice-preview-list">
             <table className="erp-table invoice-table" aria-label={tr("فاتورة شراء زجاج التقسيمات")}>
