@@ -193,10 +193,10 @@ function parseLines(body: Input) {
   });
 }
 
-async function refs(db: Db, session: ClientSession, body: Input, partyType: "customer" | "supplier") {
+async function refs(db: Db, session: ClientSession, body: Input, partyType: "customer" | "supplier", existing?: Record<string, unknown>) {
   const partyId = text(body.partyId);
   const [warehouse, party] = await Promise.all([
-    warehouses(db).findOne({ isSalesDefault: true, isArchived: { $ne: true } }, { session }),
+    warehouses(db).findOne(existing ? { _id: String(existing.warehouseId) } : { isSalesDefault: true, isArchived: { $ne: true } }, { session }),
     partyId ? db.collection("parties").findOne({ id: partyId }, { session }) : null,
   ]);
   if (!warehouse) throw new PerfumeInvoiceCommandError("عيّن مخزن البيع الافتراضي من إدارة المخازن أولًا.", 409);
@@ -219,15 +219,32 @@ async function createBottle(db: Db, session: ClientSession, body: Input) {
   return String(product.id);
 }
 
-async function postSale(db: Db, session: ClientSession, body: Input) {
-  const input = parseLines(body), paymentMethod = text(body.paymentMethod), { warehouse, warehouseId, party, partyId } = await refs(db, session, body, "customer");
+async function persistInvoice(db: Db, session: ClientSession, document: Record<string, unknown>, existing?: Record<string, unknown>) {
+  if (!existing) { await db.collection("documents").insertOne(document, { session }); return; }
+  // Store the prior posted revision for audit; changes retain the stable invoice identity.
+  const { _id: ignoredKey, editHistory: priorHistory, ...priorSnapshot } = existing;
+  void ignoredKey;
+  const history = Array.isArray(priorHistory) ? priorHistory : [];
+  const hasPartyDebt = Number(document.partyBalanceDelta ?? 0) !== 0;
+  const next = { ...document, revision: Number(existing.revision ?? 0) + 1, updatedAt: new Date().toISOString(),
+    editHistory: [...history, { ...priorSnapshot, amendedAt: new Date().toISOString() }] };
+  const unset = { voidedAt: "", ...(hasPartyDebt ? {} : { partyBalanceBefore: "", partyBalanceDelta: "", partyBalanceAfter: "" }) };
+  const saved = await db.collection("documents").updateOne(
+    { id: existing.id, status: "voided" }, { $set: next, $unset: unset }, { session },
+  );
+  if (!saved.matchedCount) throw new PerfumeInvoiceCommandError("تعذر حفظ تعديل الفاتورة", 409);
+}
+
+async function postSale(db: Db, session: ClientSession, body: Input, existing?: Record<string, unknown>) {
+  const input = parseLines(body), paymentMethod = text(body.paymentMethod), { warehouse, warehouseId, party, partyId } = await refs(db, session, body, "customer", existing);
   if (paymentMethod !== "note") await paymentAccount(db, session, paymentMethod);
   const ids = [...new Set(input.flatMap(line => [line.productId, line.bottleProductId].filter(Boolean) as string[]))];
   const found = await db.collection("products").find({ id: { $in: ids }, isArchived: { $ne: true } }, { session }).toArray();
   const products = new Map(found.map(product => [String(product.id), product]));
   if (products.size !== ids.length) throw new PerfumeInvoiceCommandError("أحد المنتجات غير موجود", 404);
   const doc = {
-    ...await numberedDocument(db, session, "decant-sale", "DCS"), businessDate: new Date().toISOString().slice(0, 10),
+    ...(existing ? { id: String(existing.id), number: String(existing.number), sequence: existing.sequence, kind: "decant-sale", status: "posted", occurredAt: String(existing.occurredAt) } : await numberedDocument(db, session, "decant-sale", "DCS")),
+    businessDate: existing?.businessDate ?? new Date().toISOString().slice(0, 10),
     partyId: partyId || null, partyName: party?.name ?? "بيع تقسيمات مباشر", warehouseId, warehouseName: warehouse.name,
     destinationWarehouseId: null, destinationWarehouseName: null, parentDocumentId: null, paymentMethod,
     title: "فاتورة التقسيمات", total: 0, dueTotal: 0, paidTotal: 0, cashAmount: 0, lines: [] as InvoiceLine[],
@@ -271,19 +288,20 @@ async function postSale(db: Db, session: ClientSession, body: Input) {
   if (partyDelta && !party) throw new PerfumeInvoiceCommandError("اختر عميلاً عند وجود مبلغ مستحق");
   const snapshot = partyDelta ? await applyPartyNetDelta(db, session, partyId, partyDelta) : null;
   Object.assign(doc, { cashAmount, paidTotal, dueTotal, ...(snapshot ? { partyBalanceBefore: snapshot.before, partyBalanceDelta: snapshot.delta, partyBalanceAfter: snapshot.after } : {}) });
-  await db.collection("documents").insertOne(doc, { session });
+  await persistInvoice(db, session, doc, existing);
   if (cashAmount) await financialMovement(db, session, doc, "in", cashAmount, "decant-sale");
   return String(doc.id);
 }
 
-async function postPurchase(db: Db, session: ClientSession, body: Input) {
-  const input = parseLines(body), paymentMethod = text(body.paymentMethod), { warehouse, warehouseId, party, partyId } = await refs(db, session, body, "supplier");
+async function postPurchase(db: Db, session: ClientSession, body: Input, existing?: Record<string, unknown>) {
+  const input = parseLines(body), paymentMethod = text(body.paymentMethod), { warehouse, warehouseId, party, partyId } = await refs(db, session, body, "supplier", existing);
   if (paymentMethod !== "note") await paymentAccount(db, session, paymentMethod);
   const found = await db.collection("products").find({ id: { $in: input.map(line => line.productId) }, perfumeForm: "bottle", isArchived: { $ne: true } }, { session }).toArray();
   const products = new Map(found.map(product => [String(product.id), product]));
   if (products.size !== input.length) throw new PerfumeInvoiceCommandError("فاتورة شراء زجاج التقسيمات تقبل زجاج التقسيمات فقط", 409);
   const doc = {
-    ...await numberedDocument(db, session, "decant-purchase", "DCP"), partyId: partyId || null,
+    ...(existing ? { id: String(existing.id), number: String(existing.number), sequence: existing.sequence, kind: "decant-purchase", status: "posted", occurredAt: String(existing.occurredAt) } : await numberedDocument(db, session, "decant-purchase", "DCP")),
+    partyId: partyId || null,
     partyName: party?.name ?? "شراء زجاج مباشر", warehouseId, warehouseName: warehouse.name,
     destinationWarehouseId: null, destinationWarehouseName: null, parentDocumentId: null, paymentMethod,
     title: "فاتورة شراء زجاج التقسيمات", total: 0, dueTotal: 0, paidTotal: 0, cashAmount: 0,
@@ -305,7 +323,7 @@ async function postPurchase(db: Db, session: ClientSession, body: Input) {
     await db.collection("products").updateOne({ id: line.productId }, { $set: { lastPurchaseCost: line.unitPrice, lastPurchaseAt: doc.occurredAt } }, { session });
     product.lastPurchaseCost = line.unitPrice;
   }
-  await db.collection("documents").insertOne(doc, { session });
+  await persistInvoice(db, session, doc, existing);
   if (cashAmount) await financialMovement(db, session, doc, "out", cashAmount, "decant-purchase");
   return String(doc.id);
 }
@@ -350,12 +368,31 @@ async function voidPurchase(db: Db, session: ClientSession, body: Input) {
   return documentId;
 }
 
+async function editInvoice(db: Db, session: ClientSession, body: Input, kind: "decant-sale" | "decant-purchase") {
+  const documentId = text(body.documentId);
+  const existing = await db.collection("documents").findOne({ id: documentId, kind, status: "posted" }, { session });
+  if (!existing) throw new PerfumeInvoiceCommandError("الفاتورة غير موجودة أو ملغاة", 404);
+  const expectedRevision = Number(body.expectedRevision ?? 0);
+  if (!Number.isInteger(expectedRevision) || expectedRevision !== Number(existing.revision ?? 0))
+    throw new PerfumeInvoiceCommandError("تغيرت الفاتورة منذ فتحها؛ أعد تحميلها قبل التعديل", 409);
+  // The exact opposite of posting runs first inside the SAME SQLite transaction.
+  // Any error in the replacement (stock, lots, finance, parties) rolls both stages back.
+  if (kind === "decant-sale") {
+    await voidSale(db, session, { documentId });
+    return postSale(db, session, body, existing);
+  }
+  await voidPurchase(db, session, { documentId });
+  return postPurchase(db, session, body, existing);
+}
+
 export async function handlePerfumeInvoiceCommand(db: Db, session: ClientSession, body: Input): Promise<string | null> {
   switch (text(body.type)) {
     case "perfume-bottle.create": return createBottle(db, session, body);
     case "decant-sale.post": return postSale(db, session, body);
+    case "decant-sale.update": return editInvoice(db, session, body, "decant-sale");
     case "decant-sale.void": return voidSale(db, session, body);
     case "decant-purchase.post": return postPurchase(db, session, body);
+    case "decant-purchase.update": return editInvoice(db, session, body, "decant-purchase");
     case "decant-purchase.void": return voidPurchase(db, session, body);
     default: return null;
   }
