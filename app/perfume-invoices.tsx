@@ -134,9 +134,9 @@ function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run,
   </div>;
 }
 
-function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, onVoid, busy, kind }: {
+function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, onVoid, canManage, busy, kind }: {
   title: string; emptyLabel: string; documents: DocumentRecord[];
-  openDoc: (id: string) => void; onEdit: (document: DocumentRecord) => void; onVoid: (document: DocumentRecord) => void; busy: boolean;
+  openDoc: (id: string) => void; onEdit: (document: DocumentRecord) => void; onVoid: (document: DocumentRecord) => void; canManage: boolean; busy: boolean;
   kind: "sale" | "purchase";
 }) {
   const today = localBusinessDay(), [from, setFrom] = useState(today), [to, setTo] = useState(today),
@@ -168,10 +168,10 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, onVoid,
         <tbody>{sortedRows.map(document => <tr key={document.id} onClick={() => openDoc(document.id)}>
           <td dir="ltr">{displayDocumentNumber(document)}</td>
           <td><div className="decant-history-party"><span>{statusParty(document)}</span>
-            <button className="soft" type="button" disabled={busy} onClick={event => { event.stopPropagation(); onEdit(document); }}>{tr("تعديل")}</button>
-            <button className="soft danger-text" type="button" disabled={busy}
+            {canManage && <button className="soft" type="button" disabled={busy} onClick={event => { event.stopPropagation(); onEdit(document); }}>{tr("تعديل")}</button>}
+            {canManage && <button className="soft danger-text" type="button" disabled={busy}
               aria-label={tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document)}
-              onClick={event => { event.stopPropagation(); onVoid(document); }}>{tr("إلغاء الفاتورة")}</button></div></td>
+              onClick={event => { event.stopPropagation(); onVoid(document); }}>{tr("إلغاء الفاتورة")}</button>}</div></td>
           <td className="num-cell">{money(document.total)}</td>
         </tr>)}{!sortedRows.length && <tr><td colSpan={3}>{allTime ? emptyLabel : tr("لا توجد فواتير في هذه الفترة")}</td></tr>}</tbody>
       </table>
@@ -284,7 +284,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
         <InvoicePanel title={tr("بحث المنتجات")} className="search-panel decant-search-panel">
           <DecantInvoiceProductSearch items={pickerItems} categories={data.categories} mode="sale" onPick={add}/>
         </InvoicePanel>
-        <InvoiceHistory kind="sale" title={tr("سجل الفواتير")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} onVoid={voidInvoice} busy={busy}/>
+        <InvoiceHistory kind="sale" title={tr("سجل الفواتير")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} onVoid={voidInvoice} canManage={canUseCapability(data.principal, "perfume.divisions.manage")} busy={busy}/>
       </div>
 
       <InvoicePanel title={tr("فاتورة بيع")} className="invoice-card workspace-invoice">
@@ -325,7 +325,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
-            <button className="primary wide" type="button" disabled={busy || !lines.length || (!defaultWarehouse && !editingDocument) || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : editingDocument ? tr("حفظ التعديلات") : tr("إتمام البيع")}</button>
+            <button className="primary wide" type="button" disabled={busy || !canUseCapability(data.principal, "perfume.divisions.manage") || !lines.length || (!defaultWarehouse && !editingDocument) || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : editingDocument ? tr("حفظ التعديلات") : tr("إتمام البيع")}</button>
           </div>
         </div>
       </InvoicePanel>
@@ -425,7 +425,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint, 
         <InvoicePanel title={tr("بحث المنتجات")} className="search-panel decant-search-panel">
           <DecantInvoiceProductSearch items={pickerItems} categories={data.categories} mode="purchase" onPick={add}/>
         </InvoicePanel>
-        <InvoiceHistory kind="purchase" title={tr("سجل فواتير الشراء")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} onVoid={voidInvoice} busy={busy}/>
+        <InvoiceHistory kind="purchase" title={tr("سجل فواتير الشراء")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} onVoid={voidInvoice} canManage={canUseCapability(data.principal, "perfume.divisions.manage")} busy={busy}/>
       </div>
 
       <InvoicePanel title={tr("فاتورة شراء")} className="invoice-card workspace-invoice">
@@ -466,7 +466,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint, 
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
-            <button className="primary wide" type="button" disabled={busy || (!defaultWarehouse && !editingDocument) || !lines.length || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : editingDocument ? tr("حفظ التعديلات") : tr("إتمام الشراء")}</button>
+            <button className="primary wide" type="button" disabled={busy || !canUseCapability(data.principal, "perfume.divisions.manage") || (!defaultWarehouse && !editingDocument) || !lines.length || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : editingDocument ? tr("حفظ التعديلات") : tr("إتمام الشراء")}</button>
           </div>
         </div>
       </InvoicePanel>
