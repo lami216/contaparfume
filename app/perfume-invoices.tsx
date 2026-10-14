@@ -21,7 +21,7 @@ import { useAppConfirm } from "./app-confirm";
 import DecantInvoiceProductSearch, { type DecantInvoiceSearchItem } from "./decant-invoice-product-search";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
-type Props = { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void; requestPrint: (id: string) => void };
+type Props = { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void; requestPrint: (id: string) => void; editRequest?: string | null; clearEditRequest?: () => void };
 type DraftLine = { key: string; productId: string; quantity: string; unitPrice: string; bottleProductId: string };
 
 const lineKey = () => crypto.randomUUID();
@@ -179,7 +179,7 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, onVoid,
   </InvoicePanel>;
 }
 
-export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
+export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editRequest, clearEditRequest }: Props) {
   const confirmAction = useAppConfirm();
   const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
   const [editingDocumentId, setEditingDocumentId] = useDecantSessionDraft<string | null>("sale-editing", null);
@@ -231,6 +231,11 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
     
     setLocalError("");
   };
+  useEffect(() => {
+    if (!editRequest) return;
+    const document = data.documents.find(item => item.id === editRequest && item.status === "posted");
+    if (document?.kind === "decant-sale") void loadDocument(document).finally(() => clearEditRequest?.());
+  }, [editRequest]);
   const patch = (key: string, value: Partial<DraftLine>) => setLines(current => current.map(line => line.key === key ? { ...line, ...value } : line));
   const remove = (key: string) => setLines(current => current.filter(line => line.key !== key));
 
@@ -328,7 +333,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
   </section>;
 }
 
-export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }: Props) {
+export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint, editRequest, clearEditRequest }: Props) {
   const confirmAction = useAppConfirm();
   const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
   const accounts = activePaymentAccounts(data.paymentAccounts);
@@ -376,6 +381,11 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
     
     setLocalError("");
   };
+  useEffect(() => {
+    if (!editRequest) return;
+    const document = data.documents.find(item => item.id === editRequest && item.status === "posted");
+    if (document?.kind === "decant-purchase") void loadDocument(document).finally(() => clearEditRequest?.());
+  }, [editRequest]);
   const patch = (key: string, value: Partial<DraftLine>) => setLines(current => current.map(line => line.key === key ? { ...line, ...value } : line));
   const remove = (key: string) => setLines(current => current.filter(line => line.key !== key));
 
