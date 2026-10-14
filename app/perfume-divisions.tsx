@@ -158,7 +158,7 @@ export default function PerfumeDivisions({ data, run, onAdjustBottle }: { data: 
     <section className="perfume-divisions-card perfume-split-card">
       <div className="perfume-divisions-heading">
         <div><h2>{tr("تحويل عطر إلى تقسيمات")}</h2><p>{tr("التحويل ينشئ مخزون السائل فقط. الزجاجة تختار لاحقًا داخل فاتورة التقسيمات.")}</p></div>
-        <button type="button" className="primary perfume-split-action" disabled={busy || !source || available < 1 || count < 2 || liquidCost <= 0 || sell <= 0} onClick={() => void split()}>{busy ? tr("جاري الحفظ…") : tr("تحويل عطر إلى تقسيمات")}</button>
+
       </div>
       <div className="perfume-divisions-form perfume-divisions-form-v2">
         <label>{tr("العطر")}<PerfumeProductPicker items={sourcePickerItems} value={sourceProductId} onChange={setSourceProductId} placeholder={tr("اختر العطر")} ariaLabel={tr("العطر")}/></label>
@@ -173,10 +173,11 @@ export default function PerfumeDivisions({ data, run, onAdjustBottle }: { data: 
         <div><span>{tr("الربح قبل تكلفة الزجاج")}</span><strong>{money(expectedProfitBeforeBottle)}</strong></div>
         <div><span>{tr("المتوفر في المخزن")}</span><strong>{quantity(available)}</strong></div>
       </div>
+      <div className="perfume-split-footer"><button type="button" className="primary perfume-split-action" disabled={busy || !source || available < 1 || count < 2 || liquidCost <= 0 || sell <= 0} onClick={() => void split()}>{busy ? tr("جاري الحفظ…") : tr("تحويل عطر إلى تقسيمات")}</button></div>
     </section>
 
     <section className="perfume-divisions-card perfume-batches-card">
-      <div className="perfume-divisions-heading"><div><h2>{tr("دفعات التقسيمات")}</h2><p>{tr("اختر الدفعة ثم أدخل سعر العطر الناقص لإرجاع كل المتبقي منها إلى عطر واحد ناقص.")}</p></div></div>
+      <div className="perfume-divisions-heading"><div><h2>{tr("دفعات التقسيمات")} <small className="perfume-section-count">{quantity(batches.length)}</small></h2><p>{tr("اختر الدفعة ثم أدخل سعر العطر الناقص لإرجاع كل المتبقي منها إلى عطر واحد ناقص.")}</p></div></div>
       <div className="perfume-batches-table-wrap">
         <table className="erp-table perfume-batches-table">
           <thead><tr><th>{tr("العطر")}</th><th>{tr("الأصل")}</th><th>{tr("المتبقي")}</th><th>{tr("تكلفة السائل")}</th><th>{tr("المخزن")}</th><th>{tr("إرجاع إلى عطر ناقص")}</th></tr></thead>
@@ -248,7 +249,7 @@ export default function PerfumeDivisions({ data, run, onAdjustBottle }: { data: 
     </section>
 
     <section className="perfume-divisions-card perfume-bottles-card">
-      <div className="perfume-divisions-heading"><div><h2>{tr("زجاج التقسيمات")}</h2><p>{tr("عرّف نوع الزجاجة هنا، ثم اشترِ كمياتها من فاتورة شراء زجاج التقسيمات.")}</p></div></div>
+      <div className="perfume-divisions-heading"><div><h2>{tr("زجاج التقسيمات")} <small className="perfume-section-count">{quantity(bottles.length)}</small></h2><p>{tr("عرّف نوع الزجاجة هنا، ثم اشترِ كمياتها من فاتورة شراء زجاج التقسيمات.")}</p></div></div>
       <div className="perfume-bottle-create">
         <label>{tr("اسم الزجاجة")}<input value={bottleName} onChange={event => setBottleName(event.target.value)} placeholder={tr("مثال: زجاجة شفافة")}/></label>
         <label>{tr("الحجم (ml)")}<input type="number" min="1" value={bottleSize} onChange={event => setBottleSize(event.target.value)}/></label>
