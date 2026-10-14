@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Banknote, PencilLine, Plus, X } from "lucide-react";
+import { Banknote, ChevronDown, PencilLine, Plus, Search, X } from "lucide-react";
 import {
   activePaymentAccounts,
   activeProducts,
@@ -41,7 +41,7 @@ function useDecantSessionDraft<T>(key: string, initial: T) {
 }
 
 function InvoicePanel({ title, className = "", children }: { title: string; className?: string; children: ReactNode }) {
-  return <fieldset className={"erp-fieldset " + className}><legend>{title}</legend>{children}</fieldset>;
+  return <fieldset className={`erp-fieldset ${className}`.trim()}><legend>{title}</legend>{children}</fieldset>;
 }
 
 function InvoiceToolbar({ number: invoiceNumber, onNew }: { number: string; onNew: () => void }) {
@@ -110,20 +110,19 @@ function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run,
   const display = selected?.name ?? (note ? (isCustomer ? tr("اختر العميل") : tr("اختر المورد")) :
     (isCustomer ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر")));
   const visible = parties.filter(party => (party.name + " " + (party.phone ?? "")).toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-  return <div className="decant-party-row">
-    <div ref={pickerRef} className="decant-party-picker">
-      <button type="button" className="combobox-trigger" aria-expanded={open} aria-label={isCustomer ? tr("العميل") : tr("المورد")}
-        onClick={() => setOpen(value => !value)}>{display}</button>
-      {open && <div className="decant-party-options">
-        <input autoFocus type="search" aria-label={tr("بحث بالاسم أو الهاتف")} placeholder={tr("بحث بالاسم أو الهاتف")}
+  return <>
+    <div ref={pickerRef} className={`combobox ${isCustomer ? "combobox-pos-customer " : ""}decant-party-picker`}>
+      <button type="button" className="combobox-trigger" aria-haspopup="listbox" aria-expanded={open} aria-label={isCustomer ? tr("العميل") : tr("المورد")}
+        onClick={() => setOpen(value => !value)}><span>{display}</span><ChevronDown/></button>
+      {open && <div className={`combobox-popover ${isCustomer ? "combobox-popover-pos-customer " : ""}decant-party-options`}><label className="search"><Search/><input autoFocus type="search" aria-label={tr("بحث بالاسم أو الهاتف")} placeholder={tr("بحث بالاسم أو الهاتف")}
           value={search} onChange={event => setSearch(event.target.value)}
-          onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}/>
-        {!note && <button type="button" onClick={() => { onChange(""); setOpen(false); setSearch(""); }}>
+          onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}/></label>
+        <div className="combobox-results" role="listbox">{!note && <button type="button" onClick={() => { onChange(""); setOpen(false); setSearch(""); }}>
           {isCustomer ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر")}</button>}
         {visible.map(party => <button type="button" key={party.id} onClick={() => { onChange(party.id); setOpen(false); setSearch(""); }}>
           {party.name}{party.phone ? <small dir="ltr">{party.phone}</small> : null}</button>)}
-        {!visible.length && <div className="decant-party-empty">{tr("لا توجد نتائج")}</div>}
-      </div>}
+        {!visible.length && <div className="combobox-empty">{tr("لا توجد نتائج")}</div>}
+        </div></div>}
     </div>
     {canCreate && <button ref={buttonRef} type="button" className="pos-quick-customer-button"
       aria-label={isCustomer ? tr("إضافة العميل") : tr("إضافة المورد")}
@@ -131,7 +130,7 @@ function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run,
       onClick={() => { setOpen(false); setQuick(value => !value); }}><Plus/></button>}
     {quick && canCreate && <QuickInvoiceParty kind={isCustomer ? "customer" : "supplier"} run={run} anchor={buttonRef}
       close={() => setQuick(false)} onDone={id => { onChange(id); setQuick(false); }}/>}
-  </div>;
+  </>;
 }
 
 function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, onVoid, canManage, busy, kind }: {
@@ -153,7 +152,7 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, onVoid,
     { key: "total", type: "money" as const, get: (document: DocumentRecord) => document.total },
   ], [kind]);
   const { sort, sortedRows, toggle } = useSortableRows(visible, columns);
-  return <InvoicePanel title={title} className="quick-invoices decant-quick-invoices">
+  return <InvoicePanel title={title} className="quick-invoices">
     <div className="quick-invoice-head decant-history-dates">
       <label>{tr("من")}<input type="date" value={allTime ? "" : from} onChange={event => { setFrom(event.target.value); setAllTime(false); }}/></label>
       <label>{tr("إلى")}<input type="date" value={allTime ? "" : to} onChange={event => { setTo(event.target.value); setAllTime(false); }}/></label>
@@ -161,7 +160,7 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, onVoid,
     </div>
     <div className="erp-table-wrap quick-invoice-list">
       <table className="erp-table">
-        <colgroup><col style={{ width: "28%" }}/><col style={{ width: "46%" }}/><col style={{ width: "26%" }}/></colgroup>
+        <colgroup><col style={{ width: "30%" }}/><col style={{ width: "44%" }}/><col style={{ width: "26%" }}/></colgroup>
         <thead><tr><SortableTableHeader column="number" label={tr("رقم الفاتورة")} sort={sort} toggle={toggle}/>
           <SortableTableHeader column="party" label={tr("الحالة / العميل")} sort={sort} toggle={toggle}/>
           <SortableTableHeader column="total" label={tr("المبلغ")} sort={sort} toggle={toggle}/></tr></thead>
