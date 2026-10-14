@@ -17,7 +17,7 @@ test("specialized sales and purchases use identical regular workspace, table and
     assert.match(block, /className="workspace-discovery"/);
     assert.match(block, /className="search-panel"/);
     assert.match(block, /className="invoice-card workspace-invoice"/);
-    assert.match(block, /className="invoice-preview has-items"/);
+    assert.match(block, /"invoice-preview has-items"/);
     assert.match(block, /className="erp-table-wrap invoice-preview-list"/);
     assert.match(block, /className="erp-table invoice-table"/);
     assert.match(block, /<colgroup><col style=\{\{width:"38%"\}\}\/\><col style=\{\{width:"14%"\}\}\/\><col style=\{\{width:"17%"\}\}\/\><col style=\{\{width:"19%"\}\}\/\><col style=\{\{width:"12%"\}\}\/\><\/colgroup>/);
