@@ -424,7 +424,7 @@ function ContaAppContent() {
     await run({
       type: document.kind === "decant-sale" ? "decant-sale.void" : "decant-purchase.void",
       documentId: document.id,
-    }, tr("تم إلغاء الفاتورة"), () => { if (doc?.id === document.id) closeDoc(); });
+    }, document.kind === "decant-sale" ? tr("تم إلغاء فاتورة التقسيمات") : tr("تم إلغاء فاتورة شراء زجاج التقسيمات"), () => { if (doc?.id === document.id) closeDoc(); });
   };
   const openSummarySource = async (target: SummarySourceTarget) => {
     if (target.kind === "document") { await openDoc(target.documentId); return; }
