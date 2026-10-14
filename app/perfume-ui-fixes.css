@@ -869,20 +869,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.decant-party-options {
-  position: absolute;
-  z-index: 100;
-  inset-inline: 0;
-  top: calc(100% + 4px);
-  display: grid;
-  gap: 0;
-  max-height: 225px;
-  overflow-y: auto;
-  border: 1px solid var(--border, #d0d5dd);
-  border-radius: 7px;
-  background: #fff;
-  box-shadow: 0 10px 30px #0002;
-}
+/* The specialized picker now uses the original combobox and popover styling. */
+.decant-party-options { z-index: 100; }
 .decant-party-options > input {
   position: sticky;
   top: 0;
@@ -1454,4 +1442,178 @@
 }
 @media (max-width: 600px) {
   .decant-invoice-search-heading { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Exact invoice-workspace geometry: the regular POS and purchase classes are
+   intentionally shared by specialized invoices; the bottle control is the
+   only extra editable field, nested inside the ordinary product-name cell. */
+.decant-invoices-hub .decant-transaction-page .decant-party-picker {
+  min-width: 0;
+  width: 100%;
+}
+.decant-invoices-hub .decant-transaction-page .decant-party-picker > .combobox-trigger {
+  box-sizing: border-box;
+  width: 100%;
+}
+.decant-invoices-hub .decant-transaction-page .invoice-table .name-cell {
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+.decant-invoices-hub .decant-transaction-page .decant-line-bottle {
+  display: block;
+  min-width: 0;
+  margin-block-start: 5px;
+}
+.decant-invoices-hub .decant-transaction-page .decant-line-bottle label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  font-size: 9px;
+  color: var(--muted, #667085);
+  font-weight: 600;
+}
+.decant-invoices-hub .decant-transaction-page .decant-line-bottle select {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 29px;
+  height: 29px;
+  padding: 3px 6px;
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 5px;
+  background: var(--panel, #fff);
+  color: inherit;
+  font-size: 10px;
+}
+.decant-invoices-hub .decant-transaction-page .decant-bottle-size {
+  display: block;
+  margin-block-start: 3px;
+  font-size: 10px;
+}
+.decant-invoices-hub .decant-transaction-page .decant-fixed-warehouse {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11px;
+}
+.decant-invoices-hub .decant-transaction-page .decant-fixed-warehouse > span {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 10px;
+  background: var(--section-soft, #f3f6fb);
+}
+
+/* Management now reads as a business workflow: preparation, bottle setup,
+   the full-width batch register, then the two accounting-safe reconciliations.
+   Full-width tables no longer compete with compact forms for a narrow column. */
+.decant-invoices-hub-body.management .perfume-section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 23px;
+  margin-inline-start: 5px;
+  padding: 2px 7px;
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 6px;
+  background: var(--section-soft, #f3f6fb);
+  color: var(--muted, #667085);
+  font-size: 11px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.decant-invoices-hub-body.management .perfume-split-card {
+  display: grid;
+  grid-template-rows: auto auto auto;
+  align-content: start;
+  gap: 11px;
+}
+.decant-invoices-hub-body.management .perfume-split-card .perfume-divisions-form-v2,
+.decant-invoices-hub-body.management .perfume-split-card .perfume-cost-preview-v2 {
+  margin-block-start: 0;
+}
+.decant-invoices-hub-body.management .perfume-split-footer {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border, #d0d5dd);
+  padding-block-start: 10px;
+}
+.decant-invoices-hub-body.management .perfume-split-footer > button {
+  width: 100%;
+  max-width: 260px;
+}
+.decant-invoices-hub-body.management .perfume-bottles-card {
+  min-height: 0;
+  align-content: start;
+}
+.decant-invoices-hub-body.management .perfume-batches-table-wrap {
+  min-height: 190px;
+  max-height: 385px;
+}
+.decant-invoices-hub-body.management .perfume-reconciliation-block {
+  padding: 12px;
+  gap: 10px;
+  border-radius: 8px;
+  background: var(--panel, #fff);
+}
+.decant-invoices-hub-body.management .perfume-reconciliation-block > strong,
+.decant-invoices-hub-body.management .perfume-stock-operation-history > strong {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.decant-invoices-hub-body.management .perfume-reconciliation-form {
+  gap: 10px;
+}
+.decant-invoices-hub-body.management .perfume-reconciliation-grid {
+  gap: 12px;
+}
+@media (min-width: 1440px) {
+  .decant-invoices-hub-body.management .perfume-divisions-page {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "split bottles"
+      "batches batches"
+      "reconciliation reconciliation"
+      "error error";
+    grid-template-rows: auto auto auto auto;
+    gap: 12px;
+  }
+  .decant-invoices-hub-body.management .perfume-bottle-create {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+  .decant-invoices-hub-body.management .perfume-bottle-create > button {
+    grid-column: 1 / -1;
+  }
+  .decant-invoices-hub-body.management .perfume-bottles-table { min-width: 665px; }
+}
+@media (min-width: 1051px) and (max-width: 1439px) {
+  .decant-invoices-hub-body.management .perfume-divisions-page {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "split"
+      "bottles"
+      "batches"
+      "reconciliation"
+      "error";
+    grid-template-rows: repeat(5, auto);
+    gap: 12px;
+  }
+  .decant-invoices-hub-body.management .perfume-divisions-form-v2 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .decant-invoices-hub-body.management .perfume-cost-preview-v2 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+@media (max-width: 1050px) {
+  .decant-invoices-hub-body.management .perfume-divisions-page {
+    grid-template-areas: "split" "bottles" "batches" "reconciliation" "error";
+  }
+  .decant-invoices-hub-body.management .perfume-split-footer > button {
+    max-width: none;
+  }
 }
