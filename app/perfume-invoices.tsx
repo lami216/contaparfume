@@ -169,9 +169,9 @@ function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run,
   </>;
 }
 
-function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, onVoid, canManage, busy, kind }: {
+function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, canManage, kind }: {
   title: string; emptyLabel: string; documents: DocumentRecord[];
-  openDoc: (id: string) => void; onEdit: (document: DocumentRecord) => void; onVoid: (document: DocumentRecord) => void; canManage: boolean; busy: boolean;
+  openDoc: (id: string) => void; onEdit: (document: DocumentRecord) => void; canManage: boolean;
   kind: "sale" | "purchase";
 }) {
   const today = localBusinessDay(), [from, setFrom] = useState(today), [to, setTo] = useState(today),
@@ -189,24 +189,20 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, onVoid,
   ], [kind]);
   const { sort, sortedRows, toggle } = useSortableRows(visible, columns);
   return <InvoicePanel title={title} className="quick-invoices">
-    <div className="quick-invoice-head decant-history-dates">
-      <label>{tr("من")}<input type="date" value={allTime ? "" : from} onChange={event => { setFrom(event.target.value); setAllTime(false); }}/></label>
-      <label>{tr("إلى")}<input type="date" value={allTime ? "" : to} onChange={event => { setTo(event.target.value); setAllTime(false); }}/></label>
-      <button type="button" className="soft" aria-pressed={allTime} onClick={() => setAllTime(true)}>{tr("عرض الكل")}</button>
-    </div>
+    <div className="quick-invoice-head"><div className="compact-date-range">
+      <label><span>{tr("من")}</span><input aria-label={tr("من")} type="date" dir="ltr" value={from} onChange={event => { setFrom(event.target.value); setAllTime(false); }}/></label>
+      <label><span>{tr("إلى")}</span><input aria-label={tr("إلى")} type="date" dir="ltr" value={to} onChange={event => { setTo(event.target.value); setAllTime(false); }}/></label>
+      <button type="button" className={allTime ? "soft active" : "soft"} aria-pressed={allTime} onClick={() => setAllTime(true)}>{tr("عرض الكل")}</button>
+    </div></div>
     <div className="erp-table-wrap quick-invoice-list">
       <table className="erp-table">
         <colgroup><col style={{ width: "30%" }}/><col style={{ width: "44%" }}/><col style={{ width: "26%" }}/></colgroup>
         <thead><tr><SortableTableHeader column="number" label={tr("رقم الفاتورة")} sort={sort} toggle={toggle}/>
           <SortableTableHeader column="party" label={tr("الحالة / العميل")} sort={sort} toggle={toggle}/>
           <SortableTableHeader column="total" label={tr("المبلغ")} sort={sort} toggle={toggle}/></tr></thead>
-        <tbody>{sortedRows.map(document => <tr key={document.id} onClick={() => openDoc(document.id)}>
+        <tbody>{sortedRows.map(document => <tr key={document.id} onClick={() => canManage ? onEdit(document) : openDoc(document.id)}>
           <td dir="ltr">{displayDocumentNumber(document)}</td>
-          <td><div className="decant-history-party"><span>{statusParty(document)}</span>
-            {canManage && <button className="soft" type="button" disabled={busy} onClick={event => { event.stopPropagation(); onEdit(document); }}>{tr("تعديل")}</button>}
-            {canManage && <button className="soft danger-text" type="button" disabled={busy}
-              aria-label={tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document)}
-              onClick={event => { event.stopPropagation(); onVoid(document); }}>{tr("إلغاء الفاتورة")}</button>}</div></td>
+          <td>{statusParty(document)}</td>
           <td className="num-cell"><span className="financial-amount money-neutral">{money(document.total)}</span></td>
         </tr>)}{!sortedRows.length && <tr><td colSpan={3}>{allTime ? emptyLabel : tr("لا توجد فواتير في هذه الفترة")}</td></tr>}</tbody>
       </table>
@@ -323,7 +319,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
         <InvoicePanel title={tr("بحث المنتجات")} className="search-panel">
           <DecantInvoiceProductSearch items={pickerItems} categories={data.categories} mode="sale" onPick={add}/>
         </InvoicePanel>
-        <InvoiceHistory kind="sale" title={tr("سجل الفواتير")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} onVoid={voidInvoice} canManage={canUseCapability(data.principal, "perfume.divisions.manage")} busy={busy}/>
+        <InvoiceHistory kind="sale" title={tr("سجل الفواتير")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} canManage={canUseCapability(data.principal, "perfume.divisions.manage")}/>
       </div>
 
       <InvoicePanel title={tr("الفاتورة")} className="invoice-card workspace-invoice">
@@ -476,7 +472,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint, 
         <InvoicePanel title={tr("بحث المنتجات")} className="search-panel">
           <DecantInvoiceProductSearch items={pickerItems} categories={data.categories} mode="purchase" onPick={add}/>
         </InvoicePanel>
-        <InvoiceHistory kind="purchase" title={tr("سجل فواتير الشراء")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} onVoid={voidInvoice} canManage={canUseCapability(data.principal, "perfume.divisions.manage")} busy={busy}/>
+        <InvoiceHistory kind="purchase" title={tr("سجل فواتير الشراء")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} canManage={canUseCapability(data.principal, "perfume.divisions.manage")}/>
       </div>
 
       <InvoicePanel title={tr("فاتورة الشراء")} className="invoice-card workspace-invoice">
