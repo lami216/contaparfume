@@ -134,9 +134,9 @@ function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run,
   </div>;
 }
 
-function InvoiceHistory({ title, emptyLabel, documents, openDoc, onVoid, busy, kind }: {
+function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, onVoid, busy, kind }: {
   title: string; emptyLabel: string; documents: DocumentRecord[];
-  openDoc: (id: string) => void; onVoid: (document: DocumentRecord) => void; busy: boolean;
+  openDoc: (id: string) => void; onEdit: (document: DocumentRecord) => void; onVoid: (document: DocumentRecord) => void; busy: boolean;
   kind: "sale" | "purchase";
 }) {
   const today = localBusinessDay(), [from, setFrom] = useState(today), [to, setTo] = useState(today),
@@ -168,6 +168,7 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onVoid, busy, k
         <tbody>{sortedRows.map(document => <tr key={document.id} onClick={() => openDoc(document.id)}>
           <td dir="ltr">{displayDocumentNumber(document)}</td>
           <td><div className="decant-history-party"><span>{statusParty(document)}</span>
+            <button className="soft" type="button" disabled={busy} onClick={event => { event.stopPropagation(); onEdit(document); }}>{tr("تعديل")}</button>
             <button className="soft danger-text" type="button" disabled={busy}
               aria-label={tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document)}
               onClick={event => { event.stopPropagation(); onVoid(document); }}>{tr("إلغاء الفاتورة")}</button></div></td>
@@ -181,7 +182,9 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onVoid, busy, k
 export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
   const confirmAction = useAppConfirm();
   const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
-  const warehouseId = defaultWarehouse?.id ?? "";
+  const [editingDocumentId, setEditingDocumentId] = useDecantSessionDraft<string | null>("sale-editing", null);
+  const editingDocument = editingDocumentId ? data.documents.find(document => document.id === editingDocumentId && document.kind === "decant-sale" && document.status === "posted") ?? null : null;
+  const warehouseId = editingDocument?.warehouseId ?? defaultWarehouse?.id ?? "";
   const accounts = activePaymentAccounts(data.paymentAccounts);
   const customers = data.parties.filter(party => party.partyType === "customer" && party.isArchived !== true);
   const decants = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "decant"), [data.products]);
@@ -195,6 +198,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
   const [localError, setLocalError] = useState("");
   const [printAfterSave, setPrintAfterSave] = useState(false);
   const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
+  const restoredStock = (productId: string) => (editingDocument?.lines ?? []).reduce((total, line) => total + (line.productId === productId ? line.quantity : 0) + (line.bottleProductId === productId ? Number(line.bottleQuantity ?? line.quantity) : 0), 0);
   const pickerItems = useMemo<DecantInvoiceSearchItem[]>(() => saleProducts.map(product => ({
     id: product.id,
     name: product.name,
@@ -202,12 +206,24 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
     barcode: product.barcode ?? "",
     categoryId: product.categoryId,
     price: product.piecePrice ?? 0,
-    available: stockInWarehouse(product, warehouseId),
-    disabled: stockInWarehouse(product, warehouseId) <= 0,
-  })), [saleProducts, warehouseId]);
+    available: stockInWarehouse(product, warehouseId) + restoredStock(product.id),
+    disabled: stockInWarehouse(product, warehouseId) + restoredStock(product.id) <= 0,
+  })), [saleProducts, warehouseId, editingDocument]);
 
-  const reset = () => { setLines([]); setPartyId(""); setPaymentMethod("");  setLocalError(""); };
-  const newInvoice = async () => { if ((!lines.length && !partyId && !paymentMethod) || await confirmAction({message:tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟")})) reset(); };
+  const reset = () => { setLines([]); setPartyId(""); setPaymentMethod(""); setEditingDocumentId(null); setLocalError(""); };
+  const newInvoice = async () => { if ((!editingDocumentId && !lines.length && !partyId && !paymentMethod) || await confirmAction({message:tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟")})) reset(); };
+  const loadDocument = async (document: DocumentRecord) => {
+    if ((editingDocumentId || lines.length || partyId || paymentMethod) &&
+      !await confirmAction({ message: tr("لديك تغييرات غير محفوظة. هل تريد تجاهلها وفتح الفاتورة الأخرى؟") })) return;
+    setEditingDocumentId(document.id);
+    setPartyId(document.partyId ?? "");
+    setPaymentMethod(document.paymentMethod ?? "");
+    setLines(document.lines.map(line => ({
+      key: line.id || lineKey(), productId: line.productId ?? "", quantity: String(line.quantity),
+      unitPrice: String(line.unitPrice), bottleProductId: line.bottleProductId ?? "",
+    })));
+    setLocalError("");
+  };
   const add = (productId: string) => {
     const product = saleProducts.find(item => item.id === productId);
     if (!product || lines.some(line => line.productId === product.id)) return;
@@ -220,7 +236,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
 
   const submit = async () => {
     setLocalError("");
-    if (!defaultWarehouse) { setLocalError("عيّن مخزن البيع الافتراضي من إدارة المخازن أولًا."); return; }
+    if (!(editingDocument ? data.warehouses.find(warehouse => warehouse.id === editingDocument.warehouseId) : defaultWarehouse)) { setLocalError("مخزن الفاتورة غير موجود."); return; }
     if (!lines.length) { setLocalError(tr("أضف منتجًا")); return; }
     if (paymentMethod === "note" && !partyId) { setLocalError(tr("اختر عميلاً عند البيع الآجل")); return; }
     if (paymentMethod !== "note" && !paymentMethod) { setLocalError(tr("اختر وسيلة الدفع")); return; }
@@ -228,16 +244,18 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
       const product = saleProducts.find(item => item.id === line.productId);
       if (!product || !Number.isInteger(n(line.quantity)) || n(line.quantity) <= 0 || n(line.unitPrice) <= 0) { setLocalError(tr("راجع الكمية والسعر في الفاتورة")); return; }
       if (product.perfumeForm === "decant" && !line.bottleProductId) { setLocalError(tr("اختر زجاجة لكل عطر تقسيمات")); return; }
-      if (stockInWarehouse(product, warehouseId) < n(line.quantity)) { setLocalError(tr("الكمية المطلوبة أكبر من المتوفر")); return; }
+      if (stockInWarehouse(product, warehouseId) + restoredStock(product.id) < n(line.quantity)) { setLocalError(tr("الكمية المطلوبة أكبر من المتوفر")); return; }
       if (product.perfumeForm === "decant") {
         const bottle = bottles.find(item => item.id === line.bottleProductId);
-        if (!bottle || stockInWarehouse(bottle, warehouseId) < n(line.quantity)) { setLocalError(tr("مخزون زجاج التقسيمات غير كافٍ")); return; }
+        if (!bottle || stockInWarehouse(bottle, warehouseId) + restoredStock(bottle.id) < n(line.quantity)) { setLocalError(tr("مخزون زجاج التقسيمات غير كافٍ")); return; }
       }
     }
     setBusy(true);
     try {
       const savedId = await run({
-        type: "decant-sale.post",
+        type: editingDocument ? "decant-sale.update" : "decant-sale.post",
+        documentId: editingDocument?.id,
+        expectedRevision: editingDocument?.revision ?? 0,
         paymentMethod,
         partyId: partyId || null,
         cashAmount: paymentMethod === "note" ? 0 : total,
@@ -250,7 +268,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
   const voidInvoice = async (document: DocumentRecord) => {
     if (!await confirmAction({message:tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document) + "؟",confirmLabel:tr("إلغاء الفاتورة"),tone:"danger"})) return;
     setBusy(true);
-    try { await run({ type: "decant-sale.void", documentId: document.id }, tr("تم إلغاء فاتورة التقسيمات")); }
+    try { await run({ type: "decant-sale.void", documentId: document.id }, tr("تم إلغاء فاتورة التقسيمات")); if (editingDocumentId === document.id) reset(); }
     finally { setBusy(false); }
   };
 
@@ -261,11 +279,11 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
         <InvoicePanel title={tr("بحث المنتجات")} className="search-panel decant-search-panel">
           <DecantInvoiceProductSearch items={pickerItems} categories={data.categories} mode="sale" onPick={add}/>
         </InvoicePanel>
-        <InvoiceHistory kind="sale" title={tr("سجل الفواتير")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
+        <InvoiceHistory kind="sale" title={tr("سجل الفواتير")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} onVoid={voidInvoice} busy={busy}/>
       </div>
 
       <InvoicePanel title={tr("فاتورة بيع")} className="invoice-card workspace-invoice">
-        <InvoiceToolbar number={String(data.nextDocumentSequences.decantSale)} onNew={newInvoice}/>
+        <InvoiceToolbar number={editingDocument ? displayDocumentNumber(editingDocument) : String(data.nextDocumentSequences.decantSale)} onNew={newInvoice}/>
         <div className={lines.length ? "invoice-preview has-items" : "invoice-preview"}>
           <div className="erp-table-wrap invoice-preview-list">
             <table className="erp-table invoice-table" aria-label={tr("فاتورة التقسيمات")}>
@@ -277,7 +295,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
                   <td className="name-cell">{product.name}</td>
                   <td className="num-cell"><input className="num" dir="ltr" type="number" min="1" step="1" value={line.quantity} onChange={event => patch(line.key, { quantity: event.target.value })}/></td>
                   <td className="num-cell"><input className="num" dir="ltr" type="number" min="0" value={line.unitPrice} onChange={event => patch(line.key, { unitPrice: event.target.value })}/></td>
-                  <td>{isDecant ? <select value={line.bottleProductId} onChange={event => patch(line.key, { bottleProductId: event.target.value })}><option value="">{tr("اختر الزجاجة")}</option>{bottles.map(bottle => <option key={bottle.id} value={bottle.id} disabled={stockInWarehouse(bottle, warehouseId) < n(line.quantity)}>{bottle.name + " · " + (bottle.decantSizeMl ? bottle.decantSizeMl + " ml · " : "") + quantity(stockInWarehouse(bottle, warehouseId))}</option>)}</select> : <span className="muted">{tr("بيع فارغ")}</span>}</td>
+                  <td>{isDecant ? <select value={line.bottleProductId} onChange={event => patch(line.key, { bottleProductId: event.target.value })}><option value="">{tr("اختر الزجاجة")}</option>{bottles.map(bottle => <option key={bottle.id} value={bottle.id} disabled={stockInWarehouse(bottle, warehouseId) + restoredStock(bottle.id) < n(line.quantity)}>{bottle.name + " · " + (bottle.decantSizeMl ? bottle.decantSizeMl + " ml · " : "") + quantity(stockInWarehouse(bottle, warehouseId))}</option>)}</select> : <span className="muted">{tr("بيع فارغ")}</span>}</td>
                   <td className="num-cell">{money(n(line.quantity) * n(line.unitPrice))}</td>
                   <td className="action-cell"><button type="button" className="row-delete" aria-label={tr("حذف")} onClick={() => remove(line.key)}><X/></button></td>
                 </tr>;
@@ -298,11 +316,11 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
             {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
             <label>{tr("العميل")}</label>
             <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={customers} isCustomer note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "customers.create")}/>
-            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length} onClick={() => { void (async () => { if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{tr("حذف المسودة")}</button></div>
+            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length && !editingDocument} onClick={() => { void (async () => { if (editingDocument) { await voidInvoice(editingDocument); return; } if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{editingDocument ? tr("حذف الفاتورة") : tr("حذف المسودة")}</button></div>
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
-            <button className="primary wide" type="button" disabled={busy || !lines.length || !defaultWarehouse || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : tr("إتمام البيع")}</button>
+            <button className="primary wide" type="button" disabled={busy || !lines.length || (!defaultWarehouse && !editingDocument) || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : editingDocument ? tr("حفظ التعديلات") : tr("إتمام البيع")}</button>
           </div>
         </div>
       </InvoicePanel>
@@ -317,6 +335,8 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
   const suppliers = data.parties.filter(party => party.partyType === "supplier" && party.isArchived !== true);
   const bottles = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "bottle"), [data.products]);
   const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-purchase"), [data.documents]);
+  const [editingDocumentId, setEditingDocumentId] = useDecantSessionDraft<string | null>("purchase-editing", null);
+  const editingDocument = editingDocumentId ? data.documents.find(document => document.id === editingDocumentId && document.kind === "decant-purchase" && document.status === "posted") ?? null : null;
   const [paymentMethod, setPaymentMethod] = useDecantSessionDraft("purchase-payment", "");
   const [partyId, setPartyId] = useDecantSessionDraft("purchase-party", "");
   const [lines, setLines] = useDecantSessionDraft<DraftLine[]>("purchase-lines", []);
@@ -324,6 +344,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
   const [localError, setLocalError] = useState("");
   const [printAfterSave, setPrintAfterSave] = useState(false);
   const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
+  const purchaseWarehouseId = editingDocument?.warehouseId ?? defaultWarehouse?.id ?? "";
   const pickerItems = useMemo<DecantInvoiceSearchItem[]>(() => bottles.map(product => ({
     id: product.id,
     name: product.name,
@@ -331,11 +352,23 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
     barcode: product.barcode ?? "",
     categoryId: product.categoryId,
     price: product.lastPurchaseCost ?? product.pieceCost ?? 0,
-    available: stockInWarehouse(product, defaultWarehouse?.id ?? ""),
-  })), [bottles, defaultWarehouse?.id]);
+    available: stockInWarehouse(product, purchaseWarehouseId),
+  })), [bottles, purchaseWarehouseId]);
 
-  const reset = () => { setLines([]); setPartyId(""); setPaymentMethod("");  setLocalError(""); };
-  const newInvoice = async () => { if ((!lines.length && !partyId && !paymentMethod) || await confirmAction({message:tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟")})) reset(); };
+  const reset = () => { setLines([]); setPartyId(""); setPaymentMethod(""); setEditingDocumentId(null); setLocalError(""); };
+  const newInvoice = async () => { if ((!editingDocumentId && !lines.length && !partyId && !paymentMethod) || await confirmAction({message:tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟")})) reset(); };
+  const loadDocument = async (document: DocumentRecord) => {
+    if ((editingDocumentId || lines.length || partyId || paymentMethod) &&
+      !await confirmAction({ message: tr("لديك تغييرات غير محفوظة. هل تريد تجاهلها وفتح الفاتورة الأخرى؟") })) return;
+    setEditingDocumentId(document.id);
+    setPartyId(document.partyId ?? "");
+    setPaymentMethod(document.paymentMethod ?? "");
+    setLines(document.lines.map(line => ({
+      key: line.id || lineKey(), productId: line.productId ?? "", quantity: String(line.quantity),
+      unitPrice: String(line.unitPrice), bottleProductId: "",
+    })));
+    setLocalError("");
+  };
   const add = (productId: string) => {
     const product = bottles.find(item => item.id === productId);
     if (!product || lines.some(line => line.productId === product.id)) return;
@@ -348,7 +381,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
 
   const submit = async () => {
     setLocalError("");
-    if (!defaultWarehouse) { setLocalError("عيّن مخزن البيع الافتراضي من إدارة المخازن أولًا."); return; }
+    if (!(editingDocument ? data.warehouses.find(warehouse => warehouse.id === editingDocument.warehouseId) : defaultWarehouse)) { setLocalError("مخزن الفاتورة غير موجود."); return; }
     if (!lines.length) { setLocalError(tr("أضف زجاجة")); return; }
     if (paymentMethod === "note" && !partyId) { setLocalError(tr("اختر موردًا عند الشراء الآجل")); return; }
     if (paymentMethod !== "note" && !paymentMethod) { setLocalError(tr("اختر وسيلة الدفع")); return; }
@@ -356,7 +389,9 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
     setBusy(true);
     try {
       const savedId = await run({
-        type: "decant-purchase.post",
+        type: editingDocument ? "decant-purchase.update" : "decant-purchase.post",
+        documentId: editingDocument?.id,
+        expectedRevision: editingDocument?.revision ?? 0,
         paymentMethod,
         partyId: partyId || null,
         cashAmount: paymentMethod === "note" ? 0 : total,
@@ -369,7 +404,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
   const voidInvoice = async (document: DocumentRecord) => {
     if (!await confirmAction({message:tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document) + "؟",confirmLabel:tr("إلغاء الفاتورة"),tone:"danger"})) return;
     setBusy(true);
-    try { await run({ type: "decant-purchase.void", documentId: document.id }, tr("تم إلغاء فاتورة شراء زجاج التقسيمات")); }
+    try { await run({ type: "decant-purchase.void", documentId: document.id }, tr("تم إلغاء فاتورة شراء زجاج التقسيمات")); if (editingDocumentId === document.id) reset(); }
     finally { setBusy(false); }
   };
 
@@ -380,11 +415,11 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
         <InvoicePanel title={tr("بحث المنتجات")} className="search-panel decant-search-panel">
           <DecantInvoiceProductSearch items={pickerItems} categories={data.categories} mode="purchase" onPick={add}/>
         </InvoicePanel>
-        <InvoiceHistory kind="purchase" title={tr("سجل فواتير الشراء")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
+        <InvoiceHistory kind="purchase" title={tr("سجل فواتير الشراء")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} onVoid={voidInvoice} busy={busy}/>
       </div>
 
       <InvoicePanel title={tr("فاتورة شراء")} className="invoice-card workspace-invoice">
-        <InvoiceToolbar number={String(data.nextDocumentSequences.decantPurchase)} onNew={newInvoice}/>
+        <InvoiceToolbar number={editingDocument ? displayDocumentNumber(editingDocument) : String(data.nextDocumentSequences.decantPurchase)} onNew={newInvoice}/>
         <div className={lines.length ? "invoice-preview has-items" : "invoice-preview"}>
           <div className="erp-table-wrap invoice-preview-list">
             <table className="erp-table invoice-table" aria-label={tr("فاتورة شراء زجاج التقسيمات")}>
@@ -417,11 +452,11 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
             {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
             <label>{tr("المورد")}</label>
             <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={suppliers} isCustomer={false} note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "suppliers.create")}/>
-            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length} onClick={() => { void (async () => { if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{tr("حذف المسودة")}</button></div>
+            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length && !editingDocument} onClick={() => { void (async () => { if (editingDocument) { await voidInvoice(editingDocument); return; } if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{editingDocument ? tr("حذف الفاتورة") : tr("حذف المسودة")}</button></div>
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
-            <button className="primary wide" type="button" disabled={busy || !defaultWarehouse || !lines.length || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : tr("إتمام الشراء")}</button>
+            <button className="primary wide" type="button" disabled={busy || (!defaultWarehouse && !editingDocument) || !lines.length || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : editingDocument ? tr("حفظ التعديلات") : tr("إتمام الشراء")}</button>
           </div>
         </div>
       </InvoicePanel>
