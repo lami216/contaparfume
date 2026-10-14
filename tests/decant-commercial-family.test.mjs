@@ -98,11 +98,11 @@ test("special sale and purchase invoices reuse the ordinary quick-browse and new
   assert.match(invoices, /SortableTableHeader column="party"/);
   assert.match(invoices, /SortableTableHeader column="total"/);
   assert.match(invoices, /displayDocumentNumber\(document\)/);
-  assert.match(invoices, /event\.stopPropagation\(\); onVoid\(document\)/);
+  assert.match(invoices, /canManage \? onEdit\(document\) : openDoc\(document\.id\)/);
   assert.match(invoices, /printAfterSave && typeof savedId === "string" && savedId\) requestPrint\(savedId\)/);
   assert.match(hub, /requestPrint=\{requestPrint\}/);
   assert.match(app, /<DecantInvoicesPage[^>]*requestPrint=\{setAutoPrintId\}/);
-  assert.match(css, /\.decant-history-dates \{/);
+  assert.match(invoices, /className="compact-date-range"/);
   assert.match(invoices, /combobox-pos-customer/);
   assert.match(invoices, /className="pos-quick-customer-button"/);
 });
