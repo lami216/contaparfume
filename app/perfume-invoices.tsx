@@ -313,22 +313,30 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
         </div>
       </InvoicePanel>
 
+
       <InvoicePanel title={tr("الدفع")} className="workspace-checkout">
         <div className="checkout-layout">
           <div className="checkout-body">
-            <PaymentModeButtons
-              note={paymentMethod === "note"}
-              onDirect={() => setPaymentMethod("")}
-              onNote={() => setPaymentMethod("note")}
-            />
-            {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
-            <label>{tr("العميل")}</label>
-            <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={customers} isCustomer note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "customers.create")}/>
-            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length && !editingDocument} onClick={() => { void (async () => { if (editingDocument) { await voidInvoice(editingDocument); return; } if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{editingDocument ? tr("حذف الفاتورة") : tr("حذف المسودة")}</button></div>
+            <PaymentModeButtons note={paymentMethod === "note"} onDirect={() => setPaymentMethod("")} onNote={() => setPaymentMethod("note")}/>
+            <span className="payment-label">{paymentMethod === "note" ? tr("العميل") : tr("طريقة الدفع")}</span>
+            <div className={paymentMethod === "note" ? "pos-payment-row note" : "pos-payment-row"}>
+              {paymentMethod !== "note" && <div className="compact-payment" data-requirement-missing={lines.length > 0 && !paymentMethod ? "true" : undefined} aria-label={tr("طريقة الدفع")}>
+                <select className="payment-account-select" value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)} aria-label={tr("وسيلة الدفع")}>
+                  <option value="">{tr("اختر وسيلة الدفع")}</option>
+                  {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+                </select>
+              </div>}
+              <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={customers} isCustomer={true} note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "customers.create")}/>
+            </div>
+            <div className="checkout-invoice-actions">
+              <button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button>
+              <button type="button" className="invoice-void" disabled={busy || (!lines.length && !editingDocument)} onClick={() => { void (async () => { if (editingDocument) { await voidInvoice(editingDocument); return; } if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{editingDocument ? tr("حذف الفاتورة") : tr("حذف المسودة")}</button>
+            </div>
+            
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
-            <button className="primary wide" type="button" disabled={busy || !canUseCapability(data.principal, "perfume.divisions.manage") || !lines.length || (!defaultWarehouse && !editingDocument) || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : editingDocument ? tr("حفظ التعديلات") : tr("إتمام البيع")}</button>
+            <button className="primary wide" type="button" disabled={busy || !canUseCapability(data.principal, "perfume.divisions.manage") || (!defaultWarehouse && !editingDocument) || !lines.length || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : editingDocument ? tr("حفظ التعديلات") : tr("إتمام البيع")}</button>
           </div>
         </div>
       </InvoicePanel>
@@ -457,19 +465,26 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint, 
         </div>
       </InvoicePanel>
 
+
       <InvoicePanel title={tr("الدفع")} className="workspace-checkout purchase-checkout">
         <div className="checkout-layout">
           <div className="checkout-body purchase-details">
-            <PaymentModeButtons
-              note={paymentMethod === "note"}
-              purchase
-              onDirect={() => setPaymentMethod("")}
-              onNote={() => setPaymentMethod("note")}
-            />
-            {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
-            <label>{tr("المورد")}</label>
-            <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={suppliers} isCustomer={false} note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "suppliers.create")}/>
-            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length && !editingDocument} onClick={() => { void (async () => { if (editingDocument) { await voidInvoice(editingDocument); return; } if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{editingDocument ? tr("حذف الفاتورة") : tr("حذف المسودة")}</button></div>
+            <PaymentModeButtons note={paymentMethod === "note"} purchase onDirect={() => setPaymentMethod("")} onNote={() => setPaymentMethod("note")}/>
+            <span className="payment-label">{paymentMethod === "note" ? tr("المورد") : tr("طريقة الدفع")}</span>
+            <div className={paymentMethod === "note" ? "purchase-payment-row note" : "purchase-payment-row"}>
+              {paymentMethod !== "note" && <div className="compact-payment" data-requirement-missing={lines.length > 0 && !paymentMethod ? "true" : undefined} aria-label={tr("طريقة الدفع")}>
+                <select className="payment-account-select" value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)} aria-label={tr("وسيلة الدفع")}>
+                  <option value="">{tr("اختر وسيلة الدفع")}</option>
+                  {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+                </select>
+              </div>}
+              <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={suppliers} isCustomer={false} note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "suppliers.create")}/>
+            </div>
+            <div className="checkout-invoice-actions">
+              <button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button>
+              <button type="button" className="invoice-void" disabled={busy || (!lines.length && !editingDocument)} onClick={() => { void (async () => { if (editingDocument) { await voidInvoice(editingDocument); return; } if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{editingDocument ? tr("حذف الفاتورة") : tr("حذف المسودة")}</button>
+            </div>
+            <label className="decant-fixed-warehouse">{tr("مخزن الاستلام")}<span className="combobox-trigger">{data.warehouses.find(warehouse => warehouse.id === purchaseWarehouseId)?.name ?? "—"}</span></label>
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
