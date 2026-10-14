@@ -1434,3 +1434,24 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Decant commercial invoices display the same in-panel product result table as
+   ordinary sale/purchase invoices. Management's dropdown picker is unchanged. */
+.decant-invoice-search-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, .42fr);
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+}
+.decant-invoice-search-heading .compact-search { width: 100%; max-width: none; }
+.decant-invoice-category-filter {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  min-height: 34px;
+  padding: 3px 7px;
+}
+@media (max-width: 600px) {
+  .decant-invoice-search-heading { grid-template-columns: minmax(0, 1fr); }
+}

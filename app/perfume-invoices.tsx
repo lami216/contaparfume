@@ -18,7 +18,7 @@ import { filterDocumentsByDate, localBusinessDay } from "./history-filters";
 import { SortableTableHeader, useSortableRows } from "./table-sorting";
 import { canUseCapability } from "./transaction-ui";
 import { useAppConfirm } from "./app-confirm";
-import PerfumeProductPicker, { type PerfumePickerItem } from "./perfume-product-picker";
+import DecantInvoiceProductSearch, { type DecantInvoiceSearchItem } from "./decant-invoice-product-search";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
 type Props = { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void; requestPrint: (id: string) => void };
@@ -190,27 +190,29 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
   const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-sale"), [data.documents]);
   const [paymentMethod, setPaymentMethod] = useDecantSessionDraft("sale-payment", "");
   const [partyId, setPartyId] = useDecantSessionDraft("sale-party", "");
-  const [productId, setProductId] = useState("");
   const [lines, setLines] = useDecantSessionDraft<DraftLine[]>("sale-lines", []);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
   const [printAfterSave, setPrintAfterSave] = useState(false);
   const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
-  const pickerItems = useMemo<PerfumePickerItem[]>(() => saleProducts.map(product => ({
+  const pickerItems = useMemo<DecantInvoiceSearchItem[]>(() => saleProducts.map(product => ({
     id: product.id,
     name: product.name,
-    group: product.perfumeForm === "decant" ? tr("عطور التقسيمات") : tr("زجاج التقسيمات"),
-    meta: tr("المتوفر") + ": " + quantity(stockInWarehouse(product, warehouseId)),
+    sku: product.sku ?? "",
+    barcode: product.barcode ?? "",
+    categoryId: product.categoryId,
+    price: product.piecePrice ?? 0,
+    available: stockInWarehouse(product, warehouseId),
     disabled: stockInWarehouse(product, warehouseId) <= 0,
   })), [saleProducts, warehouseId]);
 
-  const reset = () => { setLines([]); setPartyId(""); setPaymentMethod(""); setProductId(""); setLocalError(""); };
+  const reset = () => { setLines([]); setPartyId(""); setPaymentMethod("");  setLocalError(""); };
   const newInvoice = async () => { if ((!lines.length && !partyId && !paymentMethod) || await confirmAction({message:tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟")})) reset(); };
-  const add = () => {
+  const add = (productId: string) => {
     const product = saleProducts.find(item => item.id === productId);
     if (!product || lines.some(line => line.productId === product.id)) return;
     setLines(current => [...current, { key: lineKey(), productId: product.id, quantity: "1", unitPrice: String(product.piecePrice ?? 0), bottleProductId: "" }]);
-    setProductId("");
+    
     setLocalError("");
   };
   const patch = (key: string, value: Partial<DraftLine>) => setLines(current => current.map(line => line.key === key ? { ...line, ...value } : line));
@@ -257,10 +259,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint }: Props) {
     <div className="transaction-workspace decant-sale-workspace">
       <div className="workspace-discovery">
         <InvoicePanel title={tr("بحث المنتجات")} className="search-panel decant-search-panel">
-          <div className="decant-search-controls">
-            <PerfumeProductPicker items={pickerItems} value={productId} onChange={setProductId} placeholder={tr("اختر منتج التقسيمات")} ariaLabel={tr("المنتج أو الزجاجة")}/>
-            <button className="soft" type="button" disabled={!productId} onClick={add}>{tr("إضافة")}</button>
-          </div>
+          <DecantInvoiceProductSearch items={pickerItems} categories={data.categories} mode="sale" onPick={add}/>
         </InvoicePanel>
         <InvoiceHistory kind="sale" title={tr("سجل الفواتير")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
       </div>
@@ -320,26 +319,28 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
   const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-purchase"), [data.documents]);
   const [paymentMethod, setPaymentMethod] = useDecantSessionDraft("purchase-payment", "");
   const [partyId, setPartyId] = useDecantSessionDraft("purchase-party", "");
-  const [productId, setProductId] = useState("");
   const [lines, setLines] = useDecantSessionDraft<DraftLine[]>("purchase-lines", []);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
   const [printAfterSave, setPrintAfterSave] = useState(false);
   const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
-  const pickerItems = useMemo<PerfumePickerItem[]>(() => bottles.map(product => ({
+  const pickerItems = useMemo<DecantInvoiceSearchItem[]>(() => bottles.map(product => ({
     id: product.id,
     name: product.name,
-    group: tr("زجاج التقسيمات"),
-    meta: product.decantSizeMl ? String(product.decantSizeMl) + " ml" : "",
-  })), [bottles]);
+    sku: product.sku ?? "",
+    barcode: product.barcode ?? "",
+    categoryId: product.categoryId,
+    price: product.lastPurchaseCost ?? product.pieceCost ?? 0,
+    available: stockInWarehouse(product, defaultWarehouse?.id ?? ""),
+  })), [bottles, defaultWarehouse?.id]);
 
-  const reset = () => { setLines([]); setPartyId(""); setPaymentMethod(""); setProductId(""); setLocalError(""); };
+  const reset = () => { setLines([]); setPartyId(""); setPaymentMethod("");  setLocalError(""); };
   const newInvoice = async () => { if ((!lines.length && !partyId && !paymentMethod) || await confirmAction({message:tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟")})) reset(); };
-  const add = () => {
+  const add = (productId: string) => {
     const product = bottles.find(item => item.id === productId);
     if (!product || lines.some(line => line.productId === product.id)) return;
     setLines(current => [...current, { key: lineKey(), productId: product.id, quantity: "1", unitPrice: String(product.lastPurchaseCost ?? product.pieceCost ?? 0), bottleProductId: "" }]);
-    setProductId("");
+    
     setLocalError("");
   };
   const patch = (key: string, value: Partial<DraftLine>) => setLines(current => current.map(line => line.key === key ? { ...line, ...value } : line));
@@ -377,10 +378,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint }
     <div className="transaction-workspace decant-purchase-workspace">
       <div className="workspace-discovery">
         <InvoicePanel title={tr("بحث المنتجات")} className="search-panel decant-search-panel">
-          <div className="decant-search-controls">
-            <PerfumeProductPicker items={pickerItems} value={productId} onChange={setProductId} placeholder={tr("اختر الزجاجة")} ariaLabel={tr("زجاجة التقسيمة")}/>
-            <button className="soft" type="button" disabled={!productId} onClick={add}>{tr("إضافة")}</button>
-          </div>
+          <DecantInvoiceProductSearch items={pickerItems} categories={data.categories} mode="purchase" onPick={add}/>
         </InvoicePanel>
         <InvoiceHistory kind="purchase" title={tr("سجل فواتير الشراء")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onVoid={voidInvoice} busy={busy}/>
       </div>
