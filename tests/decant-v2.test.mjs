@@ -12,7 +12,8 @@ test("decant v2 has separate bottle inventory and dedicated invoice surfaces", a
   assert.match(invoices, /DecantSaleInvoice/);
   assert.match(invoices, /DecantBottlePurchaseInvoice/);
   assert.match(invoices, /bottleProductId/);
-  assert.match(invoices, /بيع فارغ/);
+  assert.match(invoices, /const isDecant = product\.perfumeForm === "decant"/);
+  assert.match(invoices, /\{isDecant && <div className="decant-line-bottle"/);
   assert.doesNotMatch(divisions, /setDecantSizeMl|decantSizeMl\.trim/);
   assert.match(divisions, /perfume-bottle\.create/);
   assert.match(divisions, /إرجاع الباقي إلى عطر ناقص/);

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Banknote, PencilLine, Plus, X } from "lucide-react";
+import { Banknote, ChevronDown, PencilLine, Plus, Search, X } from "lucide-react";
 import {
   activePaymentAccounts,
   activeProducts,
@@ -12,6 +12,7 @@ import {
   stockInWarehouse,
   type BootstrapData,
   type DocumentRecord,
+  type Product,
 } from "./domain";
 import { tr } from "./i18n/messages";
 import { filterDocumentsByDate, localBusinessDay } from "./history-filters";
@@ -41,16 +42,51 @@ function useDecantSessionDraft<T>(key: string, initial: T) {
 }
 
 function InvoicePanel({ title, className = "", children }: { title: string; className?: string; children: ReactNode }) {
-  return <fieldset className={"erp-fieldset " + className}><legend>{title}</legend>{children}</fieldset>;
+  return <fieldset className={`erp-fieldset ${className}`.trim()}><legend>{title}</legend>{children}</fieldset>;
 }
 
-function InvoiceToolbar({ number: invoiceNumber, onNew }: { number: string; onNew: () => void }) {
+function InvoiceToolbar({ number: invoiceNumber, onNew, scanner }: { number: string; onNew: () => void; scanner?: ReactNode }) {
   return <div className="invoice-editor-toolbar">
     <div className="invoice-toolbar-main">
       <button type="button" className="invoice-new-button" onClick={onNew}>{tr("فاتورة جديدة")}</button>
       <span className="invoice-number-status">{tr("رقم")} <b>{invoiceNumber}</b></span>
     </div>
+    {scanner && <div className="invoice-toolbar-scanner">{scanner}</div>}
   </div>;
+}
+
+function InvoiceBarcodeScanner({ products, onPick, onError }: {
+  products: Product[]; onPick: (productId: string) => void; onError: (message: string) => void;
+}) {
+  const [active, setActive] = useState(false);
+  const buffer = useRef("");
+  const lastKeyAt = useRef(0);
+  useEffect(() => {
+    if (!active) { buffer.current = ""; return; }
+    const keydown = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
+      const target = event.target as HTMLElement | null;
+      const editable = target?.closest("input, textarea, select, [contenteditable='true']");
+      if (editable && !(target instanceof HTMLInputElement && target.dataset.barcodeScannerInput === "true")) return;
+      const now = performance.now();
+      if (now - lastKeyAt.current > 120) buffer.current = "";
+      lastKeyAt.current = now;
+      if (event.key === "Enter" || event.key === "Tab") {
+        const barcode = buffer.current.trim();
+        buffer.current = "";
+        if (!barcode) return;
+        event.preventDefault();
+        const product = products.find(item => !item.isArchived && item.barcode === barcode);
+        if (product) onPick(product.id); else onError(tr("لا يوجد منتج بهذا الباركود"));
+      } else if (event.key.length === 1) buffer.current += event.key;
+    };
+    window.addEventListener("keydown", keydown, true);
+    return () => window.removeEventListener("keydown", keydown, true);
+  }, [active, products, onPick, onError]);
+  return <button type="button" className="scanner-switch" aria-pressed={active} onClick={() => setActive(value => !value)}>
+    <span className="scanner-indicator" aria-hidden="true">{active && <span className="scanner-indicator-dot"/>}</span>
+    <span>{tr("قارئ الباركود")}</span>
+  </button>;
 }
 
 function PaymentModeButtons({ note, onDirect, onNote, purchase = false }: { note: boolean; onDirect: () => void; onNote: () => void; purchase?: boolean }) {
@@ -110,33 +146,32 @@ function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run,
   const display = selected?.name ?? (note ? (isCustomer ? tr("اختر العميل") : tr("اختر المورد")) :
     (isCustomer ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر")));
   const visible = parties.filter(party => (party.name + " " + (party.phone ?? "")).toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-  return <div className="decant-party-row">
-    <div ref={pickerRef} className="decant-party-picker">
-      <button type="button" className="combobox-trigger" aria-expanded={open} aria-label={isCustomer ? tr("العميل") : tr("المورد")}
-        onClick={() => setOpen(value => !value)}>{display}</button>
-      {open && <div className="decant-party-options">
-        <input autoFocus type="search" aria-label={tr("بحث بالاسم أو الهاتف")} placeholder={tr("بحث بالاسم أو الهاتف")}
+  return <>
+    <div className={isCustomer ? "pos-customer-compact" : "purchase-supplier"}><div ref={pickerRef} className={`combobox ${isCustomer ? "combobox-pos-customer " : ""}decant-party-picker`}>
+      <button type="button" className="combobox-trigger" aria-haspopup="listbox" aria-expanded={open} aria-label={isCustomer ? tr("العميل") : tr("المورد")}
+        onClick={() => setOpen(value => !value)}><span>{display}</span><ChevronDown/></button>
+      {open && <div className={`combobox-popover ${isCustomer ? "combobox-popover-pos-customer " : ""}decant-party-options`}><label className="search"><Search/><input autoFocus type="search" aria-label={tr("بحث بالاسم أو الهاتف")} placeholder={tr("بحث بالاسم أو الهاتف")}
           value={search} onChange={event => setSearch(event.target.value)}
-          onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}/>
-        {!note && <button type="button" onClick={() => { onChange(""); setOpen(false); setSearch(""); }}>
+          onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}/></label>
+        <div className="combobox-results" role="listbox">{!note && <button type="button" onClick={() => { onChange(""); setOpen(false); setSearch(""); }}>
           {isCustomer ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر")}</button>}
         {visible.map(party => <button type="button" key={party.id} onClick={() => { onChange(party.id); setOpen(false); setSearch(""); }}>
           {party.name}{party.phone ? <small dir="ltr">{party.phone}</small> : null}</button>)}
-        {!visible.length && <div className="decant-party-empty">{tr("لا توجد نتائج")}</div>}
-      </div>}
-    </div>
+        {!visible.length && <div className="combobox-empty">{tr("لا توجد نتائج")}</div>}
+        </div></div>}
+    </div></div>
     {canCreate && <button ref={buttonRef} type="button" className="pos-quick-customer-button"
       aria-label={isCustomer ? tr("إضافة العميل") : tr("إضافة المورد")}
       title={isCustomer ? tr("إضافة العميل") : tr("إضافة المورد")}
       onClick={() => { setOpen(false); setQuick(value => !value); }}><Plus/></button>}
     {quick && canCreate && <QuickInvoiceParty kind={isCustomer ? "customer" : "supplier"} run={run} anchor={buttonRef}
       close={() => setQuick(false)} onDone={id => { onChange(id); setQuick(false); }}/>}
-  </div>;
+  </>;
 }
 
-function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, onVoid, canManage, busy, kind }: {
+function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, canManage, kind }: {
   title: string; emptyLabel: string; documents: DocumentRecord[];
-  openDoc: (id: string) => void; onEdit: (document: DocumentRecord) => void; onVoid: (document: DocumentRecord) => void; canManage: boolean; busy: boolean;
+  openDoc: (id: string) => void; onEdit: (document: DocumentRecord) => void; canManage: boolean;
   kind: "sale" | "purchase";
 }) {
   const today = localBusinessDay(), [from, setFrom] = useState(today), [to, setTo] = useState(today),
@@ -153,26 +188,22 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, onVoid,
     { key: "total", type: "money" as const, get: (document: DocumentRecord) => document.total },
   ], [kind]);
   const { sort, sortedRows, toggle } = useSortableRows(visible, columns);
-  return <InvoicePanel title={title} className="quick-invoices decant-quick-invoices">
-    <div className="quick-invoice-head decant-history-dates">
-      <label>{tr("من")}<input type="date" value={allTime ? "" : from} onChange={event => { setFrom(event.target.value); setAllTime(false); }}/></label>
-      <label>{tr("إلى")}<input type="date" value={allTime ? "" : to} onChange={event => { setTo(event.target.value); setAllTime(false); }}/></label>
-      <button type="button" className="soft" aria-pressed={allTime} onClick={() => setAllTime(true)}>{tr("عرض الكل")}</button>
-    </div>
+  return <InvoicePanel title={title} className="quick-invoices">
+    <div className="quick-invoice-head"><div className="compact-date-range">
+      <label><span>{tr("من")}</span><input aria-label={tr("من")} type="date" dir="ltr" value={from} onChange={event => { setFrom(event.target.value); setAllTime(false); }}/></label>
+      <label><span>{tr("إلى")}</span><input aria-label={tr("إلى")} type="date" dir="ltr" value={to} onChange={event => { setTo(event.target.value); setAllTime(false); }}/></label>
+      <button type="button" className={allTime ? "soft active" : "soft"} aria-pressed={allTime} onClick={() => setAllTime(true)}>{tr("عرض الكل")}</button>
+    </div></div>
     <div className="erp-table-wrap quick-invoice-list">
       <table className="erp-table">
-        <colgroup><col style={{ width: "28%" }}/><col style={{ width: "46%" }}/><col style={{ width: "26%" }}/></colgroup>
+        <colgroup><col style={{ width: "30%" }}/><col style={{ width: "44%" }}/><col style={{ width: "26%" }}/></colgroup>
         <thead><tr><SortableTableHeader column="number" label={tr("رقم الفاتورة")} sort={sort} toggle={toggle}/>
           <SortableTableHeader column="party" label={tr("الحالة / العميل")} sort={sort} toggle={toggle}/>
           <SortableTableHeader column="total" label={tr("المبلغ")} sort={sort} toggle={toggle}/></tr></thead>
-        <tbody>{sortedRows.map(document => <tr key={document.id} onClick={() => openDoc(document.id)}>
+        <tbody>{sortedRows.map(document => <tr key={document.id} onClick={() => canManage ? onEdit(document) : openDoc(document.id)}>
           <td dir="ltr">{displayDocumentNumber(document)}</td>
-          <td><div className="decant-history-party"><span>{statusParty(document)}</span>
-            {canManage && <button className="soft" type="button" disabled={busy} onClick={event => { event.stopPropagation(); onEdit(document); }}>{tr("تعديل")}</button>}
-            {canManage && <button className="soft danger-text" type="button" disabled={busy}
-              aria-label={tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document)}
-              onClick={event => { event.stopPropagation(); onVoid(document); }}>{tr("إلغاء الفاتورة")}</button>}</div></td>
-          <td className="num-cell">{money(document.total)}</td>
+          <td>{statusParty(document)}</td>
+          <td className="num-cell"><span className="financial-amount money-neutral">{money(document.total)}</span></td>
         </tr>)}{!sortedRows.length && <tr><td colSpan={3}>{allTime ? emptyLabel : tr("لا توجد فواتير في هذه الفترة")}</td></tr>}</tbody>
       </table>
     </div>
@@ -283,29 +314,29 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
 
   return <section className="transaction-page decant-transaction-page">
     {localError && <div className="toast stock-toast decant-invoice-error">{localError}</div>}
-    <div className="transaction-workspace decant-sale-workspace">
+    <div className="transaction-workspace pos-workspace decant-sale-workspace">
       <div className="workspace-discovery">
-        <InvoicePanel title={tr("بحث المنتجات")} className="search-panel decant-search-panel">
+        <InvoicePanel title={tr("بحث المنتجات")} className="search-panel">
           <DecantInvoiceProductSearch items={pickerItems} categories={data.categories} mode="sale" onPick={add}/>
         </InvoicePanel>
-        <InvoiceHistory kind="sale" title={tr("سجل الفواتير")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} onVoid={voidInvoice} canManage={canUseCapability(data.principal, "perfume.divisions.manage")} busy={busy}/>
+        <InvoiceHistory kind="sale" title={tr("سجل الفواتير")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} canManage={canUseCapability(data.principal, "perfume.divisions.manage")}/>
       </div>
 
-      <InvoicePanel title={tr("فاتورة بيع")} className="invoice-card workspace-invoice">
-        <InvoiceToolbar number={editingDocument ? displayDocumentNumber(editingDocument) : String(data.nextDocumentSequences.decantSale)} onNew={newInvoice}/>
+      <InvoicePanel title={tr("الفاتورة")} className="invoice-card workspace-invoice">
+        <InvoiceToolbar number={editingDocument ? displayDocumentNumber(editingDocument) : String(data.nextDocumentSequences.decantSale)} onNew={newInvoice} scanner={<InvoiceBarcodeScanner products={saleProducts} onPick={add} onError={setLocalError}/>}/>
         <div className={lines.length ? "invoice-preview has-items" : "invoice-preview"}>
           <div className="erp-table-wrap invoice-preview-list">
             <table className="erp-table invoice-table" aria-label={tr("فاتورة التقسيمات")}>
-              <thead><tr><th>{tr("الاسم")}</th><th>{tr("الكمية")}</th><th>{tr("السعر")}</th><th>{tr("زجاجة التقسيمة")}</th><th>{tr("المجموع")}</th><th>{tr("حذف")}</th></tr></thead>
-              <tbody>{lines.length === 0 ? <tr className="invoice-empty-row"><td colSpan={6}>{tr("الفاتورة فارغة")}</td></tr> : lines.map(line => {
+              <colgroup><col style={{width:"38%"}}/><col style={{width:"14%"}}/><col style={{width:"17%"}}/><col style={{width:"19%"}}/><col style={{width:"12%"}}/></colgroup>
+              <thead><tr><th>{tr("الاسم")}</th><th>{tr("الكمية")}</th><th>{tr("السعر")}</th><th>{tr("المجموع")}</th><th>{tr("حذف")}</th></tr></thead>
+              <tbody>{lines.length === 0 ? <tr className="invoice-empty-row"><td colSpan={5}>{tr("الفاتورة فارغة")}</td></tr> : lines.map(line => {
                 const product = saleProducts.find(item => item.id === line.productId)!;
                 const isDecant = product.perfumeForm === "decant";
                 return <tr key={line.key}>
-                  <td className="name-cell">{product.name}</td>
+                  <td className="name-cell"><span>{product.name}</span>{isDecant && <div className="decant-line-bottle"><label>{tr("زجاجة التقسيمة")}<select aria-label={tr("زجاجة التقسيمة")} value={line.bottleProductId} onChange={event => patch(line.key, { bottleProductId: event.target.value })}><option value="">{tr("اختر الزجاجة")}</option>{bottles.map(bottle => <option key={bottle.id} value={bottle.id} disabled={stockInWarehouse(bottle, warehouseId) + restoredStock(bottle.id) < n(line.quantity)}>{bottle.name + " · " + (bottle.decantSizeMl ? bottle.decantSizeMl + " ml · " : "") + quantity(stockInWarehouse(bottle, warehouseId))}</option>)}</select></label></div>}</td>
                   <td className="num-cell"><input className="num" dir="ltr" type="number" min="1" step="1" value={line.quantity} onChange={event => patch(line.key, { quantity: event.target.value })}/></td>
                   <td className="num-cell"><input className="num" dir="ltr" type="number" min="0" value={line.unitPrice} onChange={event => patch(line.key, { unitPrice: event.target.value })}/></td>
-                  <td>{isDecant ? <select value={line.bottleProductId} onChange={event => patch(line.key, { bottleProductId: event.target.value })}><option value="">{tr("اختر الزجاجة")}</option>{bottles.map(bottle => <option key={bottle.id} value={bottle.id} disabled={stockInWarehouse(bottle, warehouseId) + restoredStock(bottle.id) < n(line.quantity)}>{bottle.name + " · " + (bottle.decantSizeMl ? bottle.decantSizeMl + " ml · " : "") + quantity(stockInWarehouse(bottle, warehouseId))}</option>)}</select> : <span className="muted">{tr("بيع فارغ")}</span>}</td>
-                  <td className="num-cell">{money(n(line.quantity) * n(line.unitPrice))}</td>
+                  <td className="num-cell"><span className="financial-amount money-neutral">{money(n(line.quantity) * n(line.unitPrice))}</span></td>
                   <td className="action-cell"><button type="button" className="row-delete" aria-label={tr("حذف")} onClick={() => remove(line.key)}><X/></button></td>
                 </tr>;
               })}</tbody>
@@ -314,22 +345,30 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
         </div>
       </InvoicePanel>
 
-      <InvoicePanel title={tr("الدفع")} className="workspace-checkout decant-checkout">
+
+      <InvoicePanel title={tr("الدفع")} className="workspace-checkout">
         <div className="checkout-layout">
           <div className="checkout-body">
-            <PaymentModeButtons
-              note={paymentMethod === "note"}
-              onDirect={() => setPaymentMethod("")}
-              onNote={() => setPaymentMethod("note")}
-            />
-            {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
-            <label>{tr("العميل")}</label>
-            <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={customers} isCustomer note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "customers.create")}/>
-            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length && !editingDocument} onClick={() => { void (async () => { if (editingDocument) { await voidInvoice(editingDocument); return; } if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{editingDocument ? tr("حذف الفاتورة") : tr("حذف المسودة")}</button></div>
+            <PaymentModeButtons note={paymentMethod === "note"} onDirect={() => setPaymentMethod("")} onNote={() => setPaymentMethod("note")}/>
+            <span className="payment-label">{paymentMethod === "note" ? tr("العميل") : tr("طريقة الدفع")}</span>
+            <div className={paymentMethod === "note" ? "pos-payment-row note" : "pos-payment-row"}>
+              {paymentMethod !== "note" && <div className="compact-payment" data-requirement-missing={lines.length > 0 && !paymentMethod ? "true" : undefined} aria-label={tr("طريقة الدفع")}>
+                <select className="payment-account-select" value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)} aria-label={tr("وسيلة الدفع")}>
+                  <option value="">{tr("اختر وسيلة الدفع")}</option>
+                  {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+                </select>
+              </div>}
+              <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={customers} isCustomer={true} note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "customers.create")}/>
+            </div>
+            <div className="checkout-invoice-actions">
+              <button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button>
+              <button type="button" className="invoice-void" disabled={busy || (!lines.length && !editingDocument)} onClick={() => { void (async () => { if (editingDocument) { await voidInvoice(editingDocument); return; } if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{editingDocument ? tr("حذف الفاتورة") : tr("حذف المسودة")}</button>
+            </div>
+            
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>
-            <button className="primary wide" type="button" disabled={busy || !canUseCapability(data.principal, "perfume.divisions.manage") || !lines.length || (!defaultWarehouse && !editingDocument) || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : editingDocument ? tr("حفظ التعديلات") : tr("إتمام البيع")}</button>
+            <button className="primary wide" type="button" disabled={busy || !canUseCapability(data.principal, "perfume.divisions.manage") || (!defaultWarehouse && !editingDocument) || !lines.length || (paymentMethod === "note" ? !partyId : !paymentMethod)} onClick={() => void submit()}>{busy ? tr("جاري الحفظ…") : editingDocument ? tr("حفظ التعديلات") : tr("إتمام البيع")}</button>
           </div>
         </div>
       </InvoicePanel>
@@ -428,28 +467,28 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint, 
 
   return <section className="transaction-page decant-transaction-page">
     {localError && <div className="toast stock-toast decant-invoice-error">{localError}</div>}
-    <div className="transaction-workspace decant-purchase-workspace">
+    <div className="transaction-workspace purchase-workspace decant-purchase-workspace">
       <div className="workspace-discovery">
-        <InvoicePanel title={tr("بحث المنتجات")} className="search-panel decant-search-panel">
+        <InvoicePanel title={tr("بحث المنتجات")} className="search-panel">
           <DecantInvoiceProductSearch items={pickerItems} categories={data.categories} mode="purchase" onPick={add}/>
         </InvoicePanel>
-        <InvoiceHistory kind="purchase" title={tr("سجل فواتير الشراء")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} onVoid={voidInvoice} canManage={canUseCapability(data.principal, "perfume.divisions.manage")} busy={busy}/>
+        <InvoiceHistory kind="purchase" title={tr("سجل فواتير الشراء")} emptyLabel={tr("لا توجد فواتير تقسيمات حتى الآن")} documents={recent} openDoc={openDoc} onEdit={document => void loadDocument(document)} canManage={canUseCapability(data.principal, "perfume.divisions.manage")}/>
       </div>
 
-      <InvoicePanel title={tr("فاتورة شراء")} className="invoice-card workspace-invoice">
-        <InvoiceToolbar number={editingDocument ? displayDocumentNumber(editingDocument) : String(data.nextDocumentSequences.decantPurchase)} onNew={newInvoice}/>
+      <InvoicePanel title={tr("فاتورة الشراء")} className="invoice-card workspace-invoice">
+        <InvoiceToolbar number={editingDocument ? displayDocumentNumber(editingDocument) : String(data.nextDocumentSequences.decantPurchase)} onNew={newInvoice} scanner={<InvoiceBarcodeScanner products={bottles} onPick={add} onError={setLocalError}/>}/>
         <div className={lines.length ? "invoice-preview has-items" : "invoice-preview"}>
           <div className="erp-table-wrap invoice-preview-list">
             <table className="erp-table invoice-table" aria-label={tr("فاتورة شراء زجاج التقسيمات")}>
-              <thead><tr><th>{tr("الاسم")}</th><th>{tr("الحجم")}</th><th>{tr("الكمية")}</th><th>{tr("سعر الشراء")}</th><th>{tr("المجموع")}</th><th>{tr("حذف")}</th></tr></thead>
-              <tbody>{lines.length === 0 ? <tr className="invoice-empty-row"><td colSpan={6}>{tr("الفاتورة فارغة")}</td></tr> : lines.map(line => {
+              <colgroup><col style={{width:"38%"}}/><col style={{width:"14%"}}/><col style={{width:"17%"}}/><col style={{width:"19%"}}/><col style={{width:"12%"}}/></colgroup>
+              <thead><tr><th>{tr("الاسم")}</th><th>{tr("الكمية")}</th><th>{tr("سعر الشراء")}</th><th>{tr("المجموع")}</th><th>{tr("حذف")}</th></tr></thead>
+              <tbody>{lines.length === 0 ? <tr className="invoice-empty-row"><td colSpan={5}>{tr("الفاتورة فارغة")}</td></tr> : lines.map(line => {
                 const product = bottles.find(item => item.id === line.productId)!;
                 return <tr key={line.key}>
-                  <td className="name-cell">{product.name}</td>
-                  <td className="num-cell">{product.decantSizeMl ? String(product.decantSizeMl) + " ml" : "—"}</td>
+                  <td className="name-cell"><span>{product.name}</span>{product.decantSizeMl ? <small className="muted decant-bottle-size">{String(product.decantSizeMl) + " ml"}</small> : null}</td>
                   <td className="num-cell"><input className="num" dir="ltr" type="number" min="1" step="1" value={line.quantity} onChange={event => patch(line.key, { quantity: event.target.value })}/></td>
                   <td className="num-cell"><input className="num" dir="ltr" type="number" min="0" value={line.unitPrice} onChange={event => patch(line.key, { unitPrice: event.target.value })}/></td>
-                  <td className="num-cell">{money(n(line.quantity) * n(line.unitPrice))}</td>
+                  <td className="num-cell"><span className="financial-amount money-neutral">{money(n(line.quantity) * n(line.unitPrice))}</span></td>
                   <td className="action-cell"><button type="button" className="row-delete" aria-label={tr("حذف")} onClick={() => remove(line.key)}><X/></button></td>
                 </tr>;
               })}</tbody>
@@ -458,19 +497,26 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint, 
         </div>
       </InvoicePanel>
 
-      <InvoicePanel title={tr("الدفع")} className="workspace-checkout decant-checkout">
+
+      <InvoicePanel title={tr("الدفع")} className="workspace-checkout purchase-checkout">
         <div className="checkout-layout">
           <div className="checkout-body purchase-details">
-            <PaymentModeButtons
-              note={paymentMethod === "note"}
-              purchase
-              onDirect={() => setPaymentMethod("")}
-              onNote={() => setPaymentMethod("note")}
-            />
-            {paymentMethod !== "note" && <label>{tr("طريقة الدفع")}<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option value="">{tr("اختر وسيلة الدفع")}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
-            <label>{tr("المورد")}</label>
-            <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={suppliers} isCustomer={false} note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "suppliers.create")}/>
-            <div className="checkout-invoice-actions"><button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button><button type="button" className="invoice-void" disabled={!lines.length && !editingDocument} onClick={() => { void (async () => { if (editingDocument) { await voidInvoice(editingDocument); return; } if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{editingDocument ? tr("حذف الفاتورة") : tr("حذف المسودة")}</button></div>
+            <PaymentModeButtons note={paymentMethod === "note"} purchase onDirect={() => setPaymentMethod("")} onNote={() => setPaymentMethod("note")}/>
+            <span className="payment-label">{paymentMethod === "note" ? tr("المورد") : tr("طريقة الدفع")}</span>
+            <div className={paymentMethod === "note" ? "purchase-payment-row note" : "purchase-payment-row"}>
+              {paymentMethod !== "note" && <div className="compact-payment" data-requirement-missing={lines.length > 0 && !paymentMethod ? "true" : undefined} aria-label={tr("طريقة الدفع")}>
+                <select className="payment-account-select" value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)} aria-label={tr("وسيلة الدفع")}>
+                  <option value="">{tr("اختر وسيلة الدفع")}</option>
+                  {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+                </select>
+              </div>}
+              <InvoicePartyPicker partyId={partyId} onChange={setPartyId} parties={suppliers} isCustomer={false} note={paymentMethod === "note"} run={run} canCreate={canUseCapability(data.principal, "suppliers.create")}/>
+            </div>
+            <div className="checkout-invoice-actions">
+              <button type="button" className="print-toggle" aria-pressed={printAfterSave} onClick={() => setPrintAfterSave(value => !value)}><span>{printAfterSave && <i/>}</span>{tr("طباعة")}</button>
+              <button type="button" className="invoice-void" disabled={busy || (!lines.length && !editingDocument)} onClick={() => { void (async () => { if (editingDocument) { await voidInvoice(editingDocument); return; } if (await confirmAction({message:tr("هل تريد حذف مسودة الفاتورة؟"),confirmLabel:tr("حذف المسودة"),tone:"danger"})) reset(); })(); }}>{editingDocument ? tr("حذف الفاتورة") : tr("حذف المسودة")}</button>
+            </div>
+            <label className="decant-fixed-warehouse">{tr("مخزن الاستلام")}<span className="combobox-trigger">{data.warehouses.find(warehouse => warehouse.id === purchaseWarehouseId)?.name ?? "—"}</span></label>
           </div>
           <div className="checkout-footer">
             <div className="total invoice-total"><span>{tr("الإجمالي")}</span><strong>{money(total)}</strong></div>

@@ -24,8 +24,8 @@ test("decant invoices reuse standard transaction workspace without entering POS 
     source("app/conta-app.tsx"),
     source("app/perfume-invoices.tsx"),
   ]);
-  assert.match(invoices, /transaction-workspace decant-sale-workspace/);
-  assert.match(invoices, /transaction-workspace decant-purchase-workspace/);
+  assert.match(invoices, /transaction-workspace pos-workspace decant-sale-workspace/);
+  assert.match(invoices, /transaction-workspace purchase-workspace decant-purchase-workspace/);
   assert.match(invoices, /workspace-discovery/);
   assert.match(invoices, /workspace-invoice/);
   assert.match(invoices, /workspace-checkout/);
@@ -52,7 +52,7 @@ test("new decant invoices use the default sales warehouse and edits preserve the
   ]);
   assert.match(invoices, /isSalesDefault && warehouse\.isArchived !== true/);
   assert.doesNotMatch(invoices, /setWarehouseId/);
-  assert.doesNotMatch(invoices, /tr\("مخزن الاستلام"\)/);
+  assert.match(invoices, /className="decant-fixed-warehouse"/); // The warehouse is visible but read-only; the command still uses the default.
   assert.doesNotMatch(invoices, /type: "decant-sale\.post",\s*warehouseId/s);
   assert.doesNotMatch(invoices, /type: "decant-purchase\.post",\s*warehouseId/s);
   assert.match(commands, /findOne\(\{ isSalesDefault: true, isArchived: \{ \$ne: true \} \}/);
@@ -61,20 +61,20 @@ test("new decant invoices use the default sales warehouse and edits preserve the
   assert.match(commands, /existing\s*\? warehouses\(db\)\.findOne\(\{ _id: String\(existing\.warehouseId\) \}/);
 });
 
-test("management arranges conversion beside batches with full-width reconciliation and bottle stock", async () => {
+test("management keeps conversion and bottle creation together while tables and reconciliation take full width", async () => {
   const [css, ui] = await Promise.all([
     source("app/perfume-ui-fixes.css"),
     source("app/perfume-divisions.tsx"),
   ]);
   assert.match(css, /Management layout refresh/);
-  assert.match(css, /grid-template-areas:\s*"split batches"\s*"reconciliation reconciliation"\s*"bottles bottles"/s);
+  assert.match(css, /grid-template-areas:\s*"split bottles"\s*"batches batches"\s*"reconciliation reconciliation"/s);
   assert.match(css, /\.decant-invoices-hub-body\.management \{\s*overflow-x:\s*hidden;\s*overflow-y:\s*auto/s);
   assert.match(css, /\.decant-invoices-hub-body\.management \.perfume-reconciliation-grid \{\s*display:\s*grid;\s*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/s);
-  assert.match(css, /grid-template-areas:\s*"split"\s*"batches"\s*"reconciliation"\s*"bottles"/s);
+  assert.match(css, /grid-template-areas:\s*"split"\s*"bottles"\s*"batches"\s*"reconciliation"/s);
   assert.match(css, /\.perfume-batches-table \{ min-width: 660px; \}/);
   assert.match(css, /\.perfume-bottles-table \{ min-width: 780px; \}/);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.perfume-reconciliation-grid \{\s*grid-template-columns: minmax\(0, 1fr\)/);
-  const cardNames = ["perfume-split-card", "perfume-batches-card", "perfume-reconciliation-card", "perfume-bottles-card"];
+  const cardNames = ["perfume-split-card", "perfume-bottles-card", "perfume-batches-card", "perfume-reconciliation-card"];
   const positions = cardNames.map(name => ui.indexOf(`className="perfume-divisions-card ${name}"`));
   assert.ok(positions.every(position => position >= 0));
   assert.deepEqual([...positions].sort((a, b) => a - b), positions, "keyboard order matches the visible desktop and mobile order");
@@ -98,12 +98,13 @@ test("special sale and purchase invoices reuse the ordinary quick-browse and new
   assert.match(invoices, /SortableTableHeader column="party"/);
   assert.match(invoices, /SortableTableHeader column="total"/);
   assert.match(invoices, /displayDocumentNumber\(document\)/);
-  assert.match(invoices, /event\.stopPropagation\(\); onVoid\(document\)/);
+  assert.match(invoices, /canManage \? onEdit\(document\) : openDoc\(document\.id\)/);
   assert.match(invoices, /printAfterSave && typeof savedId === "string" && savedId\) requestPrint\(savedId\)/);
   assert.match(hub, /requestPrint=\{requestPrint\}/);
   assert.match(app, /<DecantInvoicesPage[^>]*requestPrint=\{setAutoPrintId\}/);
-  assert.match(css, /\.decant-history-dates \{/);
-  assert.match(css, /\.decant-party-row \{/);
+  assert.match(invoices, /className="compact-date-range"/);
+  assert.match(invoices, /combobox-pos-customer/);
+  assert.match(invoices, /className="pos-quick-customer-button"/);
 });
 
 test("special invoice lifecycle uses atomic in-place amendments, not a new unrelated invoice", async () => {
