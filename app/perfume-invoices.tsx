@@ -199,7 +199,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
   const [printAfterSave, setPrintAfterSave] = useState(false);
   const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
   const restoredStock = (productId: string) => (editingDocument?.lines ?? []).reduce((total, line) => total + (line.productId === productId ? line.quantity : 0) + (line.bottleProductId === productId ? Number(line.bottleQuantity ?? line.quantity) : 0), 0);
-  const pickerItems = useMemo<DecantInvoiceSearchItem[]>(() => saleProducts.map(product => ({
+  const pickerItems: DecantInvoiceSearchItem[] = saleProducts.map(product => ({
     id: product.id,
     name: product.name,
     sku: product.sku ?? "",
@@ -208,7 +208,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
     price: product.piecePrice ?? 0,
     available: stockInWarehouse(product, warehouseId) + restoredStock(product.id),
     disabled: stockInWarehouse(product, warehouseId) + restoredStock(product.id) <= 0,
-  })), [saleProducts, warehouseId, editingDocument]);
+  }));
 
   const reset = () => { setLines([]); setPartyId(""); setPaymentMethod(""); setEditingDocumentId(null); setLocalError(""); };
   const newInvoice = async () => { if ((!editingDocumentId && !lines.length && !partyId && !paymentMethod) || await confirmAction({message:tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟")})) reset(); };
@@ -234,7 +234,11 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
   useEffect(() => {
     if (!editRequest) return;
     const document = data.documents.find(item => item.id === editRequest && item.status === "posted");
-    if (document?.kind === "decant-sale") void loadDocument(document).finally(() => clearEditRequest?.());
+    if (document?.kind !== "decant-sale") return;
+    const timer = window.setTimeout(() => { void loadDocument(document).finally(() => clearEditRequest?.()); }, 0);
+    return () => window.clearTimeout(timer);
+    // Explicit edit request is consumed once; later draft updates are independent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editRequest]);
   const patch = (key: string, value: Partial<DraftLine>) => setLines(current => current.map(line => line.key === key ? { ...line, ...value } : line));
   const remove = (key: string) => setLines(current => current.filter(line => line.key !== key));
@@ -350,7 +354,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint, 
   const [printAfterSave, setPrintAfterSave] = useState(false);
   const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
   const purchaseWarehouseId = editingDocument?.warehouseId ?? defaultWarehouse?.id ?? "";
-  const pickerItems = useMemo<DecantInvoiceSearchItem[]>(() => bottles.map(product => ({
+  const pickerItems: DecantInvoiceSearchItem[] = bottles.map(product => ({
     id: product.id,
     name: product.name,
     sku: product.sku ?? "",
@@ -358,7 +362,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint, 
     categoryId: product.categoryId,
     price: product.lastPurchaseCost ?? product.pieceCost ?? 0,
     available: stockInWarehouse(product, purchaseWarehouseId),
-  })), [bottles, purchaseWarehouseId]);
+  }));
 
   const reset = () => { setLines([]); setPartyId(""); setPaymentMethod(""); setEditingDocumentId(null); setLocalError(""); };
   const newInvoice = async () => { if ((!editingDocumentId && !lines.length && !partyId && !paymentMethod) || await confirmAction({message:tr("لديك تغييرات غير محفوظة. هل تريد بدء فاتورة جديدة؟")})) reset(); };
@@ -384,7 +388,11 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint, 
   useEffect(() => {
     if (!editRequest) return;
     const document = data.documents.find(item => item.id === editRequest && item.status === "posted");
-    if (document?.kind === "decant-purchase") void loadDocument(document).finally(() => clearEditRequest?.());
+    if (document?.kind !== "decant-purchase") return;
+    const timer = window.setTimeout(() => { void loadDocument(document).finally(() => clearEditRequest?.()); }, 0);
+    return () => window.clearTimeout(timer);
+    // Explicit edit request is consumed once; later draft updates are independent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editRequest]);
   const patch = (key: string, value: Partial<DraftLine>) => setLines(current => current.map(line => line.key === key ? { ...line, ...value } : line));
   const remove = (key: string) => setLines(current => current.filter(line => line.key !== key));
