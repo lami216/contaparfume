@@ -196,7 +196,9 @@ function parseLines(body: Input) {
 async function refs(db: Db, session: ClientSession, body: Input, partyType: "customer" | "supplier", existing?: Record<string, unknown>) {
   const partyId = text(body.partyId);
   const [warehouse, party] = await Promise.all([
-    warehouses(db).findOne(existing ? { _id: String(existing.warehouseId) } : { isSalesDefault: true, isArchived: { $ne: true } }, { session }),
+    existing
+      ? warehouses(db).findOne({ _id: String(existing.warehouseId) }, { session })
+      : warehouses(db).findOne({ isSalesDefault: true, isArchived: { $ne: true } }, { session }),
     partyId ? db.collection("parties").findOne({ id: partyId }, { session }) : null,
   ]);
   if (!warehouse) throw new PerfumeInvoiceCommandError("عيّن مخزن البيع الافتراضي من إدارة المخازن أولًا.", 409);
