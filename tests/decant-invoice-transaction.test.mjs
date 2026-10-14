@@ -6,6 +6,7 @@ import { execute } from "../app/api/command/route.ts";
 test("decant sale and bottle purchase post and void preserve stock and accounting", async () => {
   const harness = await sqliteHarness();
   const db = harness.db;
+  await harness.reset(); // Remove seeded sales-default warehouses before installing test fixtures.
   const wh = "test-warehouse";
   const command = body => db.transaction(session => execute(db, session, body));
   try {
