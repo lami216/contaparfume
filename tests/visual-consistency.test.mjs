@@ -138,7 +138,8 @@ test("invoice editors expose explicit new, edit, void, history routing and autho
   assert.match(purchase, /type: "purchase\.void"/);
   assert.match(app, /navigate\(target,\{replaceEditor:true\}\)/);
   assert.match(app, /document\.kind === "sale"\) setSaleEditRequest\(id\)/);
-  assert.match(app, /else setPurchaseEditRequest\(id\)/);
+  assert.match(app, /else if \(document\.kind === "purchase"\) setPurchaseEditRequest\(id\)/);
+  assert.match(app, /else setDecantEditRequest\(id\)/);
   assert.match(app, /printPreparedDocument\(await loadPrintSettings\(\), true\)/);
 });
 
