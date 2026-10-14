@@ -257,6 +257,7 @@ function ContaAppContent() {
     [doc, setDoc] = useState<DocumentRecord | null>(null),
     [saleEditRequest, setSaleEditRequest] = useState<string | null>(null),
     [purchaseEditRequest, setPurchaseEditRequest] = useState<string | null>(null),
+    [decantEditRequest, setDecantEditRequest] = useState<string | null>(null),
     [expenseEditRequest, setExpenseEditRequest] = useState<string | null>(null),
     [partyPaymentEditRequest, setPartyPaymentEditRequest] = useState<string | null>(null),
     [transferEditRequest, setTransferEditRequest] = useState<string | null>(null),
@@ -405,12 +406,25 @@ function ContaAppContent() {
   useEffect(() => { if (doc) window.requestAnimationFrame(() => dialogRef.current?.querySelector<HTMLElement>("button, input, select, textarea, [tabindex='0']")?.focus()); }, [doc]);
   const editInvoice = async (id: string) => {
     const document = data.documents.find(item => item.id === id);
-    if (!document || document.status !== "posted" || document.legacyKey || !["sale", "purchase"].includes(document.kind)) { await openDoc(id); return; }
-    const target:View=document.kind==="sale"?"pos":"purchases";
+    if (!document || document.status !== "posted" || document.legacyKey || !["sale", "purchase", "decant-sale", "decant-purchase"].includes(document.kind)) { await openDoc(id); return; }
+    const target:View=document.kind==="sale"?"pos":document.kind==="purchase"?"purchases":"decantInvoices";
     if(!await navigate(target,{replaceEditor:true}))return;
     setPartyDetail(null);
     if (document.kind === "sale") setSaleEditRequest(id);
-    else setPurchaseEditRequest(id);
+    else if (document.kind === "purchase") setPurchaseEditRequest(id);
+    else setDecantEditRequest(id);
+  };
+  const voidDecantDocument = async (document: DocumentRecord) => {
+    if (!can("perfume.divisions.manage") || document.status !== "posted" ||
+      !["decant-sale", "decant-purchase"].includes(document.kind)) return;
+    if (!await confirmAction({
+      message: tr("إلغاء الفاتورة") + " " + displayDocumentNumber(document) + "؟",
+      confirmLabel: tr("حذف الفاتورة"), tone: "danger",
+    })) return;
+    await run({
+      type: document.kind === "decant-sale" ? "decant-sale.void" : "decant-purchase.void",
+      documentId: document.id,
+    }, document.kind === "decant-sale" ? tr("تم إلغاء فاتورة التقسيمات") : tr("تم إلغاء فاتورة شراء زجاج التقسيمات"), () => { if (doc?.id === document.id) closeDoc(); });
   };
   const openSummarySource = async (target: SummarySourceTarget) => {
     if (target.kind === "document") { await openDoc(target.documentId); return; }
@@ -430,6 +444,7 @@ function ContaAppContent() {
     if(document.status==="voided")return;
     if(document.kind==="sale"){const edit=can("pos.edit")&&document.status==="posted"&&!document.legacyKey;if(!await navigate("pos",{replaceEditor:edit}))return;if(edit)setSaleEditRequest(document.id);return}
     if(document.kind==="purchase"){const edit=can("purchases.edit")&&document.status==="posted"&&!document.legacyKey;if(!await navigate("purchases",{replaceEditor:edit}))return;if(edit)setPurchaseEditRequest(document.id);return}
+    if(document.kind==="decant-sale"||document.kind==="decant-purchase"){const edit=can("perfume.divisions.manage")&&document.status==="posted";if(!await navigate("decantInvoices",{replaceEditor:edit}))return;if(edit)setDecantEditRequest(document.id);return}
     if(document.kind==="expense"){const edit=can("expenses.edit")&&document.status==="posted"&&!document.legacyKey;if(!await navigate("expenses",{replaceEditor:edit}))return;if(edit)setExpenseEditRequest(document.id);return}
     if(document.kind==="payment"&&document.partyId){const party=data.parties.find(item=>item.id===document.partyId);if(!party)return;const customer=resolvePartyType(party)==="customer",edit=document.status==="posted"&&!party.isArchived&&can(customer?"customers.collect.edit":"suppliers.pay.edit");if(!await navigate(customer?"customers":"suppliers",{replaceEditor:edit}))return;setPartyDetail(party);if(edit)setPartyPaymentEditRequest(document.id);return}
     if(document.kind==="transfer"){const edit=can("warehouses.transfer.edit")&&document.status==="posted";if(!await navigate("transfers",{replaceEditor:edit}))return;if(edit)setTransferEditRequest(document.id);return}
@@ -525,7 +540,7 @@ function ContaAppContent() {
               {view === "pos" && (
                 <Pos data={data} run={run} openDoc={openDoc} editRequest={saleEditRequest} clearEditRequest={() => setSaleEditRequest(null)} requestPrint={setAutoPrintId} openStockAdjustment={openStockAdjustment} registerEditorGuard={registerEditorGuard} />
               )}{" "}
-              {view === "decantInvoices" && <DecantInvoicesPage data={data} run={run} openDoc={openDoc} requestPrint={setAutoPrintId} />}{" "}
+              {view === "decantInvoices" && <DecantInvoicesPage data={data} run={run} openDoc={openDoc} requestPrint={setAutoPrintId} editRequest={decantEditRequest} clearEditRequest={() => setDecantEditRequest(null)} />}{" "}
               {view === "purchases" && (
                 <Purchases data={data} run={run} openDoc={openDoc} editRequest={purchaseEditRequest} clearEditRequest={() => setPurchaseEditRequest(null)} requestPrint={setAutoPrintId} registerEditorGuard={registerEditorGuard} />
               )}{" "}
@@ -553,7 +568,7 @@ function ContaAppContent() {
               {view === "settings" && <SettingsPage data={data} reload={reload} tab={settingsTab} />}{" "}
             </>
           )}
-          {doc && createPortal(<div className="modal-overlay document-modal-overlay" ref={dialogRef} role="dialog" aria-modal="true" aria-label={tr("ui.transactionRecord",{number:doc.number})} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); closeDoc(); } else if (event.key === "Tab") { const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')]; if (controls.length && ((event.shiftKey && document.activeElement === controls[0]) || (!event.shiftKey && document.activeElement === controls.at(-1)))) { event.preventDefault(); (event.shiftKey ? controls.at(-1) : controls[0])?.focus(); } } }}><div className="official-document-viewer"><DocumentDetail document={doc} data={data} close={closeDoc} onEdit={doc.status === "posted" && !doc.legacyKey && (doc.kind === "sale" ? can("pos.edit") : doc.kind === "purchase" ? can("purchases.edit") : false) ? () => void editInvoice(doc.id) : undefined} onVoid={canVoidLegacyPartyDocument(doc)?()=>void voidLegacyPartyDocument(doc):undefined} onSource={() => void openDocumentSource(doc)} openLinked={openDoc} /></div></div>,document.body)}
+          {doc && createPortal(<div className="modal-overlay document-modal-overlay" ref={dialogRef} role="dialog" aria-modal="true" aria-label={tr("ui.transactionRecord",{number:doc.number})} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); closeDoc(); } else if (event.key === "Tab") { const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')]; if (controls.length && ((event.shiftKey && document.activeElement === controls[0]) || (!event.shiftKey && document.activeElement === controls.at(-1)))) { event.preventDefault(); (event.shiftKey ? controls.at(-1) : controls[0])?.focus(); } } }}><div className="official-document-viewer"><DocumentDetail document={doc} data={data} close={closeDoc} onEdit={doc.status === "posted" && !doc.legacyKey && (doc.kind === "sale" ? can("pos.edit") : doc.kind === "purchase" ? can("purchases.edit") : ["decant-sale", "decant-purchase"].includes(doc.kind) ? can("perfume.divisions.manage") : false) ? () => void editInvoice(doc.id) : undefined} onVoid={canVoidLegacyPartyDocument(doc)?()=>void voidLegacyPartyDocument(doc):["decant-sale", "decant-purchase"].includes(doc.kind)&&doc.status==="posted"&&can("perfume.divisions.manage")?()=>void voidDecantDocument(doc):undefined} onSource={() => void openDocumentSource(doc)} openLinked={openDoc} /></div></div>,document.body)}
         </div>
       </main>
     </div>

@@ -45,7 +45,7 @@ test("decant invoices follow the same all-paid-or-note settlement rule", async (
 });
 
 
-test("decant sale and bottle purchase always use the default sales warehouse", async () => {
+test("new decant invoices use the default sales warehouse and edits preserve the original", async () => {
   const [invoices, commands] = await Promise.all([
     source("app/perfume-invoices.tsx"),
     source("app/perfume-invoice-commands.ts"),
@@ -58,6 +58,7 @@ test("decant sale and bottle purchase always use the default sales warehouse", a
   assert.match(commands, /findOne\(\{ isSalesDefault: true, isArchived: \{ \$ne: true \} \}/);
   assert.doesNotMatch(commands, /text\(body\.warehouseId\)/);
   assert.match(commands, /warehouseId: String\(warehouse\._id\)/);
+  assert.match(commands, /existing\s*\? warehouses\(db\)\.findOne\(\{ _id: String\(existing\.warehouseId\) \}/);
 });
 
 test("management arranges conversion beside batches with full-width reconciliation and bottle stock", async () => {
@@ -105,10 +106,10 @@ test("special sale and purchase invoices reuse the ordinary quick-browse and new
   assert.match(css, /\.decant-party-row \{/);
 });
 
-test("the special invoice lifecycle retains separate stock commands and does not simulate an edit by replacing an invoice", async () => {
+test("special invoice lifecycle uses atomic in-place amendments, not a new unrelated invoice", async () => {
   const invoices = await source("app/perfume-invoices.tsx");
-  assert.match(invoices, /type: "decant-sale.post"/);
-  assert.match(invoices, /type: "decant-purchase.post"/);
+  assert.match(invoices, /type: editingDocument \? "decant-sale.update" : "decant-sale.post"/);
+  assert.match(invoices, /type: editingDocument \? "decant-purchase.update" : "decant-purchase.post"/);
   assert.match(invoices, /type: "decant-sale.void"/);
   assert.match(invoices, /type: "decant-purchase.void"/);
   assert.doesNotMatch(invoices, /type: "sale.post"/);

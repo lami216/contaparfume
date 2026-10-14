@@ -13,8 +13,8 @@ test("decant sale and bottle purchase live in one invoice workspace", async () =
   assert.match(hub, /DecantSaleInvoice/);
   assert.match(hub, /DecantBottlePurchaseInvoice/);
   assert.match(hub, /role="tablist"/);
-  assert.match(hub, /mode === "sale"/);
-  assert.match(hub, /mode === "purchase"/);
+  assert.match(hub, /activeMode === "sale"/);
+  assert.match(hub, /activeMode === "purchase"/);
   assert.match(css, /\.decant-invoices-hub\s*\{/);
   assert.match(css, /\.decant-invoice-mode-tabs\s*\{/);
 });

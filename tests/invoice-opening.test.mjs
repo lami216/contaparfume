@@ -20,17 +20,19 @@ test("top-level invoice edit eligibility includes document and permission checks
   assert.match(modal, /doc\.status === "posted"/);
   assert.match(modal, /!doc\.legacyKey/);
   assert.match(modal, /doc\.kind === "sale" \? can\("pos\.edit"\)/);
-  assert.match(modal, /doc\.kind === "purchase" \? can\("purchases\.edit"\) : false/);
+  assert.match(modal, /doc\.kind === "purchase" \? can\("purchases\.edit"\)/);
+  assert.match(modal, /\["decant-sale", "decant-purchase"\]\.includes\(doc\.kind\) \? can\("perfume\.divisions\.manage"\) : false/);
   assert.match(modal, /\? \(\) => void editInvoice\(doc\.id\) : undefined/);
 });
 
-test("editInvoice routes sales and purchases to their existing editors", () => {
+test("editInvoice routes standard and specialized invoices to the correct editors", () => {
   const edit = between("const editInvoice", "useEffect(() => {");
-  assert.match(edit, /document\.status !== "posted" \|\| document\.legacyKey \|\| !\["sale", "purchase"\]\.includes\(document\.kind\)/);
-  assert.match(edit, /const target:View=document\.kind==="sale"\?"pos":"purchases"/);
+  assert.match(edit, /document\.status !== "posted" \|\| document\.legacyKey \|\| !\["sale", "purchase", "decant-sale", "decant-purchase"\]\.includes\(document\.kind\)/);
+  assert.match(edit, /const target:View=document\.kind==="sale"\?"pos":document\.kind==="purchase"\?"purchases":"decantInvoices"/);
   assert.match(edit, /navigate\(target,\{replaceEditor:true\}\)/);
   assert.match(edit, /document\.kind === "sale"\) setSaleEditRequest\(id\)/);
-  assert.match(edit, /else setPurchaseEditRequest\(id\)/);
+  assert.match(edit, /else if \(document\.kind === "purchase"\) setPurchaseEditRequest\(id\)/);
+  assert.match(edit, /else setDecantEditRequest\(id\)/);
   assert.doesNotMatch(edit, /setView\("pos"\)|setView\("purchases"\)/);
 });
 
