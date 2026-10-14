@@ -111,7 +111,7 @@ function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run,
     (isCustomer ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر")));
   const visible = parties.filter(party => (party.name + " " + (party.phone ?? "")).toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   return <>
-    <div ref={pickerRef} className={`combobox ${isCustomer ? "combobox-pos-customer " : ""}decant-party-picker`}>
+    <div className={isCustomer ? "pos-customer-compact" : "purchase-supplier"}><div ref={pickerRef} className={`combobox ${isCustomer ? "combobox-pos-customer " : ""}decant-party-picker`}>
       <button type="button" className="combobox-trigger" aria-haspopup="listbox" aria-expanded={open} aria-label={isCustomer ? tr("العميل") : tr("المورد")}
         onClick={() => setOpen(value => !value)}><span>{display}</span><ChevronDown/></button>
       {open && <div className={`combobox-popover ${isCustomer ? "combobox-popover-pos-customer " : ""}decant-party-options`}><label className="search"><Search/><input autoFocus type="search" aria-label={tr("بحث بالاسم أو الهاتف")} placeholder={tr("بحث بالاسم أو الهاتف")}
@@ -123,7 +123,7 @@ function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run,
           {party.name}{party.phone ? <small dir="ltr">{party.phone}</small> : null}</button>)}
         {!visible.length && <div className="combobox-empty">{tr("لا توجد نتائج")}</div>}
         </div></div>}
-    </div>
+    </div></div>
     {canCreate && <button ref={buttonRef} type="button" className="pos-quick-customer-button"
       aria-label={isCustomer ? tr("إضافة العميل") : tr("إضافة المورد")}
       title={isCustomer ? tr("إضافة العميل") : tr("إضافة المورد")}
