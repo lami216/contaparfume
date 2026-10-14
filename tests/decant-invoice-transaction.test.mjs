@@ -56,12 +56,48 @@ test("decant sale and bottle purchase post and void preserve stock and accountin
     assert.equal((await db.collection("paymentAccounts").findOne({ id: "cash-test" })).balance, 1200);
     assert.equal(await db.collection("financialMovements").countDocuments({ documentId: saleId }), 1);
 
+    const saleUpdated = await command({
+      type: "decant-sale.update", documentId: saleId, expectedRevision: 0,
+      paymentMethod: "note", partyId: "customer-test", cashAmount: 0,
+      lines: [{ productId: "decant-test", quantity: 1, unitPrice: 120, bottleProductId: "bottle-test" }],
+    });
+    assert.equal(saleUpdated, saleId);
+    const saleRevision = await db.collection("documents").findOne({ id: saleId });
+    assert.equal(saleRevision.number, sale.number);
+    assert.equal(saleRevision.sequence, sale.sequence);
+    assert.equal(saleRevision.revision, 1);
+    assert.equal(saleRevision.editHistory.length, 1);
+    assert.equal(saleRevision.editHistory[0].total, 200);
+    assert.equal(saleRevision.total, 120);
+    assert.equal(saleRevision.dueTotal, 120);
+    assert.equal((await db.collection("paymentAccounts").findOne({ id: "cash-test" })).balance, 1000);
+    assert.equal((await db.collection("parties").findOne({ id: "customer-test" })).receivable, 120);
+    assert.equal((await db.collection("products").findOne({ id: "decant-test" })).stocks[wh], 3);
+    assert.equal((await db.collection("products").findOne({ id: "bottle-test" })).stocks[wh], 9);
+    assert.equal((await db.collection("products").findOne({ id: "decant-test" })).perfumeLots[0].remainingQuantity, 3);
+    assert.equal(await db.collection("financialMovements").countDocuments({ documentId: saleId }), 0);
+
+    await assert.rejects(command({
+      type: "decant-sale.update", documentId: saleId, expectedRevision: 0,
+      paymentMethod: "note", partyId: "customer-test", cashAmount: 0,
+      lines: [{ productId: "decant-test", quantity: 2, unitPrice: 100, bottleProductId: "bottle-test" }],
+    }), /تغيرت الفاتورة/);
+    await assert.rejects(command({
+      type: "decant-sale.update", documentId: saleId, expectedRevision: 1,
+      paymentMethod: "cash-test", partyId: "customer-test", cashAmount: 10000,
+      lines: [{ productId: "decant-test", quantity: 100, unitPrice: 100, bottleProductId: "bottle-test" }],
+    }), /غير كاف/);
+    assert.equal((await db.collection("documents").findOne({ id: saleId })).revision, 1);
+    assert.equal((await db.collection("products").findOne({ id: "decant-test" })).stocks[wh], 3);
+    assert.equal((await db.collection("parties").findOne({ id: "customer-test" })).receivable, 120);
+
     await command({ type: "decant-sale.void", documentId: saleId });
     assert.equal((await db.collection("documents").findOne({ id: saleId })).status, "voided");
     assert.equal((await db.collection("products").findOne({ id: "decant-test" })).stocks[wh], 4);
     assert.equal((await db.collection("products").findOne({ id: "bottle-test" })).stocks[wh], 10);
     assert.equal((await db.collection("products").findOne({ id: "decant-test" })).perfumeLots[0].remainingQuantity, 4);
     assert.equal((await db.collection("paymentAccounts").findOne({ id: "cash-test" })).balance, 1000);
+    assert.equal((await db.collection("parties").findOne({ id: "customer-test" })).receivable, 0);
     assert.equal(await db.collection("financialMovements").countDocuments({ documentId: saleId }), 0);
 
     const purchaseId = await command({
@@ -76,10 +112,36 @@ test("decant sale and bottle purchase post and void preserve stock and accountin
     assert.equal((await db.collection("products").findOne({ id: "bottle-test" })).stocks[wh], 13);
     assert.equal((await db.collection("parties").findOne({ id: "supplier-test" })).payable, 21);
 
+    const purchaseUpdated = await command({
+      type: "decant-purchase.update", documentId: purchaseId, expectedRevision: 0,
+      paymentMethod: "cash-test", partyId: "supplier-test", cashAmount: 20,
+      lines: [{ productId: "bottle-test", quantity: 2, unitPrice: 10 }],
+    });
+    assert.equal(purchaseUpdated, purchaseId);
+    const purchaseRevision = await db.collection("documents").findOne({ id: purchaseId });
+    assert.equal(purchaseRevision.number, purchase.number);
+    assert.equal(purchaseRevision.sequence, purchase.sequence);
+    assert.equal(purchaseRevision.revision, 1);
+    assert.equal(purchaseRevision.editHistory[0].total, 21);
+    assert.equal(purchaseRevision.total, 20);
+    assert.equal(purchaseRevision.dueTotal, 0);
+    assert.equal((await db.collection("products").findOne({ id: "bottle-test" })).stocks[wh], 12);
+    assert.equal((await db.collection("paymentAccounts").findOne({ id: "cash-test" })).balance, 980);
+    assert.equal((await db.collection("parties").findOne({ id: "supplier-test" })).payable, 0);
+    assert.equal(await db.collection("financialMovements").countDocuments({ documentId: purchaseId }), 1);
+
+    await assert.rejects(command({
+      type: "decant-purchase.update", documentId: purchaseId, expectedRevision: 1,
+      paymentMethod: "note", partyId: "supplier-test", cashAmount: 0,
+      lines: [{ productId: "bottle-test", quantity: 1, unitPrice: 0 }],
+    }), /غير صالح/);
+    assert.equal((await db.collection("documents").findOne({ id: purchaseId })).revision, 1);
+    assert.equal((await db.collection("paymentAccounts").findOne({ id: "cash-test" })).balance, 980);
     await command({ type: "decant-purchase.void", documentId: purchaseId });
     assert.equal((await db.collection("documents").findOne({ id: purchaseId })).status, "voided");
     assert.equal((await db.collection("products").findOne({ id: "bottle-test" })).stocks[wh], 10);
     assert.equal((await db.collection("parties").findOne({ id: "supplier-test" })).payable, 0);
+    assert.equal((await db.collection("paymentAccounts").findOne({ id: "cash-test" })).balance, 1000);
   } finally {
     await harness.close();
   }
