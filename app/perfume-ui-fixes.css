@@ -1455,10 +1455,6 @@
   box-sizing: border-box;
   width: 100%;
 }
-.decant-invoices-hub .decant-transaction-page .invoice-table .name-cell {
-  overflow: visible;
-  overflow-wrap: anywhere;
-}
 .decant-invoices-hub .decant-transaction-page .decant-line-bottle {
   display: block;
   min-width: 0;
@@ -1527,7 +1523,7 @@
 }
 .decant-invoices-hub-body.management .perfume-split-card {
   display: grid;
-  grid-template-rows: auto auto auto;
+  grid-template-rows: auto auto auto auto;
   align-content: start;
   gap: 11px;
 }
