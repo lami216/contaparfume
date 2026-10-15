@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Banknote, ChevronDown, PencilLine, Plus, Search, X } from "lucide-react";
 import {
@@ -136,12 +136,42 @@ function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run,
   isCustomer: boolean; note: boolean; run: RunCommand; canCreate: boolean;
 }) {
   const [quick, setQuick] = useState(false), [open, setOpen] = useState(false), [search, setSearch] = useState("");
-  const buttonRef = useRef<HTMLButtonElement>(null), pickerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null), pickerRef = useRef<HTMLDivElement>(null),
+    popoverRef = useRef<HTMLDivElement>(null);
+  const [floatingStyle, setFloatingStyle] = useState<CSSProperties>({});
+  const positionPopover = useCallback(() => {
+    const rect = pickerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const margin = 8, below = window.innerHeight - rect.bottom - margin, above = rect.top - margin;
+    const width = Math.min(Math.max(rect.width, isCustomer ? rect.width : 280), window.innerWidth - margin * 2);
+    const left = Math.min(Math.max(margin, rect.right - width), window.innerWidth - width - margin);
+    const desired = Math.min(265, window.innerHeight - margin * 2);
+    const upwards = below < 220 && above > below;
+    setFloatingStyle({
+      position: "fixed", zIndex: 1000, width, maxWidth: width, left, right: "auto",
+      top: upwards ? Math.max(margin, rect.top - Math.min(desired, above) - 5) : rect.bottom + 5,
+      maxHeight: upwards ? above : below,
+    });
+  }, [isCustomer]);
   useEffect(() => {
-    const outside = (event: MouseEvent) => { if (!pickerRef.current?.contains(event.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", outside);
-    return () => document.removeEventListener("mousedown", outside);
+    const outside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!pickerRef.current?.contains(target) && !popoverRef.current?.contains(target)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
   }, []);
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(positionPopover);
+    window.addEventListener("resize", positionPopover);
+    window.addEventListener("scroll", positionPopover, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", positionPopover);
+      window.removeEventListener("scroll", positionPopover, true);
+    };
+  }, [open, positionPopover]);
   const selected = parties.find(party => party.id === partyId);
   const display = selected?.name ?? (note ? (isCustomer ? tr("اختر العميل") : tr("اختر المورد")) :
     (isCustomer ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر")));
@@ -149,16 +179,16 @@ function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run,
   return <>
     <div className={isCustomer ? "pos-customer-compact" : "purchase-supplier"}><div ref={pickerRef} className={`combobox ${isCustomer ? "combobox-pos-customer " : ""}decant-party-picker`}>
       <button type="button" className="combobox-trigger" aria-haspopup="listbox" aria-expanded={open} aria-label={isCustomer ? tr("العميل") : tr("المورد")}
-        onClick={() => setOpen(value => !value)}><span>{display}</span><ChevronDown/></button>
-      {open && <div className={`combobox-popover ${isCustomer ? "combobox-popover-pos-customer " : ""}decant-party-options`}><label className="search"><Search/><input autoFocus type="search" aria-label={tr("بحث بالاسم أو الهاتف")} placeholder={tr("بحث بالاسم أو الهاتف")}
+        onClick={() => { if (!open) positionPopover(); setOpen(value => !value); }}><span>{display}</span><ChevronDown/></button>
+      {open && createPortal(<div ref={popoverRef} style={floatingStyle} className={`combobox-popover combobox-popover-floating ${isCustomer ? "combobox-popover-pos-customer " : ""}decant-party-options`}><label className="search"><Search/><input autoFocus type="search" aria-label={tr("بحث بالاسم أو الهاتف")} placeholder={tr("بحث بالاسم أو الهاتف")}
           value={search} onChange={event => setSearch(event.target.value)}
           onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}/></label>
-        <div className="combobox-results" role="listbox">{!note && <button type="button" onClick={() => { onChange(""); setOpen(false); setSearch(""); }}>
+        <div className="combobox-results" role="listbox">{!note && <button type="button" onPointerDown={event => { event.preventDefault(); onChange(""); setOpen(false); setSearch(""); }}>
           {isCustomer ? tr("بيع تقسيمات مباشر") : tr("شراء زجاج مباشر")}</button>}
-        {visible.map(party => <button type="button" key={party.id} onClick={() => { onChange(party.id); setOpen(false); setSearch(""); }}>
+        {visible.map(party => <button type="button" key={party.id} onPointerDown={event => { event.preventDefault(); onChange(party.id); setOpen(false); setSearch(""); }}>
           {party.name}{party.phone ? <small dir="ltr">{party.phone}</small> : null}</button>)}
         {!visible.length && <div className="combobox-empty">{tr("لا توجد نتائج")}</div>}
-        </div></div>}
+        </div></div>, document.body)}
     </div></div>
     {canCreate && <button ref={buttonRef} type="button" className="pos-quick-customer-button"
       aria-label={isCustomer ? tr("إضافة العميل") : tr("إضافة المورد")}

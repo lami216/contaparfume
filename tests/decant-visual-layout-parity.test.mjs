@@ -52,3 +52,27 @@ test("management uses form-first workflow, readable reconciliations and full-wid
   assert.match(css, /grid-template-areas:\s*"split"\s*"bottles"\s*"batches"\s*"reconciliation"/);
   assert.match(css, /\.perfume-reconciliation-form \{\s*gap: 10px/);
 });
+
+test("specialized sale inherits POS green and purchase inherits ordinary purchase blue at the app-shell level", async () => {
+  const [globalCss, perfumeCss, hub] = await Promise.all([
+    source("app/globals.css"), source("app/perfume-ui-fixes.css"),
+    source("app/decant-invoices-page.tsx"),
+  ]);
+  assert.match(globalCss, /--color-sales:\s*#087f6f/);
+  assert.match(globalCss, /--color-invoices:\s*#2563a9/);
+  assert.match(perfumeCss, /\.section-decantInvoices:has\(\.decant-sale-workspace\)\s*\{\s*--section-color:\s*var\(--color-sales/);
+  assert.match(perfumeCss, /\.section-decantInvoices:has\(\.decant-purchase-workspace\)\s*\{\s*--section-color:\s*var\(--color-invoices/);
+  assert.match(perfumeCss, /\.decant-invoices-hub-body:not\(\.management\)\s*>\s*\.decant-transaction-page\s*\{[\s\S]*?border:\s*2px solid color-mix/);
+  assert.match(hub, /<DecantSaleInvoice/);
+  assert.match(hub, /<DecantBottlePurchaseInvoice/);
+});
+
+test("specialized invoice party searches open above clipped checkout content", async () => {
+  const invoices = await source("app/perfume-invoices.tsx");
+  const picker = invoices.slice(invoices.indexOf("function InvoicePartyPicker"), invoices.indexOf("function InvoiceHistory"));
+  assert.match(picker, /popoverRef/);
+  assert.match(picker, /position:\s*"fixed", zIndex:\s*1000/);
+  assert.match(picker, /createPortal\(<div ref=\{popoverRef\}/);
+  assert.match(picker, /document\.body\)/);
+  assert.match(picker, /popoverRef\.current\?\.contains\(target\)/);
+});

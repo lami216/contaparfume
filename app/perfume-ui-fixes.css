@@ -7,6 +7,28 @@
   --section-soft: #e9f1fb;
 }
 
+/* Invoice identity follows the active specialized document family.
+   Adding pos-workspace to a child never changed the parent app-shell theme:
+   --section-color is defined on the section view itself. */
+.section-decantInvoices:has(.decant-sale-workspace) {
+  --section-color: var(--color-sales, #087f6f);
+  --section-soft: #e6f5f2;
+}
+.section-decantInvoices:has(.decant-purchase-workspace) {
+  --section-color: var(--color-invoices, #2563a9);
+  --section-soft: #e9f1fb;
+}
+
+/* Standard POS/purchase screens get the colored outer frame from
+   .content > section. The decant hub is a div with its own tab bar, so apply
+   that exact frame to the invoice area below the tabs, not the mode bar. */
+.decant-invoices-hub-body:not(.management) > .decant-transaction-page {
+  box-sizing: border-box;
+  border: 2px solid color-mix(in srgb, var(--section-color) 62%, var(--border));
+  border-radius: 14px;
+  background: #f7f9fb;
+}
+
 .decant-invoices-hub {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
