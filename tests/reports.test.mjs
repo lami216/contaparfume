@@ -157,3 +157,19 @@ test("overview breakdown rows reconcile every period KPI and net profit exactly"
   assert.equal(report.overviewDetails.salesProfit.reduce((total,row)=>total+row.profit,0)-sum(report.overviewDetails.expenses),report.summary.netOperatingResult);
   assert.ok(report.overviewDetails.sales.some(row=>row.kind==="return"&&row.value<0));
 });
+
+
+test("party ledger preserves supplier cash direction and exposes saved note without changing legacy rows",async()=>{
+  await db.collection("parties").insertOne({id:"s",name:"Supplier",partyType:"supplier",receivable:0,payable:0});
+  await db.collection("documents").insertMany([
+    doc("supplier-pay","payment","2026-08-10",[],{partyId:"s",total:50,partyCashDirection:"pay",title:"دفع للطرف",note:"دفعة فاتورة أغسطس"}),
+    doc("supplier-receive","payment","2026-08-11",[],{partyId:"s",total:10,partyCashDirection:"receive",title:"استلام من الطرف",note:"إرجاع مبلغ زائد"}),
+    doc("legacy-pay","payment","2026-08-12",[],{partyId:"s",total:20,title:"سداد قديم"}),
+  ]);
+  const report=await buildReport(db,filters("party-ledger",{partyId:"s"})),byId=new Map(report.rows.map(row=>[row.id,row]));
+  assert.equal(byId.get("supplier-pay").description,"دفع للطرف — دفعة فاتورة أغسطس");
+  assert.equal(byId.get("supplier-receive").description,"استلام من الطرف — إرجاع مبلغ زائد");
+  assert.equal(byId.get("legacy-pay").description,"سداد قديم");
+  assert.equal(byId.get("supplier-pay").movementType,"دفع للمورد");
+  assert.equal(byId.get("supplier-receive").movementType,"استلام من المورد");
+});

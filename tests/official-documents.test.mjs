@@ -5,3 +5,11 @@ test("branding defaults and strict validation",()=>{assert.deepEqual(DEFAULT_INV
 test("official presentations preserve operation language",()=>{for(const label of ["فاتورة بيع","فاتورة شراء","سند مصروف","سند قبض","سند صرف","سند مقاصة","تسوية حساب","سند تحويل مخزون","سند تصحيح مخزون","سند تحويل بين الحسابات","سند إيداع","سند سحب","سند تصحيح رصيد"])assert.ok(app.includes(label),label);assert.match(app,/function OfficialRecordSheet/);assert.match(app,/buildDocumentPresentation/);assert.match(app,/buildFinancialPresentation/)});
 test("legacy invoice presentation treats dueTotal as the already-remaining amount",()=>{assert.match(app,/const remaining=Math\.max\(0,record\.dueTotal\)/);assert.doesNotMatch(app,/dueTotal-record\.paidTotal/)});
 test("document print is a body portal with display isolation",()=>{assert.match(app,/createPortal\(<div className="document-print-portal"/);assert.match(css,/body>\*\{display:none!important\}/);assert.doesNotMatch(css,/print-document-mode[^}]*visibility\s*:\s*hidden/);assert.match(css,/@page invoice\{size:A4 portrait/);assert.match(css,/thead\{display:table-header-group\}/);assert.match(css,/\.reports-workspace\{page:report\}/)});
+
+test("very long party cash notes stay inside document metadata in previews and print",()=>{
+  assert.match(app,/className=\{label===tr\("ملاحظة"\)\?"official-record-meta-note":undefined\}/);
+  assert.match(css,/\.official-record-meta\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(css,/\.official-record-meta b\{[^}]*min-width:0;[^}]*overflow-wrap:anywhere;[^}]*white-space:pre-wrap/);
+  assert.match(css,/\.official-record-meta \.official-record-meta-note\{grid-column:1\/-1\}/);
+  assert.match(css,/html\.print-document-mode \.official-record-sheet\{[^}]*width:100%/);
+});
