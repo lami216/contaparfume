@@ -139,6 +139,7 @@ export interface DocumentRecord {
   toAccountId?: string | null;
   status: string;
   title: string | null;
+  note?: string | null;
   /** Opening-stock audit metadata for initial balances and later corrections. */
   openingCorrection?: boolean;
   openingStockBefore?: number | null;
@@ -319,9 +320,16 @@ export const kindLabels: Record<DocumentKind, string> = {
   "account-transfer": "تحويل بين الحسابات",
   "account-adjustment": "سحب / إيداع",
 };
+/** Show a saved payment's actual direction, without guessing for legacy records. */
+export function documentKindLabel(document: Pick<DocumentRecord, "kind" | "partyCashDirection">, partyType?: PartyType): string {
+  if (document.kind !== "payment" || !document.partyCashDirection) return kindLabels[document.kind];
+  if (partyType === "supplier") return document.partyCashDirection === "receive" ? "استلام من المورد" : "دفع للمورد";
+  if (partyType === "customer") return document.partyCashDirection === "receive" ? "استلام من العميل" : "دفع للعميل";
+  return document.partyCashDirection === "receive" ? "استلام من الطرف" : "دفع للطرف";
+}
 /** Current document kinds offered by user-facing filters. */
 export const visibleDocumentKindLabels = Object.fromEntries(
-  Object.entries(kindLabels).filter(([kind]) => kind !== "return"),
+  Object.entries(kindLabels).filter(([kind]) => kind !== "return").map(([kind, label]) => [kind, kind === "payment" ? "دفع واستلام" : label]),
 ) as Partial<Record<DocumentKind, string>>;
 export function western(value: number | string) {
   return String(value)
