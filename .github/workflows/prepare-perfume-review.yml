@@ -1,0 +1,37 @@
+name: Prepare isolated perfume review
+on:
+  push:
+    branches: [repair/perfume-workspace-native-backup]
+    paths: [.github/workflows/prepare-perfume-review.yml]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    if: github.repository == 'lami216/contaparfume'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22.16.0'
+      - name: Prepare source and locked dependencies without install scripts
+        run: |
+          npm ci --ignore-scripts
+          mkdir -p review-export
+          git archive --format=tar.gz HEAD > review-export/perfume-source.tar.gz
+          git ls-tree -r HEAD > review-export/perfume-tree.txt
+          tar czf review-export/test-dependencies.tar.gz node_modules
+          git clone --no-checkout --depth 1 --branch repair/native-windows-backup https://github.com/lami216/offline-conta.git /tmp/offline-source
+          test "$(git -C /tmp/offline-source rev-parse HEAD)" = 'd85ca436446b48e975ace9461eda6a9365f686ec'
+          git -C /tmp/offline-source archive --format=tar.gz HEAD > review-export/offline-native-source.tar.gz
+          sha256sum review-export/*.tar.gz > review-export/SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: perfume-review-source
+          path: review-export/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
