@@ -70,7 +70,7 @@ export default function PerfumeDivisions({ data, run, openDoc, editRequest, clea
     if(kind==="opening")valid=valid&&!!source&&good("quantity",true)&&good("remainingValue")&&good("salePrice");
     if(kind==="recombine")valid=valid&&!!selectedBatch&&good("salePrice");
     if(kind==="consumption"||kind==="yield-correction")valid=valid&&!!selectedBatch&&!!text("reason").trim()&&good(kind==="consumption"?"quantity":"actualQuantity",true,kind==="yield-correction")&&(kind!=="consumption"||!values.consumeBottle||!!text("bottleProductId"));
-    if(kind==="bottle-stock")valid=valid&&!!selectedBottle&&good("actualQuantity",true,true)&&!!text("reason").trim()&&(!(n("actualQuantity")>stockInWarehouse(selectedBottle!,warehouseId))||good("cost"));
+    if(kind==="bottle-stock")valid=valid&&!!selectedBottle&&good("actualQuantity",true,true)&&!!text("reason").trim();
     if(!valid)setError(tr("pm.invalid"));return valid;
   }
   async function save(){
@@ -111,7 +111,7 @@ export default function PerfumeDivisions({ data, run, openDoc, editRequest, clea
           {["split","opening","recombine"].includes(kind)&&field("salePrice",tr(kind==="recombine"?"سعر بيع العطر الناقص":"سعر البيع للتقسيمة"))}
           {["recombine","consumption","yield-correction"].includes(kind)&&selectBatch}
           {kind==="bottle"&&<>{field("name",tr("اسم الزجاجة"),{type:"text"})}{field("sizeMl",tr("الحجم (ml)"))}{field("cost",tr("التكلفة المرجعية"))}<p className="pm-hint">{tr("pm.bottleHelp")}</p></>}
-          {kind==="bottle-stock"&&<>{selectBottle}{field("actualQuantity",tr("pm.actual"),{integer:true,zero:true})}{field("cost",tr("pm.addedCost"),{zero:true})}<p className="pm-hint">{tr("pm.stockHelp")}</p></>}
+          {kind==="bottle-stock"&&<>{selectBottle}{field("actualQuantity",tr("pm.actual"),{integer:true,zero:true})}<p className="pm-hint">{tr("pm.stockHelp")}</p><p className="pm-hint">{tr("pm.addedCost")}: {selectedBottle?.lastPurchaseCost!=null?money(selectedBottle.lastPurchaseCost):"—"}</p></>}
           {kind==="opening"&&<>{field("quantity",tr("pm.actual"),{integer:true})}{field("remainingValue",tr("pm.remainingValue"))}<p className="pm-hint">{tr("pm.openingHelp")}</p></>}
           {kind==="consumption"&&<>{field("quantity",tr("pm.quantityOut"),{integer:true})}<label>{tr("pm.reasonCode")}<select value={text("reasonCode")} onChange={e=>set("reasonCode",e.target.value)}>{["samples","waste","leak","internal","stock-difference","other"].map(r=><option value={r} key={r}>{tr(`pm.reason.${r}`)}</option>)}</select></label><label className="pm-check"><input type="checkbox" checked={values.consumeBottle===true} onChange={e=>set("consumeBottle",e.target.checked)}/>{tr("pm.consumeBottle")}</label>{values.consumeBottle&&selectBottle}</>}
           {kind==="yield-correction"&&<>{field("actualQuantity",tr("pm.actual"),{integer:true,zero:true})}<p className="pm-hint">{tr("pm.correctHelp")}</p></>}

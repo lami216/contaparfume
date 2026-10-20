@@ -20,9 +20,11 @@ All management writes run in the existing SQLite command transaction and HTTP id
 | Consumption/waste | Decrease lot, record inventory loss, optional bottle use | Reverse exact snapshot, linked replacement | Restore liquid and consumed bottle, once | Noncash loss and original snapshots retained | Changed lots rejected; failed edits roll back all writes; lifecycle/reconciliation tests |
 | Yield correction | Change remaining units while preserving book value | Reverse exact snapshot, linked replacement | Restore previous quantity and unit cost | Book value before/after shown in document | Refuse changed lots and valued zeroing; reconciliation tests |
 | Bottle definition | Metadata document with no financial entry | Before/after metadata and linked document | Archive only at zero stock; restore creates another history entry | Invoice description and purchase/sale costs stay historical | Stale product snapshot rejected; stock blocks archive; definition lifecycle tests |
-| Bottle quantity | Dedicated correction delegates to validated stock command | Reverse and post linked replacement | Existing stock reversal guards, no physical document deletion | Correction and reversal movements remain | Requires an established warehouse entry; reject insufficient inverse stock; bottle lifecycle tests |
+| Bottle quantity | Dedicated correction delegates to validated stock command at authoritative purchase/opening cost | Reverse and post linked replacement | Existing stock reversal guards, no physical document deletion | Correction, historical unit cost and reversal movements remain | Requires an established warehouse entry; reject insufficient inverse stock after consumption; explicit edit/dependency lifecycle test |
 
 The model counts equal liquid divisions as integer units. Bottle capacity alone is measured in ml; this change does not reinterpret existing lot quantities as ml.
+
+Bottle stock correction displays its validated unit cost as read-only. It does not offer an editable price that the underlying quantity-only command would ignore. Explicit opening/yield revision tests preserve the unsold liquid book value; bottle-stock revision tests verify historical cost, downstream-sale rejection and full safe cancellation after reversing the sale.
 
 ## Opening-account correction failure
 
@@ -38,7 +40,7 @@ The old guard ordered equal timestamps by a random UUID. A deterministic test fi
 
 ## Validation and release
 
-Local verification on Windows / Node 22: 649 tests passed; the original opening-correction regression also passed ten separate repeated runs. TypeScript and the production build passed; lint reported zero errors and 16 warnings. The production dependency audit reported zero vulnerabilities.
+Local verification on Windows / Node 22: 651 tests passed; the original opening-correction regression also passed ten separate repeated runs. TypeScript and the production build passed; lint reported zero errors and 16 warnings. The production dependency audit reported zero vulnerabilities.
 
 The actual Arabic RTL and French LTR management screens were checked at 1280×720, with a second French check at the desktop minimum 1100×700. Testing exposed inherited global header/table styles; scoped overrides remove truncation, widen warehouse/batch fields, and stack the workspace below 1200px. French UI creation and editing of a test bottle produced linked current/prior documents. The document viewer displayed state, previous reference and before/after book values. All UI data was separate disposable SQLite data; a local-only license-status fixture was used for UI rendering, with no changes to shipped license enforcement.
 

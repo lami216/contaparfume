@@ -44,6 +44,10 @@ export function translateApiError(locale: Locale, message: string): string {
   if (insufficientBalance) return `Solde insuffisant sur ${insufficientBalance[1]}`;
   const insufficientStock = message.match(/^المخزون غير كافٍ للمنتج (.+)$/);
   if (insufficientStock) return `Stock insuffisant pour ${insufficientStock[1]}`;
+  const missingStockCost = message.match(/^لا يمكن زيادة مخزون المنتج (.+) بالتصحيح لأنه لا يملك رصيد بداية أو فاتورة شراء قائمة تحدد تكلفته\.$/);
+  if (missingStockCost) return `Impossible d’augmenter le stock de ${missingStockCost[1]} : enregistrez d’abord un achat ou un solde initial valide.`;
+  const missingWarehouseEntry = message.match(/^لا يمكن تصحيح مخزون المنتج (.+) في هذا المخزن قبل دخوله إليه عبر رصيد بداية أو شراء أو تحويل مخزون\.$/);
+  if (missingWarehouseEntry) return `Enregistrez d’abord une entrée de ${missingWarehouseEntry[1]} dans ce dépôt par achat, solde initial ou transfert.`;
   console.error("Unmapped API error", message);
   return "Une erreur est survenue. Veuillez réessayer.";
 }

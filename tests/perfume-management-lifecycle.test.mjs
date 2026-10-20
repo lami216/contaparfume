@@ -180,3 +180,48 @@ test('HTTP management commands enforce permissions and idempotency; history reta
  assert.equal(list.status,200);
  assert.match(JSON.stringify(await list.json()),/voided/);
 });
+
+test('opening and yield edits preserve linked revisions and the unsold liquid book value',async t=>{
+ const {db,cmd,doc,product}=await setup(t);
+ const input={sourceProductId:'source',warehouseId:'w',quantity:8,remainingValue:800,salePrice:150};
+ const first=await cmd({...input,type:'perfume-opening.post'});
+ const next=await cmd({...input,type:'perfume-management.update',documentId:first,expectedRevision:0,quantity:10,remainingValue:1000});
+ assert.equal((await doc(first)).replacedByDocumentId,next);
+ const opening=await doc(next),p=await product(opening.decantProductId);
+ assert.deepEqual([p.stocks.w,p.perfumeLots[0].liquidUnitCost],[10,100]);
+ const correction={decantProductId:p.id,lotId:opening.perfumeLotId,warehouseId:'w',reason:'recount'};
+ const oldYield=await cmd({...correction,type:'perfume-lot-correct.post',actualQuantity:12});
+ const newYield=await cmd({...correction,type:'perfume-management.update',documentId:oldYield,expectedRevision:0,actualQuantity:11});
+ const revised=await product(p.id),lot=revised.perfumeLots[0];
+ assert.equal(revised.stocks.w,11);assert.ok(Math.abs(lot.remainingQuantity*lot.liquidUnitCost-1000)<1e-9);
+ assert.equal((await doc(oldYield)).replacedByDocumentId,newYield);
+ assert.equal((await doc(newYield)).replacesDocumentId,oldYield);
+ await cmd({type:'perfume-management.void',documentId:newYield,expectedRevision:1});
+ assert.deepEqual([(await product(p.id)).stocks.w,(await product(p.id)).perfumeLots[0].liquidUnitCost],[10,100]);
+ await cmd({type:'perfume-management.void',documentId:next,expectedRevision:1});
+ assert.equal((await product('source')).stocks.w,5);
+ assert.equal(await db.collection('financialMovements').countDocuments(),0);
+});
+
+test('bottle quantity edits use historical cost and refuse reversal after added stock is consumed',async t=>{
+ const {db,cmd,doc,product}=await setup(t);
+ const id=await cmd({type:'perfume-bottle.create',name:'Glass',sizeMl:10,cost:5});
+ const purchase=await cmd({type:'decant-purchase.post',paymentMethod:'cash',cashAmount:60,lines:[{productId:id,quantity:10,unitPrice:6}]});
+ const purchaseBefore=await doc(purchase);
+ const input={bottleProductId:id,warehouseId:'w',reason:'counted',cost:999};
+ const first=await cmd({...input,type:'perfume-bottle-stock.post',actualQuantity:12});
+ const next=await cmd({...input,type:'perfume-management.update',documentId:first,expectedRevision:0,actualQuantity:13});
+ assert.equal((await product(id)).stocks.w,13);
+ assert.equal((await doc(first)).replacedByDocumentId,next);
+ assert.equal((await doc(next)).lines[0].unitPrice,6);
+ assert.equal((await doc(next)).managementInput.cost,6);
+ const sale=await cmd({type:'decant-sale.post',paymentMethod:'cash',cashAmount:120,lines:[{productId:id,quantity:12,unitPrice:10}]});
+ await assert.rejects(cmd({type:'perfume-management.void',documentId:next}),/تم التصرف فيه/);
+ assert.equal((await product(id)).stocks.w,1);assert.equal((await doc(next)).status,'posted');
+ await cmd({type:'decant-sale.void',documentId:sale});
+ await cmd({type:'perfume-management.void',documentId:next,expectedRevision:1});
+ assert.equal((await product(id)).stocks.w,10);
+ assert.deepEqual(await doc(purchase),purchaseBefore);
+ assert.equal((await product(id)).lastPurchaseCost,6);
+ assert.equal(await db.collection('financialMovements').countDocuments({documentId:next}),0);
+});

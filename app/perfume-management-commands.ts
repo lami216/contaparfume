@@ -62,7 +62,9 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
       const p=await product(input.bottleProductId);if(p.perfumeForm!=="bottle"||p.isArchived)throw fail("اختر زجاجة نشطة",400);
       const actual=Number(input.actualQuantity);if(!Number.isSafeInteger(actual)||actual<0)throw fail("الكمية الفعلية غير صالحة",400);
       if(!String(input.reason??"").trim())throw fail("سبب التصحيح مطلوب",400);
-      result=await core(db,session,{type:"adjustment.post",warehouseId:input.warehouseId,reason:input.reason,lines:[{productId:p.id,actualQuantity:actual,purchaseCost:actual>Number((p.stocks as Row??{})[String(input.warehouseId)]??0)?positive(input.cost,"قيمة وحدة الزجاج"):null}]});
+      // Quantity corrections use the existing authoritative purchase/opening
+      // cost. A catalog reference price is not a new inventory valuation.
+      result=await core(db,session,{type:"adjustment.post",warehouseId:input.warehouseId,reason:input.reason,lines:[{productId:p.id,actualQuantity:actual}]});
     }else result=await base(db,session,payload);
     if(postKind==="bottle"){
       const p=await product(result);const d=await definition(p,cleanInput(input),null);return {result,documentId:d.id};
@@ -78,7 +80,10 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     if(postKind==="recombine"){
       const p=await product(input.decantProductId);Object.assign(added,{decantProductId:String(p.id),perfumeLotId:String(input.lotId),partialProductId:String(result),perfumeLotBefore:previousLot,perfumeLotAfter:lotsOf(p).find(l=>l.id===input.lotId)});
     }
-    if(postKind==="bottle-stock")added.managementProductId=String(input.bottleProductId);
+    if(postKind==="bottle-stock"){
+      added.managementProductId=String(input.bottleProductId);
+      added.managementInput={...cleanInput(input),cost:rows(d.lines)[0]?.unitPrice??null};
+    }
     await documents.updateOne({id:d.id},{$set:added},{session});return {result,documentId:String(d.id)};
   }
   async function undo(d:Row) {
