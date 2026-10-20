@@ -1,6 +1,6 @@
 "use client";
 import { selectLatestOpeningCorrection } from "./opening-correction-order";
-import { Fragment, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref } from "react";
+import { Fragment, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { SortableTableHeader, compareTableValues, sortTableRows, useSortableRows, type TableValueType } from "./table-sorting";
 import {
@@ -235,7 +235,15 @@ function PermissionNavItem({allowed,active,onClick,className="",children}:{allow
   return <button disabled={!allowed} aria-disabled={!allowed?"true":undefined} title={!allowed?tr(NO_ACCESS_TITLE):undefined} className={`${className}${allowed&&active?`${className?" ":""}active`:""}`} onClick={onClick}>{children}</button>;
 }
 
-export default function ContaApp(){return <ConfirmationProvider><ContaAppContent/></ConfirmationProvider>}
+const subscribeClientReady=()=>()=>{};
+const clientReady=()=>true;
+const serverReady=()=>false;
+export default function ContaApp(){
+  const ready=useSyncExternalStore(subscribeClientReady,clientReady,serverReady),{t,dir}=useI18n();
+  // Legacy tr() reads the browser document locale. Mount that workspace only
+  // after hydration; the shared server/client placeholder uses provider locale.
+  return ready?<ConfirmationProvider><ContaAppContent/></ConfirmationProvider>:<div className="loading-line" role="status" dir={dir}>{t("جاري تحميل السجلات…")}</div>;
+}
 function ContaAppContent() {
   useHoverEnterActivation();
   const {locale,dir,setLocale,formatDate:localizedDate}=useI18n();
