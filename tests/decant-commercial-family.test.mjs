@@ -61,31 +61,23 @@ test("new decant invoices use the default sales warehouse and edits preserve the
   assert.match(commands, /existing\s*\? warehouses\(db\)\.findOne\(\{ _id: String\(existing\.warehouseId\) \}/);
 });
 
-test("management keeps conversion and bottle creation together while tables and reconciliation take full width", async () => {
-  const [css, ui] = await Promise.all([
-    source("app/perfume-ui-fixes.css"),
-    source("app/perfume-divisions.tsx"),
-  ]);
-  assert.match(css, /Management layout refresh/);
-  assert.match(css, /grid-template-areas:\s*"split bottles"\s*"batches batches"\s*"reconciliation reconciliation"/s);
-  assert.match(css, /\.decant-invoices-hub-body\.management \{\s*overflow-x:\s*hidden;\s*overflow-y:\s*auto/s);
-  assert.match(css, /\.decant-invoices-hub-body\.management \.perfume-reconciliation-grid \{\s*display:\s*grid;\s*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/s);
-  assert.match(css, /grid-template-areas:\s*"split"\s*"bottles"\s*"batches"\s*"reconciliation"/s);
-  assert.match(css, /\.perfume-batches-table \{ min-width: 660px; \}/);
-  assert.match(css, /\.perfume-bottles-table \{ min-width: 780px; \}/);
-  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.perfume-reconciliation-grid \{\s*grid-template-columns: minmax\(0, 1fr\)/);
-  const cardNames = ["perfume-split-card", "perfume-bottles-card", "perfume-batches-card", "perfume-reconciliation-card"];
-  const positions = cardNames.map(name => ui.indexOf(`className="perfume-divisions-card ${name}"`));
-  assert.ok(positions.every(position => position >= 0));
-  assert.deepEqual([...positions].sort((a, b) => a - b), positions, "keyboard order matches the visible desktop and mobile order");
-  assert.doesNotMatch(css, /grid-template-areas:\s*"split reconciliation"\s*"bottles batches"/s);
+test("management separates tasks and keeps forms before their scrollable registers", async () => {
+  const [css, ui] = await Promise.all([source("app/perfume-ui-fixes.css"), source("app/perfume-divisions.tsx")]);
+  assert.match(ui, /"convert","stock","bottles","history"/);
+  assert.match(ui, /className="panel pm-editor"/);
+  assert.match(ui, /className="panel pm-register"/);
+  assert.ok(ui.indexOf('className="panel pm-editor"') < ui.indexOf('className="panel pm-register"'));
+  assert.match(css, /\.perfume-management-page \.pm-workspace[^}]*grid-template-columns/);
+  assert.match(css, /\.perfume-management-page \.pm-table-scroll[^}]*overflow: auto/);
+  assert.match(css, /@media \(max-width: 1080px\)[^}]*grid-template-columns: minmax\(0,1fr\)/);
+  assert.match(ui, /canManage/);
 });
 
 
 test("special sale and purchase invoices reuse the ordinary quick-browse and new-party controls", async () => {
-  const [invoices, hub, app, css] = await Promise.all([
+  const [invoices, hub, app] = await Promise.all([
     source("app/perfume-invoices.tsx"), source("app/decant-invoices-page.tsx"),
-    source("app/conta-app.tsx"), source("app/perfume-ui-fixes.css"),
+    source("app/conta-app.tsx"),
   ]);
   assert.match(invoices, /function InvoicePartyPicker/);
   assert.match(invoices, /function QuickInvoiceParty/);

@@ -9,3 +9,5 @@ contextBridge.exposeInMainWorld('alkarnaPrinting', {
   pdf: options => ipcRenderer.invoke('alkarna:printing:pdf', options),
   saveExport: options => ipcRenderer.invoke('alkarna:export:save', options),
 });
+
+contextBridge.exposeInMainWorld('alkarnaBackup', { save: () => ipcRenderer.invoke('alkarna:backup:save') });

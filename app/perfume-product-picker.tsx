@@ -55,7 +55,7 @@ export default function PerfumeProductPicker({ items, value, onChange, placehold
         onFocus={event => {
           setQuery(selected?.name ?? "");
           setOpen(true);
-          if (selected) window.requestAnimationFrame(() => event.currentTarget.select());
+          if (selected) { const input = event.currentTarget; window.requestAnimationFrame(() => { if (input.isConnected) input.select(); }); }
         }}
         onChange={event => {
           setQuery(event.target.value);
@@ -63,7 +63,7 @@ export default function PerfumeProductPicker({ items, value, onChange, placehold
           setOpen(true);
         }}
         onKeyDown={event => {
-          if (event.key === "Escape") { setOpen(false); event.currentTarget.blur(); }
+          if (event.key === "Escape") { event.preventDefault(); setOpen(false); event.currentTarget.blur(); }
           if (event.key === "Enter") {
             const first = filtered.find(item => !item.disabled);
             if (first) { event.preventDefault(); choose(first.id); }

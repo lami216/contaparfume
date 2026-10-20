@@ -199,6 +199,6 @@ export function reversePerfumeLotTransfer(lots: PerfumeLot[], fromWarehouseId: s
 
 export function perfumeLotEquals(a: PerfumeLot, b: PerfumeLot) {
   const normalizeStocks = (stocks: Record<string, number> | undefined) =>
-    Object.fromEntries(Object.entries(stocks ?? {}).sort(([left], [right]) => left.localeCompare(right)));
+    Object.fromEntries(Object.entries(stocks ?? {}).filter(([, value]) => Number(value) !== 0).sort(([left], [right]) => left.localeCompare(right)));
   return JSON.stringify({ ...a, stocks: normalizeStocks(a.stocks) }) === JSON.stringify({ ...b, stocks: normalizeStocks(b.stocks) });
 }

@@ -5,6 +5,7 @@ import { log } from "../../../lib/log.ts";
 import { getPrincipalFromRequest, hasCapability, requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
 import { PerfumeInvoiceCommandError } from "../../perfume-invoice-commands.ts";
 import { resolvePartyType } from "../../domain.ts";
+import { handlePerfumeManagementCommand } from "../../perfume-management-commands.ts";
 import { execute as executeBaseCommand } from "./base-route.ts";
 import { execute as executeCoreCommand } from "./core-route.ts";
 
@@ -15,6 +16,8 @@ const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 
 export async function execute(db: Db, session: ClientSession, body: Input) {
   const type = text(body.type);
+  const management = await handlePerfumeManagementCommand(db, session, body, executeBaseCommand, executeCoreCommand);
+  if (management.handled) return management.result;
   if (type === "product-category.create" || type === "product-category.update") {
     const categoryId = text(body.id), name = text(body.name);
     if (!name) throw new CommandError("اسم الفئة مطلوب");
@@ -57,6 +60,7 @@ export async function POST(request: Request) {
       "product-category.create":"products.create","product-category.update":"products.edit","product-category.delete":"products.delete",
       "warehouse.create":"warehouses.create","warehouse.update":"warehouses.edit","warehouse.default":"warehouses.edit","warehouse.delete":"warehouses.delete",
       "sale.post":"pos.create","sale.update":"pos.edit","sale.void":"pos.delete","purchase.post":"purchases.create","purchase.update":"purchases.edit","purchase.void":"purchases.delete",
+      "perfume-management.update":"perfume.divisions.manage","perfume-management.void":"perfume.divisions.manage","perfume-bottle-stock.post":"perfume.divisions.manage","perfume-bottle.update":"perfume.divisions.manage","perfume-bottle.archive":"perfume.divisions.manage","perfume-bottle.restore":"perfume.divisions.manage",
       "perfume-bottle.create":"perfume.divisions.manage","decant-sale.post":"perfume.divisions.manage","decant-sale.update":"perfume.divisions.manage","decant-sale.void":"perfume.divisions.manage","decant-purchase.post":"perfume.divisions.manage","decant-purchase.update":"perfume.divisions.manage","decant-purchase.void":"perfume.divisions.manage","perfume-split.post":"perfume.divisions.manage","perfume-recombine.post":"perfume.divisions.manage","perfume-opening.post":"perfume.divisions.manage","perfume-lot-consume.post":"perfume.divisions.manage","perfume-lot-correct.post":"perfume.divisions.manage","perfume-stock-operation.void":"perfume.divisions.manage",
       "transfer.post":"warehouses.transfer","transfer.update":"warehouses.transfer.edit","transfer.void":"warehouses.transfer.delete",
       "adjustment.post":"warehouses.adjust","adjustment.update":"warehouses.adjust.edit","adjustment.void":"warehouses.adjust.delete",

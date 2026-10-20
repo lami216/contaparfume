@@ -1635,3 +1635,45 @@
     max-width: none;
   }
 }
+
+/* Management workspace: one task at a time, ordinary ERP forms and tables.
+   Only this namespace is changed; sale and purchase invoice geometry is untouched. */
+.decant-invoices-hub-body.management .perfume-divisions-page.perfume-management-page {
+  display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0;
+  height: auto; padding: 12px; grid-template-areas: none;
+}
+.perfume-management-page .pm-header { display: flex; align-items: start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.perfume-management-page :is(h2,h3,p) { margin: 0; }
+.perfume-management-page h2 { font-size: 18px; }
+.perfume-management-page h3 { font-size: 14px; }
+.perfume-management-page .pm-header p { color: var(--muted); font-size: 12px; margin-block-start: 5px; }
+.perfume-management-page .pm-overview { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 12px; }
+.perfume-management-page :is(.pm-tabs,.pm-kind-tabs,.pm-row-actions,.pm-form-actions) { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.perfume-management-page .pm-tabs { width: 100%; max-width: none; align-self: stretch; border-block-end: 1px solid var(--border); padding-block-end: 10px; }
+.perfume-management-page .pm-tabs button { flex: 1 1 140px; }
+.perfume-management-page .pm-workspace { display: grid; grid-template-columns: minmax(320px, .8fr) minmax(0, 1.2fr); gap: 12px; align-items: start; min-width: 0; }
+.perfume-management-page :is(.pm-editor,.pm-register,.pm-history) { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 14px; }
+.perfume-management-page .pm-section-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.perfume-management-page .pm-section-head h3 { margin-inline-end: auto; }
+.perfume-management-page .pm-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start; gap: 10px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.perfume-management-page label { display: grid; gap: 5px; font-size: 12px; min-width: 0; }
+.perfume-management-page :is(input,select,textarea) { box-sizing: border-box; max-width: 100%; min-width: 0; width: 100%; min-height: 34px; font: inherit; }
+.perfume-management-page :is(input,select,textarea,button) { border-radius: 6px; }
+.perfume-management-page .pm-check { display: flex; align-items: center; gap: 6px; }
+.perfume-management-page .pm-check input { width: auto; min-height: auto; }
+.perfume-management-page :is(.pm-wide,.pm-hint) { grid-column: 1 / -1; }
+.perfume-management-page .pm-hint { color: var(--muted); font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.perfume-management-page .pm-summary { display: flex; gap: 8px 14px; flex-wrap: wrap; padding: 10px; background: var(--section-soft); border: 1px solid var(--border); font-size: 12px; border-radius: 6px; }
+.perfume-management-page .pm-summary small { width: 100%; color: var(--muted); }
+.perfume-management-page .pm-table-scroll { overflow: auto; max-height: min(56vh, 600px); min-height: 180px; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.perfume-management-page .pm-table-scroll table { width: 100%; border-collapse: collapse; }
+.perfume-management-page .pm-table-scroll th { position: sticky; top: 0; z-index: 1; background: var(--section-soft); color: var(--ink); }
+.perfume-management-page .pm-table-scroll :is(td,th) { padding: 9px 7px; text-align: start; vertical-align: top; }
+.perfume-management-page .pm-table-scroll td { overflow-wrap: anywhere; }
+.perfume-management-page .pm-table-scroll td small { display: block; margin-block-start: 4px; color: var(--muted); font-size: 10px; }
+.perfume-management-page .pm-row-actions button { padding: 5px 8px; font-size: 11px; min-height: 30px; white-space: nowrap; }
+.perfume-management-page .pm-note { max-width: 230px; white-space: pre-wrap; }
+.perfume-management-page .pm-form-actions { border-block-start: 1px solid var(--border); padding-block-start: 12px; }
+.perfume-management-page .perfume-local-error { flex: 0 0 auto; }
+@media (max-width: 1080px) { .perfume-management-page .pm-workspace { grid-template-columns: minmax(0,1fr); } }
+@media (max-width: 600px) { .perfume-management-page .pm-fields { grid-template-columns: minmax(0,1fr); } .perfume-management-page .pm-tabs button { flex-basis: 45%; } }

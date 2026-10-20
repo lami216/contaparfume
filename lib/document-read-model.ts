@@ -1,3 +1,5 @@
+import { managementKind } from "../app/perfume-management.ts";
+
 export type ReadModelDocument = Record<string, unknown> & {
   kind?: unknown;
   status?: unknown;
@@ -41,11 +43,12 @@ export function isOperationalDocument(document: ReadModelDocument) {
 /** Coarse kind authorization, used before historical queries expose a kind. */
 export function canReadDocumentKind(kind: string, access: Pick<DocumentReadAccess, "can">) {
   if (access.can("records.view")) return true;
+  if (["decant-sale", "decant-purchase"].includes(kind)) return access.can("perfume.divisions.view") || access.can("perfume.divisions.manage");
   if (kind === "sale") return canAny(access.can, saleAccess) || canAny(access.can, customerAccess);
   if (kind === "purchase") return canAny(access.can, purchaseAccess) || canAny(access.can, supplierAccess);
   if (kind === "expense") return canAny(access.can, expenseAccess);
   if (kind === "transfer") return canAny(access.can, transferAccess);
-  if (kind === "adjustment") return canAny(access.can, adjustmentAccess);
+  if (kind === "adjustment") return canAny(access.can, adjustmentAccess) || access.can("perfume.divisions.view") || access.can("perfume.divisions.manage");
   if (kind === "account-transfer") return canAny(access.can, accountTransferAccess);
   if (kind === "account-adjustment") return canAny(access.can, accountAdjustmentAccess);
   if (["payment", "settlement", "offset", "return"].includes(kind)) return canAny(access.can, customerAccess) || canAny(access.can, supplierAccess);
@@ -56,6 +59,7 @@ export function canReadDocumentKind(kind: string, access: Pick<DocumentReadAcces
 export function canReadDocument(document: ReadModelDocument, access: DocumentReadAccess) {
   if (access.can("records.view")) return true;
 
+  if (managementKind(document) || ["decant-sale", "decant-purchase"].includes(String(document.kind))) return access.can("perfume.divisions.view") || access.can("perfume.divisions.manage");
   const kind = String(document.kind ?? ""), partyId = partyIdOf(document);
   const customerParty = Boolean(partyId) && access.customerPartyIds.has(partyId);
   const supplierParty = Boolean(partyId) && access.supplierPartyIds.has(partyId);

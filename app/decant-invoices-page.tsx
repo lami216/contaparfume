@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Boxes, PackagePlus, ShoppingCart } from "lucide-react";
 import type { BootstrapData } from "./domain";
 import { tr } from "./i18n/messages";
+import { managementKind } from "./perfume-management";
 import PerfumeDivisions from "./perfume-divisions";
 import { DecantBottlePurchaseInvoice, DecantSaleInvoice } from "./perfume-invoices";
 
@@ -13,9 +14,9 @@ type DecantInvoiceMode = "sale" | "purchase" | "management";
 
 export default function DecantInvoicesPage({ data, run, openDoc, requestPrint, editRequest, clearEditRequest }: Props) {
   const [mode, setMode] = useState<DecantInvoiceMode>("sale");
-  const requestedDocument = editRequest ? data.documents.find(item => item.id === editRequest && item.status === "posted") : null;
+  const requestedDocument = editRequest ? data.documents.find(item => item.id === editRequest && (item.status === "posted" || managementKind(item))) : null;
   const requestedMode: DecantInvoiceMode | null = requestedDocument?.kind === "decant-sale" ? "sale"
-    : requestedDocument?.kind === "decant-purchase" ? "purchase" : null;
+    : requestedDocument?.kind === "decant-purchase" ? "purchase" : requestedDocument && managementKind(requestedDocument) ? "management" : null;
   const activeMode = requestedMode ?? mode;
   const finishEditRequest = () => { if (requestedMode) setMode(requestedMode); clearEditRequest?.(); };
   const description = activeMode === "sale"
@@ -44,7 +45,7 @@ export default function DecantInvoicesPage({ data, run, openDoc, requestPrint, e
         ? <DecantSaleInvoice data={data} run={run} openDoc={openDoc} requestPrint={requestPrint} editRequest={editRequest} clearEditRequest={finishEditRequest}/>
         : activeMode === "purchase"
           ? <DecantBottlePurchaseInvoice data={data} run={run} openDoc={openDoc} requestPrint={requestPrint} editRequest={editRequest} clearEditRequest={finishEditRequest}/>
-          : <PerfumeDivisions data={data} run={run}/>
+          : <PerfumeDivisions key={editRequest??"management"} data={data} run={run} openDoc={openDoc} editRequest={editRequest} clearEditRequest={finishEditRequest}/>
       }
     </div>
   </div>;

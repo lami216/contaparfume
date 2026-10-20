@@ -148,6 +148,19 @@ export interface DocumentRecord {
   openingCostAfter?: number | null;
   /** Final inventory correction generated while archiving/cleaning an archived product. */
   productArchiveStockClearance?: boolean;
+  perfumeManagementType?: import("./perfume-management").ManagementKind;
+  perfumeConversionType?: string;
+  managementInput?: Record<string, unknown>;
+  managementProductId?: string;
+  sourceProductId?: string;
+  perfumeLotBefore?: PerfumeLot | null;
+  perfumeLotAfter?: PerfumeLot;
+  decantProductAfter?: { name?: string; piecePrice?: number };
+  bottleProductId?: string;
+  bottleQuantity?: number;
+  partialProductId?: string;
+  replacedByDocumentId?: string;
+  replacesDocumentId?: string;
   /** Specialized decant stock lifecycle operation. */
   perfumeStockOperationType?: "opening" | "consumption" | "yield-correction";
   perfumeStockReasonCode?: string | null;
@@ -293,6 +306,7 @@ export interface FinancialMovement {
   balanceAfter?: number;
   openingBalanceBefore?: number;
   openingBalanceAfter?: number;
+  openingCorrectionSequence?: number;
   reason?: string;
 }
 export const paymentMethods: Array<{

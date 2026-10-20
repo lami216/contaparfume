@@ -31,7 +31,7 @@ test("the search change preserves dedicated stock flows and the existing managem
     source("app/perfume-divisions.tsx"),
     source("app/perfume-invoice-commands.ts"),
   ]);
-  assert.match(management, /<PerfumeProductPicker items=\{sourcePickerItems\}/);
+  assert.match(management, /<PerfumeProductPicker items=\{sources\.map/);
   assert.match(invoices, /type: editingDocument \? "decant-sale.update" : "decant-sale.post"/);
   assert.match(invoices, /type: editingDocument \? "decant-purchase.update" : "decant-purchase.post"/);
   assert.match(invoices, /type: "decant-sale.void"/);
@@ -41,4 +41,12 @@ test("the search change preserves dedicated stock flows and the existing managem
   assert.match(invoices, /type: "party.create", partyType: kind/);
   assert.match(commands, /consumeLiquidLots/);
   assert.match(commands, /restoreLiquidAllocations/);
+});
+
+test('management integer quantities are valid whole numbers and Escape preserves the selected product',async()=>{
+ const ui=await readFile(new URL('../app/perfume-divisions.tsx',import.meta.url),'utf8');
+ const picker=await readFile(new URL('../app/perfume-product-picker.tsx',import.meta.url),'utf8');
+ assert.match(ui,/options\.integer\?"1":"0\.000001"/);
+ assert.match(picker,/event\.key === "Escape"\) \{ event\.preventDefault\(\)/);
+ assert.doesNotMatch(picker,/requestAnimationFrame\(\(\) => event\.currentTarget/);
 });

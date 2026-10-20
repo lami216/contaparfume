@@ -6,7 +6,7 @@ const source = async path => readFile(new URL(`../${path}`, import.meta.url), "u
 
 test("decant v2 has separate bottle inventory and dedicated invoice surfaces", async () => {
   const [logic, invoices, divisions] = await Promise.all([
-    source("app/perfume-logic.ts"), source("app/perfume-invoices.tsx"), source("app/perfume-divisions.tsx"),
+    source("app/perfume-logic.ts"), source("app/perfume-invoices.tsx"), Promise.all([source("app/perfume-divisions.tsx"),source("app/perfume-management.ts"),source("app/i18n/messages.ts")]).then(parts=>parts.join("\n")),
   ]);
   assert.match(logic, /"bottle"/);
   assert.match(invoices, /DecantSaleInvoice/);
