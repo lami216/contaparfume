@@ -46,8 +46,15 @@ test("management uses the ERP visual system, explicit submit actions and accessi
   assert.match(management, /className="pm-form-actions"/);
   assert.match(management, /type="submit"/);
   assert.match(management, /className="erp-table"/);
-  assert.match(css, /\.perfume-management-page \.pm-fields[^}]*gap: 10px/);
-  assert.match(css, /\.perfume-management-page \.pm-table-scroll th[^}]*position: sticky/);
+  assert.match(css, /\.perfume-management-page \.pm-fields[^}]*gap: 6px/);
+  assert.match(management, /className="erp-fieldset pm-navigation"/);
+  assert.match(management, /className="erp-fieldset popover-host pm-editor"/);
+  assert.match(management, /className="erp-fieldset pm-register"/);
+  assert.match(management, /className="erp-fieldset pm-history"/);
+  assert.match(management, /className="invoice-toolbar-modes pm-tabs"/);
+  assert.match(management, /className="selection-option" aria-pressed=\{kind===k\}/);
+  assert.match(management, /className="search compact-search"/);
+  assert.doesNotMatch(css.slice(css.indexOf("/* Management shares")), /\.pm-table-scroll th[^}]*background:/);
 });
 
 test("specialized sale inherits POS green and purchase inherits ordinary purchase blue at the app-shell level", async () => {

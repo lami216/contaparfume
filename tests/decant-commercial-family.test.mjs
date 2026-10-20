@@ -64,12 +64,12 @@ test("new decant invoices use the default sales warehouse and edits preserve the
 test("management separates tasks and keeps forms before their scrollable registers", async () => {
   const [css, ui] = await Promise.all([source("app/perfume-ui-fixes.css"), source("app/perfume-divisions.tsx")]);
   assert.match(ui, /"convert","stock","bottles","history"/);
-  assert.match(ui, /className="panel pm-editor"/);
-  assert.match(ui, /className="panel pm-register"/);
-  assert.ok(ui.indexOf('className="panel pm-editor"') < ui.indexOf('className="panel pm-register"'));
+  assert.match(ui, /className="erp-fieldset popover-host pm-editor"/);
+  assert.match(ui, /className="erp-fieldset pm-register"/);
+  assert.ok(ui.indexOf('className="erp-fieldset popover-host pm-editor"') < ui.indexOf('className="erp-fieldset pm-register"'));
   assert.match(css, /\.perfume-management-page \.pm-workspace[^}]*grid-template-columns/);
   assert.match(css, /\.perfume-management-page \.pm-table-scroll[^}]*overflow: auto/);
-  assert.match(css, /@media \(max-width: 1200px\)[^}]*grid-template-columns: minmax\(0,1fr\)/);
+  assert.match(css, /@media \(max-width: 1050px\)[^}]*grid-template-columns: minmax\(0,1fr\)/);
   assert.match(ui, /canManage/);
 });
 
