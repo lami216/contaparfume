@@ -1655,8 +1655,9 @@
 .perfume-management-page .pm-overview { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; color: var(--text-muted); font-size: 10px; }
 .perfume-management-page :is(.pm-tabs,.pm-kind-tabs) { margin: 0; flex-wrap: wrap; }
 .perfume-management-page .pm-kind-tabs { padding-block-end: 5px; border-block-end: 1px solid var(--border); }
+.perfume-management-page :is(.pm-tabs,.pm-kind-tabs) > .selection-option { height: 28px; min-height: 28px; }
 .perfume-management-page :is(.pm-tabs,.pm-kind-tabs) > .selection-option[aria-pressed="true"] { border-color: var(--section-color); background: var(--section-color); }
-.perfume-management-page .pm-workspace { display: grid; grid-template-columns: minmax(320px, .8fr) minmax(0, 1.2fr); gap: 8px; align-items: stretch; min-width: 0; flex: 1; }
+.perfume-management-page .pm-workspace { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); gap: 8px; align-items: stretch; min-width: 0; flex: 1; }
 .perfume-management-page :is(.pm-editor,.pm-register,.pm-history) { min-width: 0; min-height: 0; }
 .perfume-management-page .pm-editor-form { gap: 7px; }
 .perfume-management-page :is(.pm-register,.pm-history) { display: flex; flex-direction: column; gap: 5px; }
@@ -1664,11 +1665,12 @@
 .perfume-management-page .pm-section-head { display: flex; align-items: end; gap: 6px; flex-wrap: wrap; }
 .perfume-management-page .pm-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start; gap: 6px; border: 0; padding: 0; margin: 0; min-width: 0; }
 .perfume-management-page label:not(.search) { display: grid; gap: 3px; font-size: 10px; font-weight: 800; min-width: 0; }
-.perfume-management-page :is(.pm-fields,.pm-section-head) :is(input,select,textarea) { box-sizing: border-box; max-width: 100%; min-width: 0; width: 100%; min-height: 34px; }
-.perfume-management-page .pm-fields :is(input,select) { height: 34px; padding: 3px 8px; }
-.perfume-management-page .pm-fields textarea { padding: 5px 8px; font: inherit; font-size: 11px; resize: vertical; }
-.perfume-management-page .pm-section-head .compact-search { display: flex; margin: 0; }
-.perfume-management-page .pm-section-head .compact-search input { border: 0; min-height: 32px; }
+.perfume-management-page :is(.pm-fields,.pm-section-head) :is(input,select,textarea) { box-sizing: border-box; max-width: 100%; min-width: 0; width: 100%; min-height: 28px; }
+.perfume-management-page .pm-fields :is(input,select) { height: 28px; padding: 2px 6px; }
+.decant-invoices-hub-body.management .perfume-management-page .perfume-product-search input { height: 28px; min-height: 28px; padding-block: 2px; }
+.perfume-management-page .pm-fields textarea { height: 30px; padding: 3px 6px; font: inherit; font-size: 11px; resize: vertical; }
+.perfume-management-page .pm-section-head .compact-search { display: flex; margin: 0; height: 28px; min-height: 28px; width: min(210px,100%); flex-basis: 210px; }
+.perfume-management-page .pm-section-head .compact-search input { border: 0; height: 26px; min-height: 26px; }
 .perfume-management-page label.pm-check { display: flex; align-items: center; gap: 5px; min-height: 30px; }
 .perfume-management-page .pm-check input { width: auto; height: auto; min-height: auto; }
 .perfume-management-page :is(.pm-wide,.pm-hint) { grid-column: 1 / -1; }
@@ -1676,26 +1678,27 @@
 .perfume-management-page .pm-summary { display: flex; gap: 4px 12px; flex-wrap: wrap; padding: 6px 8px; border: 1px solid var(--border); font-size: 11px; border-radius: 5px; background: var(--section-soft); }
 .perfume-management-page .pm-summary small { width: 100%; color: var(--text-muted); font-size: 10px; }
 .perfume-management-page .pm-table-scroll { overflow: auto; flex: 1; max-height: min(58vh, 600px); min-height: 180px; overscroll-behavior: contain; }
-.perfume-management-page .pm-table-scroll table { width: 100%; min-width: 540px; }
-.perfume-management-page .pm-register th:first-child { width: 36%; }
-.perfume-management-page .pm-register th:last-child { width: 32%; }
-.perfume-management-page .pm-history table { min-width: 1040px; }
-.perfume-management-page .pm-history th:nth-child(1) { width: 15%; }
-.perfume-management-page .pm-history th:nth-child(2) { width: 21%; }
-.perfume-management-page .pm-history th:nth-child(3) { width: 13%; }
+.perfume-management-page .pm-table-scroll table { width: 100%; min-width: 440px; --erp-row-height: 28px; --erp-head-height: 27px; }
+.perfume-management-page .pm-register th:first-child { width: 44%; }
+.perfume-management-page .pm-register th:last-child { width: 120px; }
+.perfume-management-page .pm-history table { min-width: 730px; }
+.perfume-management-page .pm-history th:nth-child(1) { width: 20%; }
+.perfume-management-page .pm-history th:nth-child(2) { width: 20%; }
+.perfume-management-page .pm-history th:nth-child(3) { width: 16%; }
 .perfume-management-page .pm-history th:nth-child(4) { width: 21%; }
-.perfume-management-page .pm-history th:nth-child(5) { width: 11%; }
-.perfume-management-page .pm-history th:nth-child(6) { width: 19%; }
-/* Inherit grid, header color, type and row height from .erp-table. Only long
-   descriptions and action groups wrap so auditing controls remain reachable. */
+.perfume-management-page .pm-history th:nth-child(5) { width: 12%; }
+.perfume-management-page .pm-history th:nth-child(6) { width: 90px; }
+/* Keep records compact: full text remains in titles and the source document. */
 .perfume-management-page .pm-table-scroll :is(td,th):not(.num-cell) { text-align: start; }
-.perfume-management-page .pm-table-scroll td { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; line-height: 1.4; padding-block: 3px; }
-.perfume-management-page .pm-table-scroll td small { display: block; margin-block-start: 2px; color: var(--text-muted); font-size: 9px; }
-.perfume-management-page .pm-row-actions { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
-.perfume-management-page .pm-row-actions button { height: auto; min-height: 24px; padding: 2px 6px; font-size: 10px; max-width: 100%; white-space: normal; border-radius: 5px; }
-.perfume-management-page .pm-note { white-space: pre-wrap; }
+.perfume-management-page .pm-table-scroll td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; padding-block: 2px; }
+.perfume-management-page .pm-cell-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perfume-management-page .pm-table-scroll td small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-block-start: 1px; color: var(--text-muted); font-size: 9px; }
+.perfume-management-page .pm-row-actions { display: flex; align-items: center; justify-content: center; gap: 3px; flex-wrap: nowrap; }
+.perfume-management-page .pm-row-actions .pm-row-action { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; gap: 3px; height: 24px; min-height: 24px; padding: 2px 5px; font-size: 10px; white-space: nowrap; border-radius: 4px; }
+.perfume-management-page .pm-row-actions .pm-icon-action { width: 24px; padding: 3px; }
+.perfume-management-page .pm-row-action svg { width: 13px; height: 13px; flex: 0 0 auto; }
 .perfume-management-page .pm-form-actions { display: flex; justify-content: flex-end; align-items: center; gap: 5px; flex-wrap: wrap; border-block-start: 1px solid var(--border); padding-block-start: 6px; }
-.perfume-management-page .pm-form-actions button { height: 34px; min-height: 34px; padding: 4px 10px; font-size: 11px; }
+.perfume-management-page .pm-form-actions button { height: 28px; min-height: 28px; padding: 4px 10px; font-size: 11px; }
 .perfume-management-page .perfume-local-error { flex: 0 0 auto; }
 @media (max-width: 1050px) { .perfume-management-page .pm-workspace { grid-template-columns: minmax(0,1fr); } }
 @media (max-width: 600px) {
