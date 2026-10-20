@@ -27,6 +27,20 @@ async function packagedRuntime() {
   await cp(tree, relocatedTree, {recursive: true, dereference: true});
   const executable = (await readdir(relocatedTree)).find((file) => file === 'AlKarnaPerfume.exe');
   if (!executable) throw new Error(`Packaged Electron executable missing from ${relocatedTree}`);
+  const shellProbe = spawnSync(join(relocatedTree, executable), ['-e', `
+    const path = require('node:path');
+    const backup = require(path.join(process.argv[1], 'desktop', 'native-backup.cjs'));
+    for (const name of ['createNativeBackupService', 'registerNativeBackupHandler', 'trustedSender']) {
+      if (typeof backup[name] !== 'function') throw new Error('Packaged native backup export missing: ' + name);
+    }
+    console.log('PACKAGED native backup shell module: passed');
+  `, join(relocatedTree, 'resources', 'app.asar')], {
+    env: {...process.env, ELECTRON_RUN_AS_NODE: '1'}, encoding: 'utf8', windowsHide: true, timeout: 30000,
+  });
+  if (shellProbe.error || shellProbe.status !== 0) {
+    throw new Error(`Packaged native backup shell probe failed: ${shellProbe.error?.message ?? shellProbe.stderr}`);
+  }
+  console.log(shellProbe.stdout.trim());
   console.log(`PACKAGED relocated win-unpacked: ${relocatedTree}`);
   return {root: join(relocatedTree, 'resources', RUNTIME_DIRECTORY), electronExecutable: join(relocatedTree, executable)};
 }

@@ -38,6 +38,12 @@ The old guard ordered equal timestamps by a random UUID. A deterministic test fi
 
 ## Validation and release
 
+Local verification on Windows / Node 22: 648 tests passed; the original opening-correction regression also passed ten separate repeated runs. TypeScript and the production build passed; lint reported zero errors and 16 warnings. The production dependency audit reported zero vulnerabilities.
+
+The actual Arabic RTL and French LTR management screens were checked at 1280×720, with a second French check at the desktop minimum 1100×700. Testing exposed inherited global header/table styles; scoped overrides remove truncation, widen warehouse/batch fields, and stack the workspace below 1200px. French UI creation and editing of a test bottle produced linked current/prior documents. The document viewer displayed state, previous reference and before/after book values. All UI data was separate disposable SQLite data; a local-only license-status fixture was used for UI rendering, with no changes to shipped license enforcement.
+
+The packaged smoke additionally loads `resources/app.asar/desktop/native-backup.cjs` using the relocated packaged Electron executable and verifies its exported service/handler/trust guard. This catches missing shell files independently of runtime/server tests.
+
 Run `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm audit --omit=dev --audit-level=high`. Full Windows CI is triggered by the pull request because the existing push filter excludes `repair/**`. Installer validation must include native SQLite, standalone server, NSIS packaging and relocated packaged server tests. A source-preparation workflow is not a Windows release.
 
 Native-dialog behavior on the user's actual machine/USB still requires a direct trial; tests cannot establish the cause of the previously reported Windows Shell hang. No merge or changes to offline-conta are authorized by this work.

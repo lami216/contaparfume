@@ -69,7 +69,7 @@ test("management separates tasks and keeps forms before their scrollable registe
   assert.ok(ui.indexOf('className="panel pm-editor"') < ui.indexOf('className="panel pm-register"'));
   assert.match(css, /\.perfume-management-page \.pm-workspace[^}]*grid-template-columns/);
   assert.match(css, /\.perfume-management-page \.pm-table-scroll[^}]*overflow: auto/);
-  assert.match(css, /@media \(max-width: 1080px\)[^}]*grid-template-columns: minmax\(0,1fr\)/);
+  assert.match(css, /@media \(max-width: 1200px\)[^}]*grid-template-columns: minmax\(0,1fr\)/);
   assert.match(ui, /canManage/);
 });
 
