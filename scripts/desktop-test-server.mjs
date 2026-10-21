@@ -10,11 +10,12 @@ const require = createRequire(import.meta.url);
 const {isPathInside} = require('./path-containment.cjs');
 const repositoryRoot = await realpath(process.cwd());
 const packaged = process.argv.includes('--packaged');
+const sandbox = process.argv.includes('--sandbox');
 const RUNTIME_DIRECTORY = 'alkarna-runtime';
 let relocatedPackageDirectory;
 
 async function packagedRuntime() {
-  const dist = join(repositoryRoot, 'dist');
+  const dist = join(repositoryRoot, 'dist', ...(sandbox?['sandbox']:[]));
   const trees = (await readdir(dist, {withFileTypes: true})).filter((item) => item.isDirectory() && item.name.endsWith('unpacked'));
   const preferred = trees.filter((item) => item.name.toLowerCase() === 'win-unpacked');
   if (preferred.length !== 1) throw new Error(`Expected electron-builder win-unpacked tree, found: ${trees.map((x) => x.name).join(', ') || 'none'}`);
@@ -25,7 +26,7 @@ async function packagedRuntime() {
   }
   const relocatedTree = join(relocatedPackageDirectory, preferred[0].name);
   await cp(tree, relocatedTree, {recursive: true, dereference: true});
-  const executable = (await readdir(relocatedTree)).find((file) => file === 'AlKarnaPerfume.exe');
+  const executable = (await readdir(relocatedTree)).find((file) => file === (sandbox?'AlKarnaPerfumeSandbox.exe':'AlKarnaPerfume.exe'));
   if (!executable) throw new Error(`Packaged Electron executable missing from ${relocatedTree}`);
   const shellProbe = spawnSync(join(relocatedTree, executable), ['-e', `
     const path = require('node:path');
@@ -34,7 +35,12 @@ async function packagedRuntime() {
       if (typeof backup[name] !== 'function') throw new Error('Packaged native backup export missing: ' + name);
     }
     console.log('PACKAGED native backup shell module: passed');
-  `, join(relocatedTree, 'resources', 'app.asar')], {
+    const metadata = require(path.join(process.argv[1], 'package.json'));
+    const {desktopProfile} = require(path.join(process.argv[1], 'desktop', 'profile.cjs'));
+    const profile = desktopProfile({isPackaged:true,channel:metadata.alkarnaChannel,appData:process.argv[2],localAppData:process.argv[2]});
+    if(profile.channel!==process.argv[3])throw new Error('Incorrect packaged data channel: '+profile.channel);
+    console.log('PACKAGED data profile: '+profile.channel);
+  `, join(relocatedTree, 'resources', 'app.asar'),relocatedPackageDirectory,sandbox?'sandbox':'production'], {
     env: {...process.env, ELECTRON_RUN_AS_NODE: '1'}, encoding: 'utf8', windowsHide: true, timeout: 30000,
   });
   if (shellProbe.error || shellProbe.status !== 0) {

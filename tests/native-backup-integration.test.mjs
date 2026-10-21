@@ -34,9 +34,10 @@ test('main/renderer/package integrate the native service with no custom picker o
 
 test('native backup port preserves perfume application identity and data/license separation',async()=>{
  const main=await readFile(new URL('../desktop/main.cjs',import.meta.url),'utf8');
- assert.match(main,/mr\.alkarna\.perfume\.desktop/);
- assert.match(main,/AlKarna-Perfume/);
- assert.match(main,/alkarna-perfume\.sqlite/);
+ const profile=require('../desktop/profile.cjs').desktopProfile({isPackaged:true,appData:'fixture-roaming',localAppData:'fixture-local'});
+ assert.equal(profile.appId,'mr.alkarna.perfume.desktop');
+ assert.ok(profile.userData.endsWith('AlKarna-Perfume'));
+ assert.ok(profile.databasePath.endsWith('alkarna-perfume.sqlite'));
  assert.match(main,/ALKARNA_LICENSE_DISABLE_REGISTRY/);
  const service=await readFile(new URL('../desktop/native-backup.cjs',import.meta.url),'utf8');
  assert.match(service,/AlKarna-Perfume-backup-/);
