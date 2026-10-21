@@ -40,17 +40,21 @@ test("specialized sales and purchases use identical regular workspace, table and
   assert.match(special, /className="pos-quick-customer-button"/);
 });
 
-test("management uses form-first workflow, readable reconciliations and full-width stock tables", async () => {
+test("management uses the ERP visual system, explicit submit actions and accessible operation tabs", async () => {
   const [management, css] = await Promise.all([source("app/perfume-divisions.tsx"), source("app/perfume-ui-fixes.css")]);
-  const classes = ["perfume-split-card", "perfume-bottles-card", "perfume-batches-card", "perfume-reconciliation-card"];
-  const positions = classes.map(item => management.indexOf(`className="perfume-divisions-card ${item}"`));
-  assert.ok(positions.every(item => item >= 0));
-  assert.deepEqual(positions, [...positions].sort((a,b) => a-b));
-  assert.match(management, /className="perfume-split-footer"/);
-  assert.match(management, /className="perfume-section-count"/);
-  assert.match(css, /grid-template-areas:\s*"split bottles"\s*"batches batches"\s*"reconciliation reconciliation"/);
-  assert.match(css, /grid-template-areas:\s*"split"\s*"bottles"\s*"batches"\s*"reconciliation"/);
-  assert.match(css, /\.perfume-reconciliation-form \{\s*gap: 10px/);
+  assert.match(management, /aria-pressed=\{tab===t\}/);
+  assert.match(management, /className="pm-form-actions"/);
+  assert.match(management, /type="submit"/);
+  assert.match(management, /className="erp-table"/);
+  assert.match(css, /\.perfume-management-page \.pm-fields[^}]*gap: 6px/);
+  assert.match(management, /className="erp-fieldset pm-navigation"/);
+  assert.match(management, /className="erp-fieldset popover-host pm-editor"/);
+  assert.match(management, /className="erp-fieldset pm-register"/);
+  assert.match(management, /className="erp-fieldset pm-history"/);
+  assert.match(management, /className="invoice-toolbar-modes pm-tabs"/);
+  assert.match(management, /className="selection-option" aria-pressed=\{kind===k\}/);
+  assert.match(management, /className="search compact-search"/);
+  assert.doesNotMatch(css.slice(css.indexOf("/* Management shares")), /\.pm-table-scroll th[^}]*background:/);
 });
 
 test("specialized sale inherits POS green and purchase inherits ordinary purchase blue at the app-shell level", async () => {

@@ -1,3 +1,4 @@
+import { managementKind } from "../../perfume-management.ts";
 import { requireValidLicense } from "../../../lib/license.ts";
 import { getDatabase } from "../../../lib/sqlite";
 import { resolvePartyType } from "../../domain";
@@ -51,14 +52,14 @@ export async function GET(request: Request) {const licenseDenied=await requireVa
     }, 0);
     const nextProductCode = Math.max(highestLegacyCode, Number(productCounter?.value ?? 0)) + 1;
     const cleanParties = clean(parties).map(party => ({ ...party, partyType: resolvePartyType(party) })) as Array<Record<string, unknown> & { partyType: ReturnType<typeof resolvePartyType> }>;
-    const bankAccess=hasCapability(principal,"banks.view")||hasCapability(principal,"banks.movements.view"),partyAdmin=hasCapability(principal,"customers.view")||hasCapability(principal,"suppliers.view"),productAdmin=hasCapability(principal,"products.view"),perfumeAccess=hasCapability(principal,"perfume.divisions.view"),inventoryCostAccess=productAdmin||perfumeAccess||hasCapability(principal,"warehouses.inventory.view");
+    const bankAccess=hasCapability(principal,"banks.view")||hasCapability(principal,"banks.movements.view"),partyAdmin=hasCapability(principal,"customers.view")||hasCapability(principal,"suppliers.view"),productAdmin=hasCapability(principal,"products.view"),perfumeAccess=hasCapability(principal,"perfume.divisions.view")||hasCapability(principal,"perfume.divisions.manage"),inventoryCostAccess=productAdmin||perfumeAccess||hasCapability(principal,"warehouses.inventory.view");
     // Keep archived accounts exposed for historical name resolution; selectors filter them centrally.
     const selectorAccounts=(clean(accountRows) as Array<Record<string,unknown>>).map(account=>bankAccess?account:{id:account.id,code:account.code,name:account.name,isActive:account.isActive,isArchived:account.isArchived,allowNegativeBalance:false});
     const customerPartyIds=new Set(cleanParties.filter(party=>resolvePartyType(party)==="customer").map(party=>String(party.id)));
     const supplierPartyIds=new Set(cleanParties.filter(party=>resolvePartyType(party)==="supplier").map(party=>String(party.id)));
     const currentPartyNames=new Map(cleanParties.map(party=>[String(party.id),String(party.name??"")] as const));
     const readAccess={can:(capability:string)=>hasCapability(principal,capability as Capability),customerPartyIds,supplierPartyIds};
-    const allowedDocuments=(clean(documents) as Array<Record<string,unknown>>).filter(document=>canReadOperationalDocument(document,readAccess)||(perfumeAccess&&(["decant-sale","decant-purchase"].includes(String(document.kind))||(document.kind==="adjustment"&&["opening","consumption","yield-correction"].includes(String(document.perfumeStockOperationType??"")))))).map(document=>resolveCurrentPartyName(document,currentPartyNames));
+    const allowedDocuments=(clean(documents) as Array<Record<string,unknown>>).filter(document=>canReadOperationalDocument(document,readAccess)||(perfumeAccess&&(["decant-sale","decant-purchase"].includes(String(document.kind))||Boolean(managementKind(document))))).map(document=>resolveCurrentPartyName(document,currentPartyNames));
     const exposedParties=(cleanParties as Array<Record<string,unknown>>).map(party=>hasCapability(principal,resolvePartyType(party)==="supplier"?"suppliers.view":"customers.view")?party:{id:party.id,name:party.name,phone:party.phone,partyType:party.partyType,isArchived:party.isArchived,receivable:0,payable:0,net:0});
     const exposedProducts=inventoryCostAccess?cleanProducts:(cleanProducts as Array<Record<string,unknown>>).map(({id,name,sku,barcode,piecePrice,wholesalePrice,expiryDate,categoryId,stocks,isArchived})=>({id,name,sku,barcode,piecePrice,wholesalePrice,expiryDate,categoryId,stocks,isArchived,pieceCost:null,lastPurchaseCost:null}));
     const visiblePartyIds=new Set(cleanParties.filter(party=>(resolvePartyType(party)==="customer"&&hasCapability(principal,"customers.view"))||(resolvePartyType(party)==="supplier"&&hasCapability(principal,"suppliers.view"))).map(party=>String(party.id)));

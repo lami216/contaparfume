@@ -11,6 +11,7 @@ import { currentProductCost, resolveProductCost } from "../../../lib/product-cos
 import { executeLifecycleCommand, findActiveFinancialMovement, LifecycleCommandError, propagatePartyName, reverseFinancialMovement } from "../../../lib/transaction-lifecycle.ts";
 import { transferPerfumeLotStock } from "../../perfume-stock-reconciliation.ts";
 import type { PerfumeLot } from "../../perfume-logic.ts";
+import { nextOpeningCorrectionSequence, selectLatestOpeningCorrection } from "../../opening-correction-order.ts";
 
 type Input = Record<string, unknown>;
 type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; costAtSale?: number | null; grossProfit?: number | null };
@@ -149,8 +150,8 @@ async function accountOpeningBasis(db: Db, session: ClientSession, account: Reco
   return history.reduce((sum,movement)=>sum+(Number.isFinite(Number(movement.delta))?Number(movement.delta):(movement.direction==="out"?-Number(movement.amount??0):Number(movement.amount??0))),0);
 }
 async function latestOpeningCorrection(db: Db, session: ClientSession, account: Record<string, unknown>) {
-  const rows=await db.collection("financialMovements").find({paymentMethod:{$in:[account.id,account.code]},type:"opening-balance-correction",status:{$ne:"reversed"},isReversal:{$ne:true}},{session}).sort({occurredAt:-1,id:-1}).limit(1).toArray();
-  return rows[0]??null;
+  const rows=await db.collection("financialMovements").find({paymentMethod:{$in:[account.id,account.code]},type:"opening-balance-correction",status:{$ne:"reversed"},isReversal:{$ne:true}},{session}).toArray();
+  return selectLatestOpeningCorrection(rows,await accountOpeningBasis(db,session,account));
 }
 async function postOpeningCorrection(db: Db, session: ClientSession, account: Record<string, unknown>, newOpening: number, reason: string, replacesMovementId?: string, revision=0) {
   const currentBalance=Number(account.balance??0),oldOpening=await accountOpeningBasis(db,session,account);
@@ -158,9 +159,11 @@ async function postOpeningCorrection(db: Db, session: ClientSession, account: Re
   const delta=newOpening-oldOpening;
   if(delta===0)throw new CommandError("رصيد البداية الجديد يطابق الرصيد الحالي.");
   const newCurrentBalance=currentBalance+delta,occurredAt=new Date().toISOString(),movementId=id("fin"),reference=`OPEN-COR-${Date.now()}-${crypto.randomUUID().slice(0,6)}`;
+  const history=await db.collection("financialMovements").find({paymentMethod:{$in:[account.id,account.code]},type:"opening-balance-correction",isReversal:{$ne:true}},{session}).toArray();
+  const openingCorrectionSequence=nextOpeningCorrectionSequence(history);
   const updated=await db.collection("paymentAccounts").updateOne({id:account.id,balance:currentBalance},{$set:{openingBalance:newOpening,balance:newCurrentBalance,updatedAt:new Date()}},{session});
   if(!updated.matchedCount)throw new CommandError("تغير الرصيد أثناء العملية، أعد المحاولة",409);
-  await db.collection("financialMovements").insertOne({id:movementId,paymentMethod:account.id,paymentCode:account.code,direction:delta>=0?"in":"out",amount:Math.abs(delta),delta,openingBalanceBefore:oldOpening,openingBalanceAfter:newOpening,balanceBefore:currentBalance,balanceAfter:newCurrentBalance,reason,note:reason,type:"opening-balance-correction",occurredAt,documentId:movementId,documentNumber:reference,partyId:null,partyName:null,transferId:null,status:"posted",revision,replacesMovementId:replacesMovementId??null},{session});
+  await db.collection("financialMovements").insertOne({id:movementId,paymentMethod:account.id,paymentCode:account.code,direction:delta>=0?"in":"out",amount:Math.abs(delta),delta,openingBalanceBefore:oldOpening,openingBalanceAfter:newOpening,balanceBefore:currentBalance,balanceAfter:newCurrentBalance,reason,note:reason,type:"opening-balance-correction",openingCorrectionSequence,occurredAt,documentId:movementId,documentNumber:reference,partyId:null,partyName:null,transferId:null,status:"posted",revision,replacesMovementId:replacesMovementId??null},{session});
   return movementId;
 }
 async function requireLatestOpeningCorrection(db: Db, session: ClientSession, movementId: string) {

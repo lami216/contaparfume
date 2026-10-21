@@ -168,11 +168,11 @@ test("decant reconciliation commands are specialized, reversible and noncash", a
   assert.match(stockMovement, /decant-consumption/);
   assert.match(stockMovement, /decant-yield-correction/);
   assert.match(footer, /netProfitAfterInventoryLoss/);
-  assert.match(bootstrap, /perfumeStockOperationType/);
+  assert.match(bootstrap, /managementKind\(document\)/);
   assert.match(bootstrap, /perfumeAccess/);
-  assert.match(ui, /رصيد افتتاحي لعطر مفتوح قديم/);
-  assert.match(ui, /استهلاك \/ هالك \/ عينات/);
-  assert.match(ui, /تصحيح ناتج التقسيم/);
+  assert.match(ui, /pm.openingHelp/);
+  assert.match(ui, /pm.reasonCode/);
+  assert.match(ui, /pm.correctHelp/);
   assert.match(ui, /divisionLiquidCost/);
   assert.doesNotMatch(ui, /roundedDivisionLiquidCost/);
   assert.match(coreCommands, /transferPerfumeLotStock/);

@@ -5,16 +5,17 @@ const CLOSE_COPY={
 function normalizeLocale(value){return value==='fr'?'fr':'ar'}
 function closeCopy(locale){return CLOSE_COPY[normalizeLocale(locale)]}
 function backupFilename(now=new Date()){const p=n=>String(n).padStart(2,'0');return `AlKarna-Perfume-backup-${now.getFullYear()}-${p(now.getMonth()+1)}-${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}.conta.json`}
-function createCloseFlow({dialog,window:windowValue,fetchBackup,writeBackup,approveQuit,onFailure,getLocale=async()=> 'ar'}){
+function createCloseFlow({dialog,window:windowValue,fetchBackup,writeBackup,approveQuit,onFailure,saveBackup,getLocale=async()=> 'ar'}){
  let active=false,approved=false;
  async function requestClose(){
   if(approved||active)return approved;active=true;
   try{const locale=normalizeLocale(await getLocale()),copy=closeCopy(locale);const {response}=await dialog.showMessageBox(windowValue(),{type:'question',title:copy.title,message:copy.message,buttons:copy.buttons,defaultId:0,cancelId:2,noLink:true});
    if(response===2)return false;
    if(response===1){approved=true;await approveQuit();return true}
-   const saved=await dialog.showSaveDialog(windowValue(),{title:copy.saveTitle,defaultPath:backupFilename(),filters:[{name:copy.filterName,extensions:['conta.json','json']}]});
-   if(saved.canceled||!saved.filePath)return false;
-   try{const bytes=await fetchBackup();await writeBackup(saved.filePath,bytes)}catch(error){await onFailure(error);await dialog.showMessageBox(windowValue(),{type:'error',title:copy.title,message:copy.failure,buttons:[copy.ok],defaultId:0,cancelId:0,noLink:true});return false}
+   try{
+    if(saveBackup){const saved=await saveBackup();if(saved?.canceled)return false;if(!saved?.ok)throw Error('backup-save-failed')}
+    else{const saved=await dialog.showSaveDialog(windowValue(),{title:copy.saveTitle,defaultPath:backupFilename(),filters:[{name:copy.filterName,extensions:['conta.json','json']}]});if(saved.canceled||!saved.filePath)return false;const bytes=await fetchBackup();await writeBackup(saved.filePath,bytes)}
+   }catch(error){await onFailure(error);await dialog.showMessageBox(windowValue(),{type:'error',title:copy.title,message:copy.failure,buttons:[copy.ok],defaultId:0,cancelId:0,noLink:true});return false}
    approved=true;await approveQuit();return true;
   }finally{active=false}
  }

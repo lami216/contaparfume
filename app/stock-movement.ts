@@ -53,6 +53,8 @@ export function isProductArchiveStockClearanceDocument(document: StockMovementDo
 
 export function classifyStockMovementType(type: unknown, document?: StockMovementDocumentHint | null) {
   const current = asText(type);
+  if (current.startsWith("perfume-split")) return current.includes("-void") ? "decant-split-void" : "decant-split";
+  if (current.startsWith("perfume-recombine")) return current.includes("-void") ? "decant-recombine-void" : "decant-recombine";
   if (isOpeningStockCorrectionDocument(document)) return current.startsWith("opening-correction-") ? current : "opening-correction";
   if (isOpeningStockInitialDocument(document)) return "opening";
   const perfumeOperation = asText(document?.perfumeStockOperationType);
@@ -73,6 +75,8 @@ export function classifyStockMovementType(type: unknown, document?: StockMovemen
  * authority; this key is presentation-only. */
 export function stockMovementPresentationType(type: unknown, quantityDelta: unknown = 0) {
   const current = asText(type), delta = Number(quantityDelta);
+  if (current.startsWith("perfume-split")) return current.includes("-void") ? "decant-split-void" : "decant-split";
+  if (current.startsWith("perfume-recombine")) return current.includes("-void") ? "decant-recombine-void" : "decant-recombine";
   if (current === "perfume-opening-in") return "decant-opening";
   if (current.startsWith("perfume-consumption-")) return "decant-consumption";
   if (current === "perfume-yield-correction") return "decant-yield-correction";

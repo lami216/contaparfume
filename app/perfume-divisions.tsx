@@ -1,264 +1,166 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { activeProducts, activeWarehouses, formatDateTime, inventoryUnitCost, money, quantity, stockInWarehouse, totalProductStock, type BootstrapData, type Product } from "./domain";
-import { divisionLiquidCost, lotRemainingTotal, type PerfumeLot } from "./perfume-logic";
+import { useMemo, useRef, useState } from "react";
+import { Archive, ArchiveRestore, ArrowUpRight, FileText, FlaskConical, PencilLine, RotateCcw, Search, SlidersHorizontal, X, type LucideIcon } from "lucide-react";
+import { activeProducts, activeWarehouses, displayDocumentNumber, formatDateTime, inventoryUnitCost, money, quantity, stockInWarehouse, type BootstrapData, type DocumentRecord } from "./domain";
+import { divisionLiquidCost, lotRemainingTotal } from "./perfume-logic";
+import { managementInputFor, managementKind, managementLabel, managementPostType, type ManagementKind } from "./perfume-management";
+import { useAppConfirm } from "./app-confirm";
+import { useI18n } from "./i18n/provider";
 import { tr } from "./i18n/messages";
-import PerfumeProductPicker, { type PerfumePickerItem } from "./perfume-product-picker";
+import { translateApiError } from "./i18n/api-errors";
+import PerfumeProductPicker from "./perfume-product-picker";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
-type AdjustmentPrefill = { productId: string; warehouseId: string };
+type Props = { data: BootstrapData; run: RunCommand; openDoc?: (id: string) => void; editRequest?: string | null; clearEditRequest?: () => void };
+type Tab = "convert" | "bottles" | "stock" | "history";
+type Values = Record<string, string | boolean>;
+const tabFor = (kind: ManagementKind): Tab => ["split", "recombine"].includes(kind) ? "convert" : ["bottle", "bottle-stock"].includes(kind) ? "bottles" : "stock";
+const blank = (warehouseId: string): Values => ({ sourceProductId:"",decantProductId:"",lotId:"",warehouseId,divisionsCount:"10",salePrice:"",name:"",sizeMl:"10",cost:"",quantity:"",remainingValue:"",actualQuantity:"",reason:"",reasonCode:"samples",consumeBottle:false,bottleProductId:"",note:"" });
+const normalize = (values: Record<string, unknown>): Values => Object.fromEntries(Object.entries(values).filter(([,v])=>v!==undefined&&v!==null).map(([k,v])=>[k,typeof v==="boolean"?v:String(v)]));
+const bottleSnapshot = (p: BootstrapData["products"][number]) => ({name:p.name,sizeMl:p.decantSizeMl,cost:p.pieceCost,isArchived:p.isArchived===true});
+const shortKindLabel: Record<ManagementKind, string> = {split:"pm.short.split",recombine:"pm.short.recombine",opening:"pm.short.opening",consumption:"pm.short.consumption","yield-correction":"pm.short.correction",bottle:"pm.short.bottle","bottle-stock":"pm.short.bottleStock"};
 
-type BatchRow = {
-  decantProduct: Product;
-  lot: PerfumeLot;
-  sourceName: string;
-};
+function RowAction({label, icon: Icon, text, disabled, danger, onClick}: {label: string; icon: LucideIcon; text?: string; disabled?: boolean; danger?: boolean; onClick: () => void}) {
+  return <button type="button" className={`soft pm-row-action${danger?" danger":""}${text?"":" pm-icon-action"}`} title={label} aria-label={label} disabled={disabled} onClick={onClick}><Icon aria-hidden="true"/>{text&&<span>{text}</span>}</button>;
+}
 
-export default function PerfumeDivisions({ data, run, onAdjustBottle }: { data: BootstrapData; run: RunCommand; onAdjustBottle?: (prefill: AdjustmentPrefill) => void }) {
-  const warehouses = activeWarehouses(data.warehouses);
-  const eligibleSourceProducts = useMemo(() => activeProducts(data.products).filter(product => !["decant", "partial", "bottle"].includes(String(product.perfumeForm ?? ""))), [data.products]);
-  const sourceProducts = useMemo(() => eligibleSourceProducts.filter(product => totalProductStock(product) > 0), [eligibleSourceProducts]);
-  const openingSourceProducts = eligibleSourceProducts;
-  const bottles = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "bottle"), [data.products]);
-  const batches = useMemo<BatchRow[]>(() => data.products.flatMap(product => (product.perfumeForm === "decant" ? (product.perfumeLots ?? []).map(lot => ({ decantProduct: product, lot, sourceName: lot.sourceProductName })) : [])), [data.products]);
-  const stockOperations = useMemo(() => data.documents
-    .filter(document => document.kind === "adjustment" && ["opening", "consumption", "yield-correction"].includes(String(document.perfumeStockOperationType ?? "")))
-    .sort((left, right) => String(right.occurredAt).localeCompare(String(left.occurredAt)))
-    .slice(0, 12), [data.documents]);
-  const [sourceProductId, setSourceProductId] = useState("");
-  const [warehouseId, setWarehouseId] = useState(warehouses.find(warehouse => warehouse.isSalesDefault)?.id ?? warehouses[0]?.id ?? "");
-  const [divisionsCount, setDivisionsCount] = useState("10"), [salePrice, setSalePrice] = useState("");
-  const [bottleName, setBottleName] = useState(""), [bottleSize, setBottleSize] = useState("10"), [bottleCost, setBottleCost] = useState("");
-  const [recombinePrices, setRecombinePrices] = useState<Record<string, string>>({});
-  const [openingSourceProductId, setOpeningSourceProductId] = useState(""), [openingWarehouseId, setOpeningWarehouseId] = useState(warehouseId);
-  const [openingQuantity, setOpeningQuantity] = useState(""), [openingValue, setOpeningValue] = useState(""), [openingSalePrice, setOpeningSalePrice] = useState("");
-  const [reconcileBatchKey, setReconcileBatchKey] = useState(""), [reconcileWarehouseId, setReconcileWarehouseId] = useState(warehouseId);
-  const [reconcileMode, setReconcileMode] = useState<"consume" | "correct">("consume"), [reconcileQuantity, setReconcileQuantity] = useState("");
-  const [reconcileReason, setReconcileReason] = useState(""), [reconcileReasonCode, setReconcileReasonCode] = useState("samples");
-  const [consumeBottle, setConsumeBottle] = useState(false), [consumeBottleId, setConsumeBottleId] = useState("");
-  const [adjustBottleId, setAdjustBottleId] = useState(""), [adjustActual, setAdjustActual] = useState(""), [adjustReason, setAdjustReason] = useState("");
-  const [busy, setBusy] = useState(false), [localError, setLocalError] = useState("");
+export default function PerfumeDivisions({ data, run, openDoc, editRequest, clearEditRequest }: Props) {
+  const {locale}=useI18n(), confirm=useAppConfirm();
+  const warehouses=activeWarehouses(data.warehouses),defaultWarehouse=warehouses.find(w=>w.isSalesDefault)?.id??warehouses[0]?.id??"";
+  const initialDocument=editRequest?data.documents.find(d=>d.id===editRequest&&managementKind(d)):undefined;
+  const initialEditing=initialDocument?.status==="posted"?initialDocument:undefined;
+  const initialKind=initialDocument?managementKind(initialDocument)!:"split";
+  const initialBottle=initialEditing&&initialKind==="bottle"?data.products.find(p=>p.id===initialEditing.managementProductId):undefined;
+  const [tab,setTab]=useState<Tab>(initialDocument&&!initialEditing?"history":tabFor(initialKind)),[kind,setKind]=useState<ManagementKind>(initialKind);
+  const [editing,setEditing]=useState<DocumentRecord|undefined>(initialEditing),[bottleEdit,setBottleEdit]=useState(initialBottle?.id??"");
+  const [bottleExpected,setBottleExpected]=useState<ReturnType<typeof bottleSnapshot>|undefined>(()=>initialBottle?bottleSnapshot(initialBottle):undefined);
+  const [values,setValues]=useState<Values>(()=>({...blank(defaultWarehouse),...(initialEditing?normalize(managementInputFor(initialEditing,data.products)): {})}));
+  const [dirty,setDirty]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
+  const locked=useRef(false);
+  const [search,setSearch]=useState(""),[historyType,setHistoryType]=useState("all"),[historyStatus,setHistoryStatus]=useState("all"),[archived,setArchived]=useState(false);
+  const canManage=data.principal.principalType==="owner"||data.principal.permissions.includes("perfume.divisions.manage");
+  const sources=activeProducts(data.products).filter(p=>!["decant","partial","bottle"].includes(p.perfumeForm??""));
+  const bottles=data.products.filter(p=>p.perfumeForm==="bottle");
+  const activeBottles=bottles.filter(p=>!p.isArchived);
+  const batches=useMemo(()=>data.products.filter(p=>p.perfumeForm==="decant"&&!p.isArchived).flatMap(product=>(product.perfumeLots??[]).map(lot=>({product,lot}))),[data.products]);
+  const operations=useMemo(()=>data.documents.filter(d=>managementKind(d)).sort((a,b)=>String(b.occurredAt).localeCompare(String(a.occurredAt))||b.id.localeCompare(a.id)),[data.documents]);
+  const needle=search.trim().toLocaleLowerCase(),text=(field:string)=>String(values[field]??""),n=(field:string)=>Number(text(field));
+  const set=(field:string,value:string|boolean)=>{setValues(v=>({...v,[field]:value}));setDirty(true);setError("")};
+  const source=sources.find(p=>p.id===text("sourceProductId"));
+  const selectedBatch=batches.find(b=>b.product.id===text("decantProductId")&&b.lot.id===text("lotId"));
+  const lot=selectedBatch?.lot,warehouseId=text("warehouseId");
+  const sourceCost=source?inventoryUnitCost(source):0;
+  const liquidCost=sourceCost>0&&Number.isSafeInteger(n("divisionsCount"))&&n("divisionsCount")>0?divisionLiquidCost(sourceCost,n("divisionsCount")):0;
+  const lotStock=Number(lot?.stocks?.[warehouseId]??0),bookValue=Number(lot?.remainingQuantity??0)*Number(lot?.liquidUnitCost??0);
+  const selectedBottle=bottles.find(p=>p.id===text("bottleProductId"));
+  const formTitle=tr(managementLabel[kind]);
+  const batchItems=batches.map(b=>({id:`${b.product.id}::${b.lot.id}`,name:b.lot.sourceProductName,meta:`${formatDateTime(b.lot.createdAt)} · ${tr("pm.remaining")}: ${quantity(lotRemainingTotal(b.lot))} · ${b.lot.id.slice(-6)}`}));
 
-  const source = sourceProducts.find(product => product.id === sourceProductId) ?? null;
-  const sourceCost = source ? inventoryUnitCost(source) : 0;
-  const count = Number(divisionsCount), sell = Number(salePrice);
-  const liquidCost = sourceCost > 0 && Number.isInteger(count) && count > 0 ? divisionLiquidCost(sourceCost, count) : 0;
-  const expectedRevenue = Number.isFinite(sell) && sell > 0 && count > 0 ? sell * count : 0;
-  const expectedProfitBeforeBottle = expectedRevenue > 0 ? expectedRevenue - liquidCost * count : 0;
-  const available = source && warehouseId ? stockInWarehouse(source, warehouseId) : 0;
-  const sourcePickerItems = useMemo<PerfumePickerItem[]>(() => sourceProducts.map(product => ({ id: product.id, name: product.name, meta: `${tr("المتوفر")}: ${quantity(totalProductStock(product))}` })), [sourceProducts]);
-  const openingSourcePickerItems = useMemo<PerfumePickerItem[]>(() => openingSourceProducts.map(product => ({ id: product.id, name: product.name, meta: `${tr("المخزون الحالي")}: ${quantity(totalProductStock(product))}` })), [openingSourceProducts]);
-  const selectedBatch = batches.find(row => `${row.decantProduct.id}::${row.lot.id}` === reconcileBatchKey) ?? null;
-  const reconcileLotStock = selectedBatch && reconcileWarehouseId ? Number(selectedBatch.lot.stocks?.[reconcileWarehouseId] ?? 0) : 0;
-
-  const split = async () => {
-    if (!source || !warehouseId || !Number.isInteger(count) || count < 2 || !Number.isFinite(sell) || sell <= 0) return;
-    setBusy(true); setLocalError("");
-    try {
-      await run({ type: "perfume-split.post", sourceProductId: source.id, warehouseId, divisionsCount: count, salePrice: sell }, tr("تم إنشاء التقسيمات"));
-      setSalePrice("");
-    } finally { setBusy(false); }
+  async function mayDiscard(){return !dirty||await confirm({message:tr("pm.discard"),tone:"warning"})}
+  function reset(){setEditing(undefined);setBottleEdit("");setBottleExpected(undefined);setValues(blank(defaultWarehouse));setDirty(false);setError("");clearEditRequest?.()}
+  async function choose(next:ManagementKind,seed:Record<string,unknown>={},document?:DocumentRecord,productId=""){
+    if(busy||!await mayDiscard())return;
+    setKind(next);setTab(tabFor(next));setValues({...blank(defaultWarehouse),...normalize(seed)});setEditing(document);setBottleEdit(productId);setDirty(false);setError("");setSearch("");
+    const selected=bottles.find(p=>p.id===productId);setBottleExpected(selected?bottleSnapshot(selected):undefined);
+  }
+  async function switchTab(next:Tab){if(busy||!await mayDiscard())return;reset();setTab(next);setKind(next==="bottles"?"bottle":next==="stock"?"opening":"split");setSearch("")}
+  const process=async(body:Record<string,unknown>,after?:()=>void)=>{
+    if(locked.current||!canManage)return;locked.current=true;setBusy(true);setError("");
+    try{await run(body,tr("pm.saved"));setDirty(false);after?.()}catch(e){setError(translateApiError(locale,e instanceof Error?e.message:tr("pm.failed")))}finally{locked.current=false;setBusy(false)}
   };
-
-  const postOpeningBalance = async () => {
-    const sourceProduct = openingSourceProducts.find(product => product.id === openingSourceProductId);
-    const qty = Number(openingQuantity), value = Number(openingValue), price = Number(openingSalePrice);
-    if (!sourceProduct || !openingWarehouseId || !Number.isInteger(qty) || qty <= 0 || !Number.isFinite(value) || value <= 0 || !Number.isFinite(price) || price <= 0) {
-      setLocalError("أدخل العطر والمخزن والكمية وقيمة السائل المتبقية وسعر البيع.");
-      return;
-    }
-    setBusy(true); setLocalError("");
-    try {
-      await run({ type: "perfume-opening.post", sourceProductId: sourceProduct.id, warehouseId: openingWarehouseId, quantity: qty, remainingValue: value, salePrice: price }, "تم تسجيل الرصيد الافتتاحي للتقسيمات");
-      setOpeningQuantity(""); setOpeningValue(""); setOpeningSalePrice("");
-    } finally { setBusy(false); }
-  };
-
-  const saveLotReconciliation = async () => {
-    if (!selectedBatch || !reconcileWarehouseId || !reconcileReason.trim()) { setLocalError("اختر الدفعة والمخزن واكتب سبب الحركة."); return; }
-    const amount = Number(reconcileQuantity);
-    if (!Number.isInteger(amount) || amount < 0 || (reconcileMode === "consume" && amount <= 0)) { setLocalError("راجع الكمية المدخلة."); return; }
-    setBusy(true); setLocalError("");
-    try {
-      if (reconcileMode === "consume") {
-        await run({
-          type: "perfume-lot-consume.post",
-          decantProductId: selectedBatch.decantProduct.id,
-          lotId: selectedBatch.lot.id,
-          warehouseId: reconcileWarehouseId,
-          quantity: amount,
-          reason: reconcileReason.trim(),
-          reasonCode: reconcileReasonCode,
-          consumeBottle,
-          bottleProductId: consumeBottle ? consumeBottleId : null,
-        }, "تم تسجيل استهلاك/هالك التقسيمات");
-      } else {
-        await run({
-          type: "perfume-lot-correct.post",
-          decantProductId: selectedBatch.decantProduct.id,
-          lotId: selectedBatch.lot.id,
-          warehouseId: reconcileWarehouseId,
-          actualQuantity: amount,
-          reason: reconcileReason.trim(),
-        }, "تم تصحيح ناتج التقسيم مع الحفاظ على قيمة الرصيد");
-      }
-      setReconcileQuantity(""); setReconcileReason(""); setConsumeBottle(false); setConsumeBottleId("");
-    } finally { setBusy(false); }
-  };
-
-  const voidStockOperation = async (documentId: string) => {
-    setBusy(true); setLocalError("");
-    try { await run({ type: "perfume-stock-operation.void", documentId }, "تم إلغاء حركة مخزون التقسيمات"); }
-    finally { setBusy(false); }
-  };
-
-  const createBottle = async () => {
-    const size = Number(bottleSize), cost = Number(bottleCost);
-    if (!bottleName.trim() || !Number.isFinite(size) || size <= 0 || !Number.isFinite(cost) || cost <= 0) { setLocalError(tr("أدخل اسم الزجاجة وحجمها وتكلفتها")); return; }
-    setBusy(true); setLocalError("");
-    try {
-      await run({ type: "perfume-bottle.create", name: bottleName.trim(), sizeMl: size, cost }, tr("تمت إضافة زجاجة التقسيمة"));
-      setBottleName(""); setBottleCost("");
-    } finally { setBusy(false); }
-  };
-
-  const beginBottleAdjustment = (bottle: Product) => {
-    if (onAdjustBottle) { onAdjustBottle({ productId: bottle.id, warehouseId }); return; }
-    setAdjustBottleId(bottle.id);
-    setAdjustActual(String(stockInWarehouse(bottle, warehouseId)));
-    setAdjustReason("");
-    setLocalError("");
-  };
-
-  const saveBottleAdjustment = async (bottle: Product) => {
-    const actual = Number(adjustActual), before = stockInWarehouse(bottle, warehouseId), purchaseCost = Number(bottle.lastPurchaseCost ?? bottle.pieceCost ?? 0);
-    if (!warehouseId || !Number.isInteger(actual) || actual < 0 || !adjustReason.trim() || (actual > before && purchaseCost <= 0)) { setLocalError(tr("راجع الكمية وسعر الشراء")); return; }
-    setBusy(true); setLocalError("");
-    try {
-      await run({ type: "adjustment.post", warehouseId, reason: adjustReason.trim(), lines: [{ productId: bottle.id, actualQuantity: actual, purchaseCost: actual > before ? purchaseCost : null }] }, tr("تم تسجيل تصحيح المخزون"));
-      setAdjustBottleId(""); setAdjustActual(""); setAdjustReason("");
-    } finally { setBusy(false); }
-  };
-
-  const recombine = async (row: BatchRow) => {
-    const locations = Object.entries(row.lot.stocks ?? {}).filter(([, value]) => Number(value) > 0);
-    const remaining = lotRemainingTotal(row.lot);
-    const singleWarehouse = locations.length === 1 && Number(locations[0][1]) === remaining ? locations[0][0] : "";
-    const price = Number(recombinePrices[row.lot.id]);
-    if (!singleWarehouse || remaining <= 0 || !Number.isFinite(price) || price <= 0) return;
-    setBusy(true); setLocalError("");
-    try {
-      await run({ type: "perfume-recombine.post", decantProductId: row.decantProduct.id, lotId: row.lot.id, warehouseId: singleWarehouse, salePrice: price }, tr("تم إرجاع الباقي إلى عطر ناقص"));
-      setRecombinePrices(values => ({ ...values, [row.lot.id]: "" }));
-    } finally { setBusy(false); }
-  };
-
-  return <div className="perfume-divisions-page">
-    <section className="perfume-divisions-card perfume-split-card">
-      <div className="perfume-divisions-heading">
-        <div><h2>{tr("تحويل عطر إلى تقسيمات")}</h2><p>{tr("التحويل ينشئ مخزون السائل فقط. الزجاجة تختار لاحقًا داخل فاتورة التقسيمات.")}</p></div>
-
-      </div>
-      <div className="perfume-divisions-form perfume-divisions-form-v2">
-        <label>{tr("العطر")}<PerfumeProductPicker items={sourcePickerItems} value={sourceProductId} onChange={setSourceProductId} placeholder={tr("اختر العطر")} ariaLabel={tr("العطر")}/></label>
-        <label>{tr("المخزن")}<select value={warehouseId} onChange={event => setWarehouseId(event.target.value)}><option value="">{tr("اختر المخزن")}</option>{warehouses.map(warehouse => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}</select></label>
-        <label>{tr("عدد التقسيمات")}<input inputMode="numeric" min="2" step="1" type="number" value={divisionsCount} onChange={event => setDivisionsCount(event.target.value)} /></label>
-        <label>{tr("سعر البيع للتقسيمة")}<input inputMode="decimal" min="0" type="number" value={salePrice} onChange={event => setSalePrice(event.target.value)} /></label>
-      </div>
-      <div className="perfume-cost-preview perfume-cost-preview-v2">
-        <div><span>{tr("سعر شراء العطر")}</span><strong>{money(sourceCost)}</strong></div>
-        <div><span>{tr("تكلفة السائل للتقسيمة")}</span><strong>{money(liquidCost)}</strong><small>{tr("لا تشمل الزجاجة")}</small></div>
-        <div><span>{tr("إجمالي البيع المتوقع")}</span><strong>{money(expectedRevenue)}</strong></div>
-        <div><span>{tr("الربح قبل تكلفة الزجاج")}</span><strong>{money(expectedProfitBeforeBottle)}</strong></div>
-        <div><span>{tr("المتوفر في المخزن")}</span><strong>{quantity(available)}</strong></div>
-      </div>
-      <div className="perfume-split-footer"><button type="button" className="primary perfume-split-action" disabled={busy || !source || available < 1 || count < 2 || liquidCost <= 0 || sell <= 0} onClick={() => void split()}>{busy ? tr("جاري الحفظ…") : tr("تحويل عطر إلى تقسيمات")}</button></div>
-    </section>
-
-    <section className="perfume-divisions-card perfume-bottles-card">
-      <div className="perfume-divisions-heading"><div><h2>{tr("زجاج التقسيمات")} <small className="perfume-section-count">{quantity(bottles.length)}</small></h2><p>{tr("عرّف نوع الزجاجة هنا، ثم اشترِ كمياتها من فاتورة شراء زجاج التقسيمات.")}</p></div></div>
-      <div className="perfume-bottle-create">
-        <label>{tr("اسم الزجاجة")}<input value={bottleName} onChange={event => setBottleName(event.target.value)} placeholder={tr("مثال: زجاجة شفافة")}/></label>
-        <label>{tr("الحجم (ml)")}<input type="number" min="1" value={bottleSize} onChange={event => setBottleSize(event.target.value)}/></label>
-        <label>{tr("التكلفة المرجعية")}<input type="number" min="0" value={bottleCost} onChange={event => setBottleCost(event.target.value)}/></label>
-        <button className="soft" type="button" disabled={busy || !bottleName.trim() || Number(bottleSize) <= 0 || Number(bottleCost) <= 0} onClick={() => void createBottle()}>{tr("إضافة زجاجة")}</button>
-      </div>
-      <div className="perfume-bottles-table-wrap"><table className="erp-table perfume-bottles-table"><thead><tr><th>{tr("الزجاجة")}</th><th>{tr("الحجم")}</th><th>{tr("التكلفة المرجعية")}</th><th>{tr("آخر شراء")}</th><th>{tr("المخزون")}</th><th>{tr("إجراء")}</th></tr></thead><tbody>{bottles.length === 0 ? <tr><td colSpan={6}>{tr("لا توجد أنواع زجاج حتى الآن")}</td></tr> : bottles.map(bottle => <tr key={bottle.id}><td>{bottle.name}</td><td className="num-cell">{bottle.decantSizeMl ? `${bottle.decantSizeMl} ml` : "—"}</td><td className="num-cell">{money(Number(bottle.pieceCost ?? 0))}</td><td className="num-cell">{money(Number(bottle.lastPurchaseCost ?? 0))}</td><td className="num-cell">{quantity(totalProductStock(bottle))}</td><td>{adjustBottleId === bottle.id && !onAdjustBottle ? <div className="perfume-bottle-adjust"><input type="number" min="0" step="1" value={adjustActual} onChange={event => setAdjustActual(event.target.value)} placeholder={tr("الكمية الحالية")}/><input value={adjustReason} onChange={event => setAdjustReason(event.target.value)} placeholder={tr("سبب التصحيح")}/><button className="primary" type="button" disabled={busy || !adjustReason.trim()} onClick={() => void saveBottleAdjustment(bottle)}>{tr("اعتماد التصحيح")}</button><button className="soft" type="button" onClick={() => setAdjustBottleId("")}>{tr("إلغاء")}</button></div> : <button className="soft" type="button" disabled={!warehouseId} onClick={() => beginBottleAdjustment(bottle)}>{tr("تصحيح الكمية")}</button>}</td></tr>)}</tbody></table></div>
-    </section>
-
-    <section className="perfume-divisions-card perfume-batches-card">
-      <div className="perfume-divisions-heading"><div><h2>{tr("دفعات التقسيمات")} <small className="perfume-section-count">{quantity(batches.length)}</small></h2><p>{tr("اختر الدفعة ثم أدخل سعر العطر الناقص لإرجاع كل المتبقي منها إلى عطر واحد ناقص.")}</p></div></div>
-      <div className="perfume-batches-table-wrap">
-        <table className="erp-table perfume-batches-table">
-          <thead><tr><th>{tr("العطر")}</th><th>{tr("الأصل")}</th><th>{tr("المتبقي")}</th><th>{tr("تكلفة السائل")}</th><th>{tr("المخزن")}</th><th>{tr("إرجاع إلى عطر ناقص")}</th></tr></thead>
-          <tbody>{batches.length === 0 ? <tr><td colSpan={6}>{tr("لا توجد تقسيمات حتى الآن")}</td></tr> : batches.map(row => {
-            const remaining = lotRemainingTotal(row.lot), locations = Object.entries(row.lot.stocks ?? {}).filter(([, value]) => Number(value) > 0);
-            const singleWarehouse = locations.length === 1 && Number(locations[0][1]) === remaining ? locations[0][0] : "";
-            const warehouse = warehouses.find(item => item.id === singleWarehouse), partialCost = remaining * row.lot.liquidUnitCost;
-            return <tr key={row.lot.id}><td>{row.sourceName}</td><td>{quantity(row.lot.originalQuantity)}</td><td>{quantity(remaining)}</td><td>{money(row.lot.liquidUnitCost)}</td><td>{warehouse?.name ?? tr("أكثر من مخزن")}</td><td>{remaining <= 0 ? <span>{tr("مغلقة")}</span> : !singleWarehouse ? <span className="muted">{tr("اجمع الباقي في مخزن واحد أولًا")}</span> : <div className="perfume-recombine-control"><small>{tr("تكلفة العطر الناقص")}: {money(partialCost)}</small><input type="number" min="0" placeholder={tr("سعر بيع العطر الناقص")} value={recombinePrices[row.lot.id] ?? ""} onChange={event => setRecombinePrices(values => ({ ...values, [row.lot.id]: event.target.value }))}/><button className="primary" disabled={busy || Number(recombinePrices[row.lot.id]) <= 0} onClick={() => void recombine(row)}>{tr("إرجاع الباقي إلى عطر ناقص")}</button></div>}</td></tr>;
-          })}</tbody>
-        </table>
-      </div>
-    </section>
-    <section className="perfume-divisions-card perfume-reconciliation-card">
-      <div className="perfume-divisions-heading">
-        <div><h2>تسوية مخزون التقسيمات</h2><p>للرصيد القديم، الهالك والعينات، وتصحيح ناتج التقسيم بدون إنشاء بيع أو شراء وهمي.</p></div>
-      </div>
-
-      <div className="perfume-reconciliation-grid">
-        <div className="perfume-reconciliation-block">
-          <strong>رصيد افتتاحي لعطر مفتوح قديم</strong>
-          <div className="perfume-reconciliation-form">
-            <label>{tr("العطر")}<PerfumeProductPicker items={openingSourcePickerItems} value={openingSourceProductId} onChange={setOpeningSourceProductId} placeholder={tr("اختر العطر")} ariaLabel={tr("العطر")}/></label>
-            <label>{tr("المخزن")}<select value={openingWarehouseId} onChange={event => setOpeningWarehouseId(event.target.value)}><option value="">{tr("اختر المخزن")}</option>{warehouses.map(warehouse => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}</select></label>
-            <label>الكمية الموجودة الآن<input type="number" min="1" step="1" value={openingQuantity} onChange={event => setOpeningQuantity(event.target.value)}/></label>
-            <label>قيمة السائل المتبقية<input type="number" min="0" step="0.01" value={openingValue} onChange={event => setOpeningValue(event.target.value)}/></label>
-            <label>سعر بيع التقسيمة<input type="number" min="0" step="0.01" value={openingSalePrice} onChange={event => setOpeningSalePrice(event.target.value)}/></label>
-            <button className="primary" type="button" disabled={busy} onClick={() => void postOpeningBalance()}>تسجيل الرصيد الافتتاحي</button>
-          </div>
-          <small className="muted">يسجل السائل المتبقي فقط ولا ينقص عطرًا كاملًا ولا ينشئ حركة بنك أو مورد.</small>
-        </div>
-
-        <div className="perfume-reconciliation-block">
-          <strong>استهلاك أو تصحيح دفعة موجودة</strong>
-          <div className="perfume-reconciliation-form">
-            <label>الدفعة<select value={reconcileBatchKey} onChange={event => { setReconcileBatchKey(event.target.value); setReconcileQuantity(""); }}>
-              <option value="">اختر الدفعة</option>
-              {batches.map(row => <option key={row.lot.id} value={`${row.decantProduct.id}::${row.lot.id}`}>{row.sourceName} — متبقي {quantity(lotRemainingTotal(row.lot))}</option>)}
-            </select></label>
-            <label>{tr("المخزن")}<select value={reconcileWarehouseId} onChange={event => { setReconcileWarehouseId(event.target.value); setReconcileQuantity(""); }}><option value="">{tr("اختر المخزن")}</option>{warehouses.map(warehouse => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}</select></label>
-            <label>نوع الحركة<select value={reconcileMode} onChange={event => { setReconcileMode(event.target.value as "consume" | "correct"); setReconcileQuantity(""); }}>
-              <option value="consume">استهلاك / هالك / عينات</option>
-              <option value="correct">تصحيح ناتج التقسيم</option>
-            </select></label>
-            <label>{reconcileMode === "consume" ? "الكمية الخارجة" : "الكمية الفعلية الآن"}<input type="number" min="0" step="1" value={reconcileQuantity} onChange={event => setReconcileQuantity(event.target.value)} placeholder={reconcileMode === "correct" ? String(reconcileLotStock) : "1"}/></label>
-            {reconcileMode === "consume" && <label>التصنيف<select value={reconcileReasonCode} onChange={event => setReconcileReasonCode(event.target.value)}>
-              <option value="samples">عينات وتجارب</option><option value="waste">هالك</option><option value="leak">تسريب</option><option value="internal">استخدام داخلي</option><option value="stock-difference">فرق جرد</option><option value="other">أخرى</option>
-            </select></label>}
-            <label className="perfume-reconciliation-reason">السبب<input value={reconcileReason} onChange={event => setReconcileReason(event.target.value)} placeholder={reconcileMode === "consume" ? "مثال: عينات للعملاء" : "مثال: الناتج الفعلي 9 بدل 8"}/></label>
-          </div>
-          {reconcileMode === "consume" && <div className="perfume-consume-bottle">
-            <label><input type="checkbox" checked={consumeBottle} onChange={event => setConsumeBottle(event.target.checked)}/> خرجت زجاجة مع الكمية</label>
-            {consumeBottle && <select value={consumeBottleId} onChange={event => setConsumeBottleId(event.target.value)}><option value="">اختر الزجاجة</option>{bottles.map(bottle => <option key={bottle.id} value={bottle.id}>{bottle.name} — مخزون {quantity(stockInWarehouse(bottle, reconcileWarehouseId))}</option>)}</select>}
-          </div>}
-          <div className="perfume-reconciliation-summary"><span>رصيد الدفعة في المخزن: <bdi>{quantity(reconcileLotStock)}</bdi></span>{selectedBatch && <span>تكلفة السائل الحالية: <bdi>{money(selectedBatch.lot.liquidUnitCost)}</bdi></span>}</div>
-          <button className="primary" type="button" disabled={busy || !selectedBatch || !reconcileReason.trim() || !reconcileWarehouseId || (consumeBottle && !consumeBottleId)} onClick={() => void saveLotReconciliation()}>{reconcileMode === "consume" ? "تسجيل الاستهلاك / الهالك" : "اعتماد تصحيح الناتج"}</button>
-        </div>
-      </div>
-
-      <div className="perfume-stock-operation-history">
-        <strong>آخر حركات التسوية</strong>
-        <div className="perfume-stock-operation-list">
-          {stockOperations.length === 0 ? <span className="muted">لا توجد حركات بعد</span> : stockOperations.map(document => <div key={document.id} className="perfume-stock-operation-row">
-            <span><b>{document.perfumeStockOperationType === "opening" ? "رصيد افتتاحي" : document.perfumeStockOperationType === "consumption" ? "استهلاك/هالك" : "تصحيح ناتج"}</b><small>{document.title || "—"} · {formatDateTime(document.occurredAt)}</small></span>
-            <bdi>{document.perfumeStockOperationType === "consumption" ? money(Number(document.inventoryLoss ?? 0)) : document.stockDelta != null ? quantity(Number(document.stockDelta)) : "—"}</bdi>
-            {document.status === "posted" ? <button className="soft danger" type="button" disabled={busy} onClick={() => void voidStockOperation(document.id)}>إلغاء</button> : <span className="muted">ملغاة</span>}
-          </div>)}
-        </div>
-      </div>
-    </section>
-
-    {localError && <div className="error perfume-local-error">{localError}</div>}
-  </div>;
+  function validate():boolean{
+    const good=(key:string,integer=false,zero=false)=>text(key).trim()!==""&&Number.isFinite(n(key))&&(integer?Number.isSafeInteger(n(key)):true)&&(zero?n(key)>=0:n(key)>0);
+    let valid=kind==="bottle"?!!text("name").trim()&&good("sizeMl")&&good("cost"):!!warehouseId;
+    if(kind==="split")valid=valid&&!!source&&good("divisionsCount",true)&&n("divisionsCount")>=2&&good("salePrice")&&liquidCost>0;
+    if(kind==="opening")valid=valid&&!!source&&good("quantity",true)&&good("remainingValue")&&good("salePrice");
+    if(kind==="recombine")valid=valid&&!!selectedBatch&&good("salePrice");
+    if(kind==="consumption"||kind==="yield-correction")valid=valid&&!!selectedBatch&&!!text("reason").trim()&&good(kind==="consumption"?"quantity":"actualQuantity",true,kind==="yield-correction")&&(kind!=="consumption"||!values.consumeBottle||!!text("bottleProductId"));
+    if(kind==="bottle-stock")valid=valid&&!!selectedBottle&&good("actualQuantity",true,true)&&!!text("reason").trim();
+    if(!valid)setError(tr("pm.invalid"));return valid;
+  }
+  async function save(){
+    if(!validate())return;
+    const payload:Record<string,unknown>={...values,type:editing?"perfume-management.update":managementPostType[kind],...(editing?{documentId:editing.id,expectedRevision:editing.revision??0}:{})};
+    const bottle=bottles.find(p=>p.id===bottleEdit);
+    if(bottle){payload.type="perfume-bottle.update";payload.id=bottle.id;payload.expectedProduct=bottleExpected}
+    if(editing&&!await confirm({message:tr("pm.editConfirm"),tone:"warning"}))return;
+    await process(payload,()=>{reset();setTab("history")});
+  }
+  async function edit(document:DocumentRecord){
+    const k=managementKind(document)!;const p=k==="bottle"?bottles.find(b=>b.id===document.managementProductId):undefined;
+    await choose(k,managementInputFor(document,data.products),document,p?.id??"");
+  }
+  async function voidDocument(document:DocumentRecord){
+    if(!await confirm({message:tr("pm.voidConfirm"),confirmLabel:tr("pm.void"),tone:"danger"}))return;
+    await process({type:"perfume-management.void",documentId:document.id,expectedRevision:document.revision??0});
+  }
+  const field=(key:string,label:string,options:{integer?:boolean;zero?:boolean;type?:string}={})=><label>{label}<input value={text(key)} onChange={e=>set(key,e.target.value)} type={options.type??"number"} min={options.type?undefined:options.zero?"0":options.integer?"1":"0.000001"} step={options.integer?"1":"any"} inputMode={options.type?undefined:options.integer?"numeric":"decimal"}/></label>;
+  const selectWarehouse=<label className="pm-wide">{tr("المخزن")}<select value={warehouseId} onChange={e=>set("warehouseId",e.target.value)}><option value="">{tr("اختر المخزن")}</option>{warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label>;
+  const selectSource=<label className="pm-wide">{tr("العطر")}<PerfumeProductPicker items={sources.map(p=>({id:p.id,name:p.name,meta:`${tr("المتوفر")}: ${quantity(stockInWarehouse(p,warehouseId))}`}))} value={text("sourceProductId")} onChange={v=>set("sourceProductId",v)} placeholder={tr("اختر العطر")} ariaLabel={tr("العطر")}/></label>;
+  const selectBatch=<label className="pm-wide">{tr("pm.batch")}<PerfumeProductPicker items={batchItems} value={text("decantProductId")?`${text("decantProductId")}::${text("lotId")}`:""} onChange={v=>{const [productId,lotId]=v.split("::");set("decantProductId",productId??"");set("lotId",lotId??"")}} placeholder={tr("pm.chooseBatch")} ariaLabel={tr("pm.batch")}/></label>;
+  const selectBottle=<label>{tr("الزجاجة")}<select value={text("bottleProductId")} onChange={e=>{set("bottleProductId",e.target.value);const p=bottles.find(b=>b.id===e.target.value);if(p)set("cost",String(p.lastPurchaseCost??p.pieceCost??""))}}><option value="">{tr("pm.chooseBottle")}</option>{activeBottles.map(b=><option key={b.id} value={b.id}>{b.name} · {quantity(stockInWarehouse(b,warehouseId))}</option>)}</select></label>;
+  const open=(id:string)=>openDoc?.(id);
+  return <section className="perfume-divisions-page perfume-management-page">
+    <fieldset className="erp-fieldset pm-navigation"><legend>{tr("pm.title")}</legend><div className="pm-navigation-row">
+      <nav className="invoice-toolbar-modes pm-tabs" aria-label={tr("pm.title")}>{(["convert","stock","bottles","history"] as const).map(t=><button key={t} type="button" aria-pressed={tab===t} className="selection-option" disabled={busy} onClick={()=>void switchTab(t)}>{tr(`pm.tab.${t}`)}</button>)}</nav>
+      <div className="pm-overview"><span>{tr("pm.batches")}: <b>{quantity(batches.filter(b=>lotRemainingTotal(b.lot)>0).length)}</b></span><span>{tr("زجاج التقسيمات")}: <b>{quantity(activeBottles.length)}</b></span><span>{tr("pm.operations")}: <b>{quantity(operations.length)}</b></span></div>
+    </div></fieldset>
+    {!canManage&&<p className="pm-hint">{tr("pm.readOnly")}</p>}
+    {error&&<div className="error perfume-local-error" role="alert">{error}</div>}
+    {tab!=="history"&&<div className="pm-workspace">
+      <fieldset className="erp-fieldset popover-host pm-editor"><legend>{editing||bottleEdit?`${tr("تعديل")} · ${formTitle}`:formTitle}</legend>
+      <form className="bank-operation-form pm-editor-form" onSubmit={event=>{event.preventDefault();void save()}}>
+        {!editing&&!bottleEdit&&<div className="invoice-toolbar-modes pm-kind-tabs" role="group" aria-label={tr("العملية")}>{(tab==="convert"?["split","recombine"]:tab==="bottles"?["bottle","bottle-stock"]:["opening","consumption","yield-correction"]).map(k=><button type="button" className="selection-option" aria-pressed={kind===k} aria-label={tr(managementLabel[k as ManagementKind])} title={tr(managementLabel[k as ManagementKind])} disabled={busy} key={k} onClick={()=>void choose(k as ManagementKind)}>{tr(shortKindLabel[k as ManagementKind])}</button>)}</div>}
+        <fieldset disabled={busy||!canManage} className="pm-fields">
+          {kind!=="bottle"&&selectWarehouse}
+          {(kind==="split"||kind==="opening")&&selectSource}
+          {kind==="split"&&field("divisionsCount",tr("عدد التقسيمات"),{integer:true})}
+          {["split","opening","recombine"].includes(kind)&&field("salePrice",tr(kind==="recombine"?"سعر بيع العطر الناقص":"سعر البيع للتقسيمة"))}
+          {["recombine","consumption","yield-correction"].includes(kind)&&selectBatch}
+          {kind==="bottle"&&<>{field("name",tr("اسم الزجاجة"),{type:"text"})}{field("sizeMl",tr("الحجم (ml)"))}{field("cost",tr("التكلفة المرجعية"))}<p className="pm-hint">{tr("pm.bottleHelp")}</p></>}
+          {kind==="bottle-stock"&&<>{selectBottle}{field("actualQuantity",tr("pm.actual"),{integer:true,zero:true})}<p className="pm-hint">{tr("pm.stockHelp")}</p><p className="pm-hint">{tr("pm.addedCost")}: {selectedBottle?.lastPurchaseCost!=null?money(selectedBottle.lastPurchaseCost):"—"}</p></>}
+          {kind==="opening"&&<>{field("quantity",tr("pm.actual"),{integer:true})}{field("remainingValue",tr("pm.remainingValue"))}<p className="pm-hint">{tr("pm.openingHelp")}</p></>}
+          {kind==="consumption"&&<>{field("quantity",tr("pm.quantityOut"),{integer:true})}<label>{tr("pm.reasonCode")}<select value={text("reasonCode")} onChange={e=>set("reasonCode",e.target.value)}>{["samples","waste","leak","internal","stock-difference","other"].map(r=><option value={r} key={r}>{tr(`pm.reason.${r}`)}</option>)}</select></label><label className="pm-check"><input type="checkbox" checked={values.consumeBottle===true} onChange={e=>set("consumeBottle",e.target.checked)}/>{tr("pm.consumeBottle")}</label>{values.consumeBottle&&selectBottle}</>}
+          {kind==="yield-correction"&&<>{field("actualQuantity",tr("pm.actual"),{integer:true,zero:true})}<p className="pm-hint">{tr("pm.correctHelp")}</p></>}
+          {["consumption","yield-correction","bottle-stock"].includes(kind)&&field("reason",tr("سبب التصحيح"),{type:"text"})}
+          <label className="pm-wide">{tr("ملاحظة")}<textarea rows={1} maxLength={1000} value={text("note")} onChange={e=>set("note",e.target.value)}/></label>
+        </fieldset>
+        {kind==="split"&&<div className="pm-summary"><span>{tr("pm.sourceValue")}: <b>{money(sourceCost)}</b></span><span>{tr("تكلفة السائل للتقسيمة")}: <b>{money(liquidCost)}</b></span><small>{tr("لا تشمل الزجاجة")}</small></div>}
+        {selectedBatch&&<div className="pm-summary"><span>{tr("pm.stockInWarehouse")}: <b>{quantity(lotStock)}</b></span><span>{tr("pm.remainingValue")}: <b>{money(bookValue)}</b></span>{kind==="recombine"&&<small>{tr("pm.recombineHelp")}</small>}</div>}
+        <footer className="pm-form-actions"><button type="submit" className="primary" disabled={busy||!canManage}>{busy?tr("جاري الحفظ…"):editing||bottleEdit?tr("pm.saveEdit"):tr("pm.post")}</button>{(editing||bottleEdit)&&<button type="button" className="soft" disabled={busy} onClick={()=>void choose(kind)}>{tr("إلغاء")}</button>}{editing&&<button type="button" className="soft" onClick={()=>open(editing.id)}>{tr("pm.view")}</button>}</footer>
+      </form></fieldset>
+      <fieldset className="erp-fieldset pm-register"><legend>{tr(tab==="bottles"?"زجاج التقسيمات":"pm.batches")}</legend>
+        <div className="pm-section-head"><label className="search compact-search"><Search aria-hidden="true"/><input aria-label={tr("بحث")} placeholder={tr("بحث")} value={search} onChange={e=>setSearch(e.target.value)} /></label>{tab==="bottles"&&<label className="pm-check"><input type="checkbox" checked={archived} onChange={e=>setArchived(e.target.checked)}/>{tr("pm.showArchived")}</label>}</div>
+        <div className="erp-table-wrap pm-table-scroll"><table className="erp-table"><thead>{tab==="bottles"?<tr><th>{tr("الزجاجة")}</th><th>{tr("الحجم")}</th><th>{tr("المخزون")}</th><th>{tr("إجراء")}</th></tr>:<tr><th>{tr("pm.batch")}</th><th>{tr("pm.remaining")}</th><th>{tr("تكلفة السائل")}</th><th>{tr("إجراء")}</th></tr>}</thead>
+          <tbody>{tab==="bottles"?bottles.filter(b=>(archived||!b.isArchived)&&b.name.toLocaleLowerCase().includes(needle)).map(b=><tr key={b.id}>
+            <td title={b.name}><span className="pm-cell-text">{b.name}</span>{b.isArchived&&<small>{tr("pm.archived")}</small>}</td>
+            <td className="num-cell">{quantity(Number(b.decantSizeMl??0))} ml</td><td className="num-cell">{quantity(stockInWarehouse(b,warehouseId))}</td>
+            <td><div className="pm-row-actions">{b.isArchived
+              ?<RowAction label={tr("pm.restore")} icon={ArchiveRestore} disabled={busy||!canManage} onClick={()=>void process({type:"perfume-bottle.restore",id:b.id})}/>
+              :<><RowAction label={tr("تعديل")} icon={PencilLine} disabled={busy||!canManage} onClick={()=>void choose("bottle",{name:b.name,sizeMl:b.decantSizeMl,cost:b.pieceCost},undefined,b.id)}/>
+                <RowAction label={tr("تصحيح الكمية")} icon={SlidersHorizontal} disabled={busy||!canManage} onClick={()=>void choose("bottle-stock",{bottleProductId:b.id,warehouseId,actualQuantity:stockInWarehouse(b,warehouseId),cost:b.lastPurchaseCost??b.pieceCost})}/>
+                <RowAction label={tr("pm.archive")} icon={Archive} danger disabled={busy||!canManage} onClick={()=>void (async()=>{if(await confirm({message:tr("pm.archiveConfirm"),tone:"danger"}))await process({type:"perfume-bottle.archive",id:b.id,expectedProduct:bottleSnapshot(b)})})()}/></>}
+            </div></td></tr>)
+            :batches.filter(b=>[b.lot.sourceProductName,b.lot.id].join(" ").toLocaleLowerCase().includes(needle)).map(b=><tr key={b.lot.id}>
+              <td title={`${b.lot.sourceProductName} · ${formatDateTime(b.lot.createdAt)} · ${b.lot.id}`}><span className="pm-cell-text">{b.lot.sourceProductName}</span><small>{formatDateTime(b.lot.createdAt)} · {b.lot.id.slice(-6)}</small></td>
+              <td className="num-cell">{quantity(lotRemainingTotal(b.lot))}</td><td className="num-cell">{money(b.lot.liquidUnitCost)}</td>
+              <td><div className="pm-row-actions"><RowAction label={tr("pm.source")} icon={FileText} onClick={()=>open(b.lot.conversionDocumentId)}/>
+                <RowAction label={tr(tab==="stock"?"pm.consumption":"pm.recombine")} icon={tab==="stock"?FlaskConical:RotateCcw} text={tr(tab==="stock"?"pm.short.consumption":"pm.short.recombine")} disabled={busy||!canManage||lotRemainingTotal(b.lot)<=0} onClick={()=>void choose(tab==="stock"?"consumption":"recombine",{decantProductId:b.product.id,lotId:b.lot.id,warehouseId:Object.entries(b.lot.stocks).find(([,q])=>q>0)?.[0]??defaultWarehouse})}/>
+              </div></td></tr>)}</tbody></table></div>
+        <p className="pm-hint">{tr(tab==="bottles"?"pm.bottleRegisterHelp":"pm.batchRegisterHelp")}</p>
+      </fieldset>
+    </div>}
+    {tab==="history"&&<fieldset className="erp-fieldset pm-history"><legend>{tr("pm.history")}</legend><div className="pm-section-head"><label className="search compact-search"><Search aria-hidden="true"/><input aria-label={tr("بحث")} placeholder={tr("بحث")} value={search} onChange={e=>setSearch(e.target.value)}/></label><label>{tr("النوع")}<select value={historyType} onChange={e=>setHistoryType(e.target.value)}><option value="all">{tr("pm.all")}</option>{Object.keys(managementLabel).map(k=><option value={k} key={k}>{tr(managementLabel[k as ManagementKind])}</option>)}</select></label><label>{tr("الحالة")}<select value={historyStatus} onChange={e=>setHistoryStatus(e.target.value)}><option value="all">{tr("pm.all")}</option><option value="posted">{tr("pm.posted")}</option><option value="voided">{tr("pm.voided")}</option></select></label></div>
+      <p className="pm-hint">{tr("pm.historyHelp")}</p><div className="erp-table-wrap pm-table-scroll"><table className="erp-table"><thead><tr><th>{tr("المستند")}</th><th>{tr("النوع")}</th><th>{tr("المخزن")}</th><th>{tr("ملاحظة")}</th><th>{tr("الحالة")}</th><th>{tr("إجراء")}</th></tr></thead><tbody>{operations.filter(d=>(historyType==="all"||managementKind(d)===historyType)&&(historyStatus==="all"||d.status===historyStatus)&&[d.number,d.title,d.note,...d.lines.map(l=>l.description)].join(" ").toLocaleLowerCase().includes(needle)).map(d=><tr key={d.id}>
+        <td title={displayDocumentNumber(d)}><span className="pm-cell-text" dir="ltr">{displayDocumentNumber(d)}</span><small>{formatDateTime(d.occurredAt)}</small></td>
+        <td title={`${tr(managementLabel[managementKind(d)!])} · ${d.lines[0]?.description??""}`}><span className="pm-cell-text">{tr(shortKindLabel[managementKind(d)!])}</span><small>{d.lines[0]?.description}</small></td>
+        <td title={d.warehouseName??""}>{d.warehouseName??"—"}</td><td title={d.note||d.title||""}>{d.note||d.title||"—"}</td>
+        <td title={tr(d.replacedByDocumentId?"pm.superseded":d.status==="posted"?"pm.posted":"pm.voided")}>{tr(d.replacedByDocumentId?"pm.short.superseded":d.status==="posted"?"pm.posted":"pm.voided")}</td>
+        <td><div className="pm-row-actions"><RowAction label={tr("pm.view")} icon={FileText} onClick={()=>open(d.id)}/>
+          {d.replacedByDocumentId&&<RowAction label={tr("pm.newRevision")} icon={ArrowUpRight} onClick={()=>open(d.replacedByDocumentId!)}/>}
+          {d.status==="posted"&&<><RowAction label={tr("تعديل")} icon={PencilLine} disabled={busy||!canManage} onClick={()=>void edit(d)}/><RowAction label={tr("pm.void")} icon={X} danger disabled={busy||!canManage} onClick={()=>void voidDocument(d)}/></>}
+        </div></td></tr>)}</tbody></table></div>{operations.length===0&&<p>{tr("pm.emptyHistory")}</p>}
+    </fieldset>}
+  </section>;
 }
