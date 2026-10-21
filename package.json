@@ -1,6 +1,7 @@
 {
   "name": "alkarna-perfume-desktop",
   "version": "0.1.9",
+  "storeVersion": "1.0.0",
   "description": "Offline desktop accounting, inventory, and perfume division application.",
   "author": "lami216",
   "private": true,

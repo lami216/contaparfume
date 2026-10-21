@@ -19,7 +19,7 @@ try {
   if ($manifest.Package.Identity.Name -cne $IdentityName) { throw 'MSIX identity differs from requested identity' }
   if ($manifest.Package.Identity.Publisher -cne $Publisher) { throw 'MSIX publisher differs from requested publisher' }
   if ($manifest.Package.Identity.ProcessorArchitecture -ne 'x64') { throw 'MSIX must be x64' }
-  $sourceVersion = (Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json).version
+  $sourceVersion = (Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json).storeVersion
   if ($manifest.Package.Identity.Version -ne "$sourceVersion.0") { throw 'MSIX version must match source with revision 0' }
   if ($manifest.Package.Applications.Application.EntryPoint -ne 'Windows.FullTrustApplication') { throw 'MSIX full-trust entry point missing' }
   if ($manifest.Package.Applications.Application.Executable.Replace('\','/') -ne 'app/AlKarnaPerfume.exe') { throw 'MSIX executable mismatch' }

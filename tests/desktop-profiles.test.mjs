@@ -55,17 +55,20 @@ test('writing test data, activation and settings leaves a production fixture byt
 });
 
 test('Store packaging refuses missing and validation identities; MSIX uses real Store metadata',()=>{
-  assert.throws(()=>channelConfig('store','0.1.9'),/identity is required/);
-  const validation=channelConfig('store-validation','0.1.9');
-  assert.throws(()=>channelConfig('store','0.1.9',validation.appx),/Validation\/placeholder/);
+  assert.throws(()=>channelConfig('store','0.1.9',undefined,'1.0.0'),/identity is required/);
+  const validation=channelConfig('store-validation','0.1.9',undefined,'1.0.0');
+  assert.throws(()=>channelConfig('store','0.1.9',validation.appx,'1.0.0'),/Validation\/placeholder/);
   const identity={identityName:'12345.TestProduct',publisher:'CN=12345678-1234-1234-1234-123456789abc',publisherDisplayName:'Test Publisher',displayName:'Test Product'};
-  const config=channelConfig('store','0.1.9',identity);
+  const config=channelConfig('store','0.1.9',identity,'1.0.0');
   for(const key of Object.keys(identity))assert.equal(config.appx[key],identity[key]);
   assert.equal(config.appx.setBuildNumber,false);
   assert.equal(config.appx.artifactName,'AlKarna-Perfume-Store-${version}-x64.msix');
   assert.deepEqual(config.appx.capabilities,['runFullTrust']);
   assert.deepEqual(config.appx.languages,['ar','fr']);
   assert.equal(config.extraMetadata.alkarnaChannel,'store');
+  assert.equal(config.extraMetadata.version,'1.0.0');
+  assert.throws(()=>channelConfig('store','0.1.9',identity,'0.1.9'),/nonzero major/);
+  assert.throws(()=>channelConfig('store','0.1.9',identity,'1.2.65536'),/65535/);
   assert.throws(()=>channelConfig('store','1.2.65536',identity),/65535/);
   assert.throws(()=>channelConfig('store','1.2.3-beta',identity),/numeric/);
 });

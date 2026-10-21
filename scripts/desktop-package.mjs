@@ -10,7 +10,7 @@ const pkg=JSON.parse(await readFile('package.json','utf8'));
 // Validate identity before importing builder or producing an output. A validation
 // package is deliberately separate; it must never be mistaken for a Store upload.
 const identity=channel==='store'?JSON.parse(await readFile(args[1]||'store-identity.local.json','utf8')):undefined;
-const config=channelConfig(channel,pkg.version,identity);
+const config=channelConfig(channel,pkg.version,identity,pkg.storeVersion);
 await readFile('desktop-dist/app/server.js');
 await readFile('desktop-dist/shell/package.json');
 process.env.CSC_IDENTITY_AUTO_DISCOVERY='false';
@@ -30,7 +30,7 @@ for(const file of files) {
   await writeFile(`${file}.sha256`,`${hash} *${basename(file)}\n`);
 }
 await writeFile(resolve(config.directories.output,'BUILD-INFO.json'),JSON.stringify({
-  channel,version:pkg.version,packageVersion:`${pkg.version}.0`,
+  channel,sourceVersion:pkg.version,packageVersion:`${channel==='sandbox'?pkg.version:pkg.storeVersion}.0`,
   sourceCommit:process.env.GITHUB_SHA||null,storeIdentity:config.appx?{identityName:config.appx.identityName,publisher:config.appx.publisher}:null,
   validationOnly:channel==='store-validation',files:files.map(file=>basename(file)),
   note:channel==='store-validation'?'Unsigned packaging validation only. Not for installation or Store submission.':channel==='store'?'Unsigned Partner Center input. Store signing and certification are pending.':'Local test edition. Starts empty and requires a separate device license. Production data is never imported automatically.',

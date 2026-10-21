@@ -54,7 +54,7 @@ npm run desktop:package:msix
 
 Alternatively run **Build Microsoft Store MSIX** in GitHub Actions with these four identity values. The workflow builds and checks the source before producing an unsigned `.msix` in `dist/store`, with SHA-256 and source metadata. It does not upload to the Store, publish, or install certificates. Microsoft signs the package after submission and certification. MakeAppx creates the `.msix` directly; no EXE or ZIP is renamed. The package declares only the required `runFullTrust` capability and Arabic/French resources.
 
-The MSIX version is `package.json` version plus `.0`; do not derive it from GitHub's run counter. Increase the three-part source version for every Store package update, keeping the same Partner Center identity. Test flights also undergo review, so use the isolated local edition for daily edits.
+The MSIX version is `package.json` **storeVersion** plus `.0` (initially `1.0.0.0`); do not derive it from GitHub's run counter. Store rules require a nonzero major and reserve the fourth component. This leaves the existing EXE version unchanged. Increase `storeVersion` for every Store package update, keeping the same Partner Center identity. Test flights also undergo review, so use the isolated local edition for daily edits.
 
 Store data starts separately in `AlKarna-Perfume-Store`. There is no automatic migration from an existing EXE installation. After the Store version is approved and tested, users can deliberately export a backup from the old app and restore it in the Store edition. Keep the original backup and installation until that migration is verified.
 
