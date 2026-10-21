@@ -14,7 +14,7 @@ const config=channelConfig(channel,pkg.version,identity,pkg.storeVersion);
 await readFile('desktop-dist/app/server.js');
 await readFile('desktop-dist/shell/package.json');
 process.env.CSC_IDENTITY_AUTO_DISCOVERY='false';
-const {build}=await import('electron-builder');
+const {build,Platform,Arch}=await import('electron-builder');
 if(channel!=='sandbox') {
   const {default:sharp}=await import('sharp');
   await mkdir('build/appx',{recursive:true});
@@ -24,7 +24,11 @@ if(channel!=='sandbox') {
 }
 // electron-builder invokes Microsoft's MakeAppx pack directly with a .msix
 // output path. There is no installer renaming or locally trusted certificate.
-const files=await build({config,publish:'never'});
+// Pass explicit API targets: merging win.target with package.json otherwise
+// retains the production NSIS target and its installer identity.
+const files=await build({config,targets:Platform.WINDOWS.createTarget(channel==='sandbox'?'zip':'appx',Arch.x64),publish:'never'});
+const extension=channel==='sandbox'?'.zip':'.msix';
+if(files.length!==1||!files[0].endsWith(extension))throw new Error(`Unexpected ${channel} outputs: ${files.map(file=>basename(file)).join(', ')}`);
 for(const file of files) {
   const hash=createHash('sha256').update(await readFile(file)).digest('hex');
   await writeFile(`${file}.sha256`,`${hash} *${basename(file)}\n`);
