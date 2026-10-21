@@ -40,6 +40,19 @@ jobs:
       - run: npm run desktop:test-server
       - run: npm run desktop:dist:win
       - run: npm run desktop:test-packaged
+      - name: Package isolated local test edition
+        run: npm run desktop:package:sandbox
+      - name: Verify isolated packaged runtime
+        run: node scripts/desktop-test-server.mjs --packaged --sandbox
+      - name: Validate unsigned MSIX packaging with a non-Store identity
+        run: npm run desktop:package:msix:validation
+      - name: Verify MSIX contents
+        shell: pwsh
+        run: |
+          $packages = @(Get-ChildItem -LiteralPath dist/store-validation -Filter '*.msix')
+          if ($packages.Count -ne 1) { throw 'Expected exactly one validation MSIX' }
+          $package = $packages[0]
+          ./scripts/verify-msix.ps1 -PackagePath $package.FullName -IdentityName 'AlKarna.Perfume.MSIXValidation' -Publisher 'CN=AlKarnaLocalValidation'
       - name: Verify Windows artifacts
         shell: pwsh
         run: |
@@ -58,6 +71,26 @@ jobs:
           path: |
             dist/AlKarna-Perfume-Setup-x64.exe
             dist/AlKarna-Perfume-Setup-x64.exe.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: AlKarna-Perfume-Sandbox-x64-${{ github.run_number }}
+          path: |
+            dist/sandbox/*.zip
+            dist/sandbox/*.sha256
+            dist/sandbox/BUILD-INFO.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: NOT-FOR-STORE-MSIX-Validation-${{ github.run_number }}
+          path: |
+            dist/store-validation/*.msix
+            dist/store-validation/*.sha256
+            dist/store-validation/BUILD-INFO.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
