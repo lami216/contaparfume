@@ -1,7 +1,9 @@
 import type { SqliteDatabase as Db, SqliteSession as Session } from "../lib/sqlite.ts";
-import { managementKind, managementPostType, type ManagementKind } from "./perfume-management.ts";
+import { isBottleStockReason, managementKind, managementPostType, type ManagementKind } from "./perfume-management.ts";
 import { perfumeLotEquals } from "./perfume-stock-reconciliation.ts";
 import type { PerfumeLot } from "./perfume-logic.ts";
+import { undoVolumeOperation } from "./perfume-volume-commands.ts";
+import { roundMl } from "./perfume-volume.ts";
 
 type Row = Record<string, unknown>;
 type Delegate = (db: Db, session: Session, body: Row) => Promise<unknown>;
@@ -14,7 +16,7 @@ const meta = (product: Row) => ({ name: product.name, piecePrice: product.pieceP
 const snapshotBottle = (product: Row) => ({ name: product.name, sizeMl: product.decantSizeMl, cost: product.pieceCost, isArchived: product.isArchived === true });
 const positive = (value: unknown, label: string) => { const n=Number(value); if(!Number.isFinite(n)||n<=0)throw fail(`${label} غير صالح`,400);return n; };
 const commandKinds = new Map(Object.entries(managementPostType).map(([kind,command]) => [command,kind as ManagementKind]));
-const inputFields = ["sourceProductId","decantProductId","lotId","warehouseId","divisionsCount","salePrice","quantity","remainingValue","actualQuantity","reason","reasonCode","consumeBottle","bottleProductId","name","sizeMl","cost","note"];
+const inputFields = ["sourceProductId","decantProductId","lotId","warehouseId","divisionsCount","volumeMl","priceBasisMl","salePrice","quantity","remainingValue","actualQuantity","reason","reasonCode","bottleStockReason","consumeBottle","bottleQuantity","bottleProductId","name","sizeMl","cost","note"];
 const cleanInput = (body: Row) => Object.fromEntries(inputFields.filter(key => body[key] !== undefined).map(key => [key,body[key]]));
 const stockConflict = () => fail("لا يمكن تعديل أو إلغاء العملية لأن لها حركات لاحقة. ألغِ الحركات المرتبطة الأحدث أولًا.");
 
@@ -32,11 +34,11 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
   };
   async function move(p: Row, warehouseId: string, delta: number, d: Row, name: string) {
     const warehouse=await db.collection("warehouses").findOne({_id:warehouseId},{session});if(!warehouse)throw fail("المخزن المرتبط بالعملية غير موجود");
-    const before=Number((p.stocks as Record<string,number>??{})[warehouseId]??0),after=before+delta;
+    const before=Number((p.stocks as Record<string,number>??{})[warehouseId]??0),after=p.perfumeStockUnit==="ml"?roundMl(before+delta):before+delta;
     if(!Number.isFinite(after)||after<0)throw stockConflict();
     await products.updateOne({id:p.id},{$set:{[`stocks.${warehouseId}`]:after}},{session});
     p.stocks={...(p.stocks as Row??{}),[warehouseId]:after};
-    await db.collection("stockMovements").insertOne({id:id("mov"),documentId:d.id,documentNumber:d.number,warehouseId,warehouseName:warehouse.name,productId:p.id,productName:p.name,type:name,quantityDelta:delta,balanceBefore:before,balanceAfter:after,occurredAt:new Date().toISOString()},{session});
+    await db.collection("stockMovements").insertOne({id:id("mov"),documentId:d.id,documentNumber:d.number,warehouseId,warehouseName:warehouse.name,productId:p.id,productName:p.name,type:name,quantityDelta:delta,balanceBefore:before,balanceAfter:after,quantityUnit:p.perfumeStockUnit==="ml"?"ml":"piece",occurredAt:new Date().toISOString()},{session});
   }
   async function setLots(p: Row,lots:PerfumeLot[]) {
     // Lot book values are authoritative. Do not reset prices or another lot's stock.
@@ -52,7 +54,7 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     await documents.updateOne({id:old.id},{$set:{status:"voided",voidedAt:new Date().toISOString(),replacedByDocumentId:newId,voidReason:"تعديل العملية مع الاحتفاظ بالنسخة السابقة"}},{session});
     await documents.updateOne({id:newId},{$set:{replacesDocumentId:old.id,revision:Number(old.revision??0)+1}},{session});
   }
-  async function post(postKind:ManagementKind,input:Row) {
+  async function post(postKind:ManagementKind,input:Row,previous?:Row) {
     let previousDecant:Row|null=null,previousLot:PerfumeLot|null=null;
     if(["split","opening"].includes(postKind))previousDecant=(await products.findOne({parentProductId:String(input.sourceProductId),perfumeForm:"decant",isArchived:{$ne:true}},{session}))??null;
     if(postKind==="recombine")previousLot=lotsOf(await product(input.decantProductId)).find(l=>l.id===input.lotId)??null;
@@ -60,8 +62,12 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     let result:unknown;
     if(postKind==="bottle-stock"){
       const p=await product(input.bottleProductId);if(p.perfumeForm!=="bottle"||p.isArchived)throw fail("اختر زجاجة نشطة",400);
+      if(!isBottleStockReason(input.bottleStockReason))throw fail("اختر سبب فرق الزجاج: كسر أو تلف أو تصحيح خطأ إدخال",400);
+      if(!["string","number"].includes(typeof input.actualQuantity)||String(input.actualQuantity).trim()==="")throw fail("الكمية الفعلية غير صالحة",400);
       const actual=Number(input.actualQuantity);if(!Number.isSafeInteger(actual)||actual<0)throw fail("الكمية الفعلية غير صالحة",400);
       if(!String(input.reason??"").trim())throw fail("سبب التصحيح مطلوب",400);
+      const before=Number((p.stocks as Row??{})[String(input.warehouseId)]??0);
+      if(input.bottleStockReason!=="correction"&&actual>=before)throw fail("الكسر والتلف يتطلبان كمية فعلية أقل من رصيد البرنامج",400);
       // Quantity corrections use the existing authoritative purchase/opening
       // cost. A catalog reference price is not a new inventory valuation.
       result=await core(db,session,{type:"adjustment.post",warehouseId:input.warehouseId,reason:input.reason,lines:[{productId:p.id,actualQuantity:actual}]});
@@ -70,28 +76,46 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
       const p=await product(result);const d=await definition(p,cleanInput(input),null);return {result,documentId:d.id};
     }
     let d=await documents.findOne({id:String(result)},{session});
-    if(postKind==="recombine")d=await documents.findOne({perfumeConversionType:"perfume-recombine",status:"posted","lines.productId":String(result)},{session});
+    if(postKind==="recombine"&&!d)d=await documents.findOne({perfumeConversionType:"perfume-recombine",status:"posted","lines.productId":String(result)},{session});
     if(!d)throw fail("تعذر ربط العملية بسجل الفواتير");
-    const added:Row={perfumeManagementType:postKind,managementInput:cleanInput(input),revision:0,note:String(input.note??input.reason??"")};
+    const added:Row={perfumeManagementType:postKind,managementInput:cleanInput(input),revision:0,note:String(input.note||input.reason||"")};
     if(postKind==="split"){
       const line=rows(d.lines).find(l=>Number(l.quantity)>0);const p=await product(line?.productId);const lot=lotsOf(p).find(l=>l.conversionDocumentId===d!.id);if(!lot)throw fail("دفعة التحويل غير موجودة");
       Object.assign(added,{sourceProductId:String(input.sourceProductId),decantProductId:String(p.id),perfumeLotId:lot.id,perfumeLotBefore:null,perfumeLotAfter:lot,decantProductCreated:!previousDecant,decantProductBefore:previousDecant?meta(previousDecant):null,decantProductAfter:meta(p)});
     }
     if(postKind==="recombine"){
-      const p=await product(input.decantProductId);Object.assign(added,{decantProductId:String(p.id),perfumeLotId:String(input.lotId),partialProductId:String(result),perfumeLotBefore:previousLot,perfumeLotAfter:lotsOf(p).find(l=>l.id===input.lotId)});
+      const p=await product(input.decantProductId);Object.assign(added,{decantProductId:String(p.id),perfumeLotId:String(input.lotId),...(d.quantityUnit==="ml"?{}:{partialProductId:String(result)}),perfumeLotBefore:previousLot,perfumeLotAfter:lotsOf(p).find(l=>l.id===input.lotId)});
     }
     if(postKind==="bottle-stock"){
+      const reason=input.bottleStockReason,lines=rows(d.lines),line=lines[0];
+      // An edit of the same count keeps its historic valuation; client cost is never trusted.
+      const sameCount=previous&&String(previous.managementProductId)===String(input.bottleProductId)&&String(previous.warehouseId)===String(input.warehouseId);
+      const unitCost=Number(sameCount?rows(previous.lines)[0]?.unitPrice:line?.unitPrice),delta=Number(line?.quantity);
+      if(reason!=="correction"&&(!Number.isFinite(unitCost)||unitCost<=0))throw fail("لا توجد تكلفة معتمدة للزجاج لحساب خسارة الكسر أو التلف",409);
+      const loss=reason==="correction"?0:-delta*unitCost;
       added.managementProductId=String(input.bottleProductId);
-      added.managementInput={...cleanInput(input),cost:rows(d.lines)[0]?.unitPrice??null};
+      Object.assign(added,{bottleStockReason:reason,perfumeStockOperationType:"bottle-reconciliation",quantityUnit:"piece",inventoryLoss:loss,inventoryGain:0,stockDelta:delta,
+        bookValueBefore:Number(line.balanceBefore)*unitCost,bookValueAfter:Number(line.balanceAfter)*unitCost,
+        lines:lines.map(l=>({...l,unitPrice:unitCost,inventoryLoss:loss,inventoryGain:0}))});
+      added.managementInput={...cleanInput(input),cost:unitCost};
     }
     await documents.updateOne({id:d.id},{$set:added},{session});return {result,documentId:String(d.id)};
   }
   async function undo(d:Row) {
     const k=managementKind(d)!;
+    if(d.quantityUnit==="ml"&&d.perfumeStockOperationType==="reconciliation"){
+      await undoVolumeOperation(db,session,d);return;
+    }
     if(["opening","consumption","yield-correction"].includes(k)){
       await base(db,session,{type:"perfume-stock-operation.void",documentId:d.id});return;
     }
-    if(k==="bottle-stock"){await core(db,session,{type:"adjustment.void",documentId:d.id});return;}
+    if(k==="bottle-stock"){
+      for(const line of rows(d.lines)){
+        const p=await product(line.productId),current=Number((p.stocks as Row??{})[String(d.warehouseId)]??0);
+        if(type==="perfume-management.update"&&current!==Number(line.balanceAfter))throw fail("تغير رصيد الزجاج بعد الجرد أو تم التصرف فيه؛ ألغِ الحركات الأحدث أولًا.");
+      }
+      await core(db,session,{type:"adjustment.void",documentId:d.id});return;
+    }
     if(k==="bottle"){
       const p=await product(d.managementProductId);if(total(p)!==0)throw fail("لا يمكن أرشفة زجاجة لها مخزون. صحح الرصيد أو انقل الكميات أولًا.");
       await base(db,session,{type:"product.delete",id:p.id});
@@ -155,11 +179,16 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     // A correction is a new linked revision. The prior document, all its lines
     // and reversal movements remain queryable; failure rolls the entire edit back.
     await undo(d);
-    const made=await post(k,body);await linkRevision(d,made.documentId);return {handled:true,result:made.documentId};
+    const made=await post(k,body,d);await linkRevision(d,made.documentId);return {handled:true,result:made.documentId};
   }
   if(type==="adjustment.update"||type==="adjustment.void"){
     const d=await documents.findOne({id:String(body.documentId??"")},{session});
+    if(d?.perfumeStockOperationType==="unit-conversion")throw fail("هذا سند تهيئة وحدة قياس محفوظ؛ لا يُعدل أو يُلغى كتسوية مخزون");
     if(d&&managementKind(d))throw fail("استخدم إدارة التقسيمات لتعديل أو إلغاء هذه العملية حتى تبقى الدفعات متطابقة.");
+  }
+  if(type==="adjustment.post"){
+    const ids=rows(body.lines).map(line=>String(line?.productId??""));
+    if(ids.length&&await products.findOne({id:{$in:ids},perfumeForm:"bottle"},{session}))throw fail("سوِّ الزجاج من جرد زجاج التقسيمات لتحديد الكسر أو التلف أو تصحيح خطأ الإدخال",400);
   }
   return {handled:false};
 }

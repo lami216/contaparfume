@@ -8,7 +8,6 @@ import {
   activeProducts,
   displayDocumentNumber,
   money,
-  quantity,
   stockInWarehouse,
   type BootstrapData,
   type DocumentRecord,
@@ -20,10 +19,12 @@ import { SortableTableHeader, useSortableRows } from "./table-sorting";
 import { canUseCapability } from "./transaction-ui";
 import { useAppConfirm } from "./app-confirm";
 import DecantInvoiceProductSearch, { type DecantInvoiceSearchItem } from "./decant-invoice-product-search";
+import DecantFillPicker from "./decant-fill-picker";
+import { DEFAULT_PERFUME_SETTINGS, lineLiquidMl, roundMl, suggestedDecantPrice } from "./perfume-volume";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
 type Props = { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void; requestPrint: (id: string) => void; editRequest?: string | null; clearEditRequest?: () => void };
-type DraftLine = { key: string; productId: string; quantity: string; unitPrice: string; bottleProductId: string };
+type DraftLine = { key: string; productId: string; quantity: string; unitPrice: string; bottleProductId: string; fillMl?: string; priceIsManual?:boolean };
 
 const lineKey = () => crypto.randomUUID();
 const n = (value: string) => value.trim() === "" ? 0 : Number(value);
@@ -242,6 +243,7 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, canMana
 
 export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editRequest, clearEditRequest }: Props) {
   const confirmAction = useAppConfirm();
+  const defaults=data.perfumeDefaults??DEFAULT_PERFUME_SETTINGS;
   const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
   const [editingDocumentId, setEditingDocumentId] = useDecantSessionDraft<string | null>("sale-editing", null);
   const editingDocument = editingDocumentId ? data.documents.find(document => document.id === editingDocumentId && document.kind === "decant-sale" && document.status === "posted") ?? null : null;
@@ -259,7 +261,11 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
   const [localError, setLocalError] = useState("");
   const [printAfterSave, setPrintAfterSave] = useState(false);
   const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
-  const restoredStock = (productId: string) => (editingDocument?.lines ?? []).reduce((total, line) => total + (line.productId === productId ? line.quantity : 0) + (line.bottleProductId === productId ? Number(line.bottleQuantity ?? line.quantity) : 0), 0);
+  const restoredStock = (productId: string) => (editingDocument?.lines ?? []).reduce((total, line) => {
+    const product=data.products.find(item=>item.id===productId);
+    const liquid=product?.perfumeStockUnit==="ml"?lineLiquidMl(line,product):line.quantity;
+    return total+(line.productId===productId?liquid:0)+(line.bottleProductId===productId?Number(line.bottleQuantity??line.quantity):0);
+  },0);
   const pickerItems: DecantInvoiceSearchItem[] = saleProducts.map(product => ({
     id: product.id,
     name: product.name,
@@ -281,14 +287,21 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
     setPaymentMethod(document.paymentMethod ?? "");
     setLines(document.lines.map(line => ({
       key: line.id || lineKey(), productId: line.productId ?? "", quantity: String(line.quantity),
-      unitPrice: String(line.unitPrice), bottleProductId: line.bottleProductId ?? "",
+      unitPrice: String(line.unitPrice), bottleProductId: line.bottleProductId ?? "", fillMl:String(line.fillMl??data.products.find(p=>p.id===line.productId)?.legacyDecantUnitMl??defaults.fillMl),priceIsManual:true,
     })));
     setLocalError("");
   };
   const add = (productId: string) => {
     const product = saleProducts.find(item => item.id === productId);
-    if (!product || lines.some(line => line.productId === product.id)) return;
-    setLines(current => [...current, { key: lineKey(), productId: product.id, quantity: "1", unitPrice: String(product.piecePrice ?? 0), bottleProductId: "" }]);
+    if (!product) return;
+    if(product.perfumeForm==="decant"&&product.perfumeStockUnit!=="ml"){setLocalError(tr("هيئ الدفعة بالمل من تسوية المخزون"));return;}
+    const fillMl=product.perfumeForm==="decant"?String(defaults.fillMl):undefined;
+    const bottle=defaults.bottleProductId?bottles.find(p=>p.id===defaults.bottleProductId):bottles.find(p=>Number(p.decantSizeMl)>=defaults.fillMl&&stockInWarehouse(p,warehouseId)>0);
+    const bottleProductId=product.perfumeForm==="decant"?bottle?.id??"":"";
+    setLines(current=>{
+      const existing=current.find(line=>line.productId===product.id&&line.bottleProductId===bottleProductId&&line.fillMl===fillMl);
+      return existing?current.map(line=>line.key===existing.key?{...line,quantity:String(n(line.quantity)+1)}:line):[...current,{key:lineKey(),productId:product.id,quantity:"1",unitPrice:String(fillMl?suggestedDecantPrice(product,Number(fillMl)):product.piecePrice??0),bottleProductId,fillMl}];
+    });
     
     setLocalError("");
   };
@@ -303,6 +316,11 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
   }, [editRequest]);
   const patch = (key: string, value: Partial<DraftLine>) => setLines(current => current.map(line => line.key === key ? { ...line, ...value } : line));
   const remove = (key: string) => setLines(current => current.filter(line => line.key !== key));
+  const patchFill=(line:DraftLine,value:{fillMl?:string;bottleProductId?:string})=>{
+    const product=saleProducts.find(p=>p.id===line.productId)!;
+    const oldFill=Number(line.fillMl)||defaults.fillMl,manual=line.priceIsManual??n(line.unitPrice)!==suggestedDecantPrice(product,oldFill);
+    patch(line.key,{...value,priceIsManual:manual,...(value.fillMl&&!manual?{unitPrice:String(suggestedDecantPrice(product,Number(value.fillMl)))}:{})});
+  };
 
   const submit = async () => {
     setLocalError("");
@@ -314,10 +332,14 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
       const product = saleProducts.find(item => item.id === line.productId);
       if (!product || !Number.isInteger(n(line.quantity)) || n(line.quantity) <= 0 || n(line.unitPrice) <= 0) { setLocalError(tr("راجع الكمية والسعر في الفاتورة")); return; }
       if (product.perfumeForm === "decant" && !line.bottleProductId) { setLocalError(tr("اختر زجاجة لكل عطر تقسيمات")); return; }
-      if (stockInWarehouse(product, warehouseId) + restoredStock(product.id) < n(line.quantity)) { setLocalError(tr("الكمية المطلوبة أكبر من المتوفر")); return; }
+      const requested=lines.filter(item=>item.productId===product.id).reduce((sum,item)=>sum+n(item.quantity)*(product.perfumeStockUnit==="ml"?Number(item.fillMl??defaults.fillMl):1),0);
+      if (stockInWarehouse(product, warehouseId) + restoredStock(product.id) < roundMl(requested)) { setLocalError(tr("الكمية المطلوبة أكبر من المتوفر")); return; }
       if (product.perfumeForm === "decant") {
         const bottle = bottles.find(item => item.id === line.bottleProductId);
-        if (!bottle || stockInWarehouse(bottle, warehouseId) + restoredStock(bottle.id) < n(line.quantity)) { setLocalError(tr("مخزون زجاج التقسيمات غير كافٍ")); return; }
+        const fill=Number(line.fillMl??defaults.fillMl);
+        if(!Number.isFinite(fill)||fill<=0||!bottle||fill>Number(bottle.decantSizeMl)){setLocalError(tr("راجع حجم التعبئة وسعة العبوة"));return;}
+        const needed=lines.reduce((sum,item)=>sum+(item.bottleProductId===bottle.id||item.productId===bottle.id?n(item.quantity):0),0);
+        if (stockInWarehouse(bottle, warehouseId) + restoredStock(bottle.id) < needed) { setLocalError(tr("مخزون زجاج التقسيمات غير كافٍ")); return; }
       }
     }
     setBusy(true);
@@ -329,7 +351,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
         paymentMethod,
         partyId: partyId || null,
         cashAmount: paymentMethod === "note" ? 0 : total,
-        lines: lines.map(line => ({ productId: line.productId, quantity: n(line.quantity), unitPrice: n(line.unitPrice), bottleProductId: line.bottleProductId || null })),
+        lines: lines.map(line => ({ productId: line.productId, quantity: n(line.quantity), unitPrice: n(line.unitPrice), bottleProductId: line.bottleProductId || null, fillMl: saleProducts.find(p=>p.id===line.productId)?.perfumeForm==="decant"?Number(line.fillMl??defaults.fillMl):undefined })),
       }, tr("تم اعتماد فاتورة التقسيمات"));
       reset();
       if (printAfterSave && typeof savedId === "string" && savedId) requestPrint(savedId);
@@ -357,15 +379,16 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
         <div className={lines.length ? "invoice-preview has-items" : "invoice-preview"}>
           <div className="erp-table-wrap invoice-preview-list">
             <table className="erp-table invoice-table" aria-label={tr("فاتورة التقسيمات")}>
-              <colgroup><col style={{width:"38%"}}/><col style={{width:"14%"}}/><col style={{width:"17%"}}/><col style={{width:"19%"}}/><col style={{width:"12%"}}/></colgroup>
-              <thead><tr><th>{tr("الاسم")}</th><th>{tr("الكمية")}</th><th>{tr("السعر")}</th><th>{tr("المجموع")}</th><th>{tr("حذف")}</th></tr></thead>
-              <tbody>{lines.length === 0 ? <tr className="invoice-empty-row"><td colSpan={5}>{tr("الفاتورة فارغة")}</td></tr> : lines.map(line => {
+              <colgroup><col style={{width:"30%"}}/><col style={{width:"16%"}}/><col style={{width:"10%"}}/><col style={{width:"16%"}}/><col style={{width:"20%"}}/><col style={{width:"8%"}}/></colgroup>
+              <thead><tr><th>{tr("الاسم")}</th><th>{tr("التعبئة")}</th><th>{tr("العدد")}</th><th>{tr("السعر")}</th><th>{tr("المجموع")}</th><th>{tr("حذف")}</th></tr></thead>
+              <tbody>{lines.length === 0 ? <tr className="invoice-empty-row"><td colSpan={6}>{tr("الفاتورة فارغة")}</td></tr> : lines.map(line => {
                 const product = saleProducts.find(item => item.id === line.productId)!;
                 const isDecant = product.perfumeForm === "decant";
                 return <tr key={line.key}>
-                  <td className="name-cell"><span>{product.name}</span>{isDecant && <div className="decant-line-bottle"><label>{tr("زجاجة التقسيمة")}<select aria-label={tr("زجاجة التقسيمة")} value={line.bottleProductId} onChange={event => patch(line.key, { bottleProductId: event.target.value })}><option value="">{tr("اختر الزجاجة")}</option>{bottles.map(bottle => <option key={bottle.id} value={bottle.id} disabled={stockInWarehouse(bottle, warehouseId) + restoredStock(bottle.id) < n(line.quantity)}>{bottle.name + " · " + (bottle.decantSizeMl ? bottle.decantSizeMl + " ml · " : "") + quantity(stockInWarehouse(bottle, warehouseId))}</option>)}</select></label></div>}</td>
+                  <td className="name-cell decant-compact-name" title={product.name}><span>{product.name}</span></td>
+                  <td>{isDecant?<DecantFillPicker fillMl={line.fillMl??String(defaults.fillMl)} bottleProductId={line.bottleProductId} bottles={bottles.map(bottle=>({...bottle,stocks:{...bottle.stocks,[warehouseId]:stockInWarehouse(bottle,warehouseId)+restoredStock(bottle.id)}}))} warehouseId={warehouseId} count={n(line.quantity)} onChange={value=>patchFill(line,value)}/>:"—"}</td>
                   <td className="num-cell"><input className="num" dir="ltr" type="number" min="1" step="1" value={line.quantity} onChange={event => patch(line.key, { quantity: event.target.value })}/></td>
-                  <td className="num-cell"><input className="num" dir="ltr" type="number" min="0" value={line.unitPrice} onChange={event => patch(line.key, { unitPrice: event.target.value })}/></td>
+                  <td className="num-cell"><input className="num" dir="ltr" type="number" min="0" value={line.unitPrice} onChange={event => patch(line.key, { unitPrice: event.target.value, priceIsManual:true })}/></td>
                   <td className="num-cell"><span className="financial-amount money-neutral">{money(n(line.quantity) * n(line.unitPrice))}</span></td>
                   <td className="action-cell"><button type="button" className="row-delete" aria-label={tr("حذف")} onClick={() => remove(line.key)}><X/></button></td>
                 </tr>;

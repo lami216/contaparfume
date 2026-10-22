@@ -1,6 +1,7 @@
 import type { SqliteDatabase as Db, SqliteSession as ClientSession } from "./sqlite.ts";
 import { normalizePartyNet, partyCashDelta, partyNet } from "../app/party-balance.ts";
 import type { PerfumeLot } from "../app/perfume-logic.ts";
+import { roundMl } from "../app/perfume-volume.ts";
 import { reversePerfumeLotTransfer, transferPerfumeLotStock, type PerfumeLotTransferAllocation } from "../app/perfume-stock-reconciliation.ts";
 
 export class LifecycleCommandError extends Error {
@@ -121,7 +122,7 @@ export async function propagatePartyName(db: Db, session: ClientSession, partyId
 
 async function changeStock(db: Db, session: ClientSession, product: Stored, warehouse: Stored, delta: number, document: Stored, type: string) {
   const warehouseId = String(warehouse._id), productId = String(product.id);
-  const before = Number((product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0), after = before + delta;
+  const before = Number((product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0), after = product.perfumeStockUnit === "ml" ? roundMl(before + delta) : before + delta;
   if (after < 0) throw new LifecycleCommandError(`المخزون غير كافٍ للمنتج ${product.name}`);
   const stockPath = `stocks.${warehouseId}`;
   const stockMatch = before === 0 ? { $or: [{ [stockPath]: 0 }, { [stockPath]: { $exists: false } }] } : { [stockPath]: before };
@@ -136,7 +137,7 @@ async function changeStock(db: Db, session: ClientSession, product: Stored, ware
   await db.collection("stockMovements").insertOne({
     id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId,
     warehouseName: warehouse.name, productId, productName: product.name, type, quantityDelta: delta,
-    balanceBefore: before, balanceAfter: after, occurredAt: document.occurredAt,
+    balanceBefore: before, balanceAfter: after, quantityUnit:product.perfumeStockUnit==="ml"?"ml":"piece", occurredAt: document.occurredAt,
     documentRevision: Number(document.revision ?? 0),
   }, { session });
   return { before, after };

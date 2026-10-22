@@ -1,5 +1,10 @@
 /** Shared identification for authorization, history, source navigation and management. */
 export type ManagementKind = "split" | "recombine" | "opening" | "consumption" | "yield-correction" | "bottle" | "bottle-stock";
+export type BottleStockReason = "correction" | "breakage" | "damage";
+export const bottleStockReasonLabels = {
+  correction: "pm.bottleReason.correction", breakage: "pm.bottleReason.breakage", damage: "pm.bottleReason.damage",
+} as const;
+export const isBottleStockReason = (value: unknown): value is BottleStockReason => typeof value === "string" && Object.hasOwn(bottleStockReasonLabels, value);
 type Hint = {kind?: unknown; perfumeManagementType?: unknown; perfumeConversionType?: unknown; perfumeStockOperationType?: unknown};
 export function managementKind(document: Hint): ManagementKind | null {
   if (document.kind !== "adjustment") return null;
@@ -21,6 +26,12 @@ export const managementPostType: Record<ManagementKind, string> = {
 
 /** Existing posted operations remain editable even before input snapshots existed. */
 export function managementInputFor(document: import("./domain").DocumentRecord, products: import("./domain").Product[]): Record<string, unknown> {
+  if (managementKind(document) === "bottle-stock") {
+    const input = document.managementInput ?? {}, line = document.lines.find(line => line.productId === document.managementProductId) ?? document.lines[0];
+    return { warehouseId: document.warehouseId, bottleProductId: document.managementProductId ?? line?.productId, actualQuantity: line?.balanceAfter ?? "", reason: document.title ?? "", ...input,
+      // Old quantity corrections retain their original non-profit treatment.
+      bottleStockReason: document.bottleStockReason ?? input.bottleStockReason ?? "correction" };
+  }
   if (document.managementInput) return { ...document.managementInput };
   const lines = document.lines as unknown as Record<string, unknown>[];
   const input: Record<string, unknown> = { warehouseId: document.warehouseId, note: document.note ?? "" };

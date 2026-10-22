@@ -10,6 +10,8 @@ import { handlePerfumeInvoiceCommand, PerfumeInvoiceCommandError } from "../../p
 import { normalizePartyNet, partyCashDelta, partyNet } from "../../party-balance.ts";
 import { nextDocumentSequence, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
 import { restoreProductArchiveStockClearance } from "../../../lib/transaction-lifecycle.ts";
+import { handleVolumeCommand } from "../../perfume-volume-commands.ts";
+import { roundMl } from "../../perfume-volume.ts";
 
 type Input = Record<string, unknown>;
 type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; purchaseCost?: number | null; costAtSale?: number | null; grossProfit?: number | null; perfumeAllocations?: PerfumeAllocation[] };
@@ -149,7 +151,7 @@ async function products(db: Db, session: ClientSession, input: Line[]) {
   return new Map(found.map(p => [p.id as string, p]));
 }
 async function changeStock(db: Db, session: ClientSession, product: Record<string, unknown>, warehouse: Record<string, unknown>, delta: number, document: Record<string, unknown>, type: string) {
-  const warehouseId = String(warehouse._id), productId = String(product.id), before = Number((product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0), after = before + delta;
+  const warehouseId = String(warehouse._id), productId = String(product.id), before = Number((product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0), after = product.perfumeStockUnit === "ml" ? roundMl(before + delta) : before + delta;
   if (after < 0) throw new CommandError(`المخزون غير كافٍ للمنتج ${product.name}`);
   const stockPath = `stocks.${warehouseId}`;
   const stockMatch = before === 0 ? { $or: [{ [stockPath]: 0 }, { [stockPath]: { $exists: false } }] } : { [stockPath]: before };
@@ -157,7 +159,7 @@ async function changeStock(db: Db, session: ClientSession, product: Record<strin
   if (!result.matchedCount) throw new CommandError("تغير المخزون أثناء العملية، أعد المحاولة", 409);
   const currentStocks = (product.stocks ??= {}) as Record<string, number>;
   currentStocks[warehouseId] = after;
-  await db.collection("stockMovements").insertOne({ id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId, warehouseName: warehouse.name, productId, productName: product.name, type, quantityDelta: delta, balanceBefore: before, balanceAfter: after, occurredAt: document.occurredAt }, { session });
+  await db.collection("stockMovements").insertOne({ id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId, warehouseName: warehouse.name, productId, productName: product.name, type, quantityDelta: delta, balanceBefore: before, balanceAfter: after, quantityUnit:product.perfumeStockUnit==="ml"?"ml":"piece", occurredAt: document.occurredAt }, { session });
   return { before, after };
 }
 
@@ -280,7 +282,11 @@ async function zeroProductStockForArchive(db: Db, session: ClientSession, produc
 }
 
 
-export async function execute(db: Db, session: ClientSession, body: Input) {
+export async function execute(db: Db, session: ClientSession, body: Input): Promise<unknown> {
+  const volume = await handleVolumeCommand(db, session, body, executeLegacy);
+  return volume.handled ? volume.result : executeLegacy(db, session, body);
+}
+async function executeLegacy(db: Db, session: ClientSession, body: Input): Promise<unknown> {
   const type = text(body.type);
   const perfumeInvoiceResult = await handlePerfumeInvoiceCommand(db, session, body);
   if (perfumeInvoiceResult !== null) return perfumeInvoiceResult;
@@ -333,10 +339,12 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
       const bottleProductId=text(body.bottleProductId);if(!bottleProductId)throw new CommandError("اختر الزجاجة المستهلكة");
       const bottle=await db.collection("products").findOne({id:bottleProductId,perfumeForm:"bottle",isArchived:{$ne:true}},{session});if(!bottle)throw new CommandError("زجاجة التقسيمة غير موجودة",404);
       const bottleCost=await authoritativeCost(db,session,bottle);if(bottleCost==null||bottleCost<0)throw new CommandError("لا توجد تكلفة شراء معتمدة للزجاجة",409);
-      const bottleStock=await changeStock(db,session,bottle,warehouse,-consumed.quantity,doc,"perfume-consumption-bottle");
-      doc.inventoryLoss=Number(doc.inventoryLoss)+consumed.quantity*bottleCost;
-      Object.assign(doc,{bottleProductId:String(bottle.id),bottleQuantity:consumed.quantity,bottleUnitCost:bottleCost});
-      doc.lines.push({id:id("line"),productId:String(bottle.id),description:`${String(bottle.name)} — ${reason}`,quantity:-consumed.quantity,unitPrice:bottleCost,lineTotal:0,balanceBefore:bottleStock.before,balanceAfter:bottleStock.after,inventoryLoss:consumed.quantity*bottleCost});
+      const bottleQuantity=decant.perfumeStockUnit==="ml"?positive(body.bottleQuantity,"عدد العبوات"):consumed.quantity;
+      if(!Number.isSafeInteger(bottleQuantity))throw new CommandError("عدد العبوات يجب أن يكون صحيحًا");
+      const bottleStock=await changeStock(db,session,bottle,warehouse,-bottleQuantity,doc,"perfume-consumption-bottle");
+      doc.inventoryLoss=Number(doc.inventoryLoss)+bottleQuantity*bottleCost;
+      Object.assign(doc,{bottleProductId:String(bottle.id),bottleQuantity,bottleUnitCost:bottleCost});
+      doc.lines.push({id:id("line"),productId:String(bottle.id),description:`${String(bottle.name)} — ${reason}`,quantity:-bottleQuantity,unitPrice:bottleCost,lineTotal:0,balanceBefore:bottleStock.before,balanceAfter:bottleStock.after,inventoryLoss:bottleQuantity*bottleCost});
     }
     await db.collection("documents").insertOne(doc,{session});return String(doc.id);
   }
@@ -476,7 +484,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     const warehouseId=text(body.id), warehouse=await warehouses(db).findOne({_id:warehouseId},{session}); if(!warehouse)throw new CommandError("المخزن غير موجود",404);
     if(warehouse.isSalesDefault)throw new CommandError("عيّن مخزنًا آخر للبيع قبل حذف هذا المخزن",409);
     if(await db.collection("products").findOne({[`stocks.${warehouseId}`]:{$exists:true,$ne:0}},{session}))throw new CommandError("لا يمكن حذف مخزن يحتوي على مخزون",409);
-    const referenced=await db.collection("documents").findOne({$or:[{warehouseId},{destinationWarehouseId:warehouseId}]},{session})||await db.collection("stockMovements").findOne({warehouseId},{session});
+    const referenced=await db.collection("documents").findOne({$or:[{warehouseId},{destinationWarehouseId:warehouseId}]},{session})||await db.collection("stockMovements").findOne({warehouseId},{session})||await db.collection("products").findOne({[`stocks.${warehouseId}`]:{$exists:true}},{session})||await db.collection("importMappings").findOne({targetEntityType:"warehouses",targetId:warehouseId},{session});
     if(referenced)await warehouses(db).updateOne({_id:warehouseId},{$set:{isArchived:true,archivedAt:new Date(),isSalesDefault:false}},{session});else await warehouses(db).deleteOne({_id:warehouseId},{session}); return warehouseId;
   }
   if (type === "product-category.create") {

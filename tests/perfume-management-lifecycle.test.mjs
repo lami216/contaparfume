@@ -80,7 +80,7 @@ test('bottle definitions edit/archive/restore with document history and no purch
  assert.equal((await doc(d.id)).status,'voided');assert.equal((await product(id)).lastPurchaseCost,6);assert.equal((await product(id)).stocks.w,10);
  const priced=await productsWithCurrentCosts(db,[await product(id)]);assert.equal(priced[0].lastPurchaseCost,6);
  await assert.rejects(cmd({type:'perfume-bottle.archive',id}),/لها مخزون/);
- const adj=await cmd({type:'perfume-bottle-stock.post',bottleProductId:id,warehouseId:'w',actualQuantity:0,reason:'broken'});
+ const adj=await cmd({type:'perfume-bottle-stock.post',bottleProductId:id,warehouseId:'w',actualQuantity:0,reason:'broken',bottleStockReason:'breakage'});
  await cmd({type:'perfume-bottle.archive',id});assert.equal((await product(id)).isArchived,true);
  await cmd({type:'perfume-bottle.restore',id});assert.equal((await product(id)).isArchived,false);
  await cmd({type:'perfume-management.void',documentId:adj});assert.equal((await product(id)).stocks.w,10);
@@ -208,7 +208,7 @@ test('bottle quantity edits use historical cost and refuse reversal after added 
  const id=await cmd({type:'perfume-bottle.create',name:'Glass',sizeMl:10,cost:5});
  const purchase=await cmd({type:'decant-purchase.post',paymentMethod:'cash',cashAmount:60,lines:[{productId:id,quantity:10,unitPrice:6}]});
  const purchaseBefore=await doc(purchase);
- const input={bottleProductId:id,warehouseId:'w',reason:'counted',cost:999};
+ const input={bottleProductId:id,warehouseId:'w',reason:'counted',cost:999,bottleStockReason:'correction'};
  const first=await cmd({...input,type:'perfume-bottle-stock.post',actualQuantity:12});
  const next=await cmd({...input,type:'perfume-management.update',documentId:first,expectedRevision:0,actualQuantity:13});
  assert.equal((await product(id)).stocks.w,13);

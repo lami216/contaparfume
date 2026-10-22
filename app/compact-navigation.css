@@ -2,6 +2,47 @@
    navigation geometry used by offline-conta. This file is intentionally limited
    to the application chrome; perfume/decant workspaces are untouched. */
 
+/* Give each original section color the depth of Reports, while sharing its
+   pressed/open treatment. Reports keeps its reference palette. */
+.sidebar nav .nav {
+  --nav-ink: color-mix(in srgb, var(--nav-color, #687585) 80%, black);
+  --nav-surface: color-mix(in srgb, var(--nav-soft, #f4f6f8) 95%, var(--nav-color, #687585));
+  --nav-open-surface: color-mix(in srgb, var(--nav-color, #687585) 16%, white);
+  transition: color .16s ease, background-color .16s ease,
+    border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+.sidebar nav .nav-reports > .nav {
+  --nav-ink: var(--color-reports);
+  --nav-surface: var(--nav-soft);
+  --nav-open-surface: #dfe6f2;
+}
+
+.sidebar nav .nav:not(:disabled) {
+  color: var(--nav-ink);
+  border-color: var(--nav-ink);
+  background: var(--nav-surface);
+  font-weight: 800;
+}
+
+.sidebar nav .nav:not(:disabled):is(.active, [aria-expanded="true"]) {
+  background: var(--nav-open-surface);
+  box-shadow: inset 0 -4px var(--nav-ink),
+    0 2px 5px color-mix(in srgb, var(--nav-ink) 15%, transparent);
+}
+
+.sidebar nav .nav:not(:disabled):active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 4px color-mix(in srgb, var(--nav-ink) 22%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar nav .nav,
+  .sidebar nav .nav .chevron {
+    transition: none;
+  }
+}
+
 @media (min-width: 1051px) {
   :root {
     --app-nav-height: 68px;

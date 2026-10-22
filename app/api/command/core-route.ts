@@ -10,6 +10,7 @@ import { deriveOpeningStockState, planOpeningStockCorrection } from "../../../li
 import { currentProductCost, resolveProductCost } from "../../../lib/product-cost.ts";
 import { executeLifecycleCommand, findActiveFinancialMovement, LifecycleCommandError, propagatePartyName, reverseFinancialMovement } from "../../../lib/transaction-lifecycle.ts";
 import { transferPerfumeLotStock } from "../../perfume-stock-reconciliation.ts";
+import { roundMl } from "../../perfume-volume.ts";
 import type { PerfumeLot } from "../../perfume-logic.ts";
 import { nextOpeningCorrectionSequence, selectLatestOpeningCorrection } from "../../opening-correction-order.ts";
 
@@ -228,7 +229,7 @@ async function invoiceUpdateRefs(db:Db,session:ClientSession,body:Input,original
   return {warehouse,party,warehouseId,partyId};
 }
 async function changeStock(db: Db, session: ClientSession, product: Record<string, unknown>, warehouse: Record<string, unknown>, delta: number, document: Record<string, unknown>, type: string) {
-  const warehouseId = String(warehouse._id), productId = String(product.id), before = Number((product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0), after = before + delta;
+  const warehouseId = String(warehouse._id), productId = String(product.id), before = Number((product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0), after = product.perfumeStockUnit === "ml" ? roundMl(before + delta) : before + delta;
   if (after < 0) throw new CommandError(`المخزون غير كافٍ للمنتج ${product.name}`);
   const stockPath = `stocks.${warehouseId}`;
   const stockMatch = before === 0 ? { $or: [{ [stockPath]: 0 }, { [stockPath]: { $exists: false } }] } : { [stockPath]: before };
@@ -240,7 +241,7 @@ async function changeStock(db: Db, session: ClientSession, product: Record<strin
     await warehouses(db).updateOne({ _id: warehouseId, isArchived: true }, { $set: { isArchived: false, archivedAt: null, updatedAt: new Date() } }, { session });
     warehouse.isArchived = false;
   }
-  await db.collection("stockMovements").insertOne({ id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId, warehouseName: warehouse.name, productId, productName: product.name, type, quantityDelta: delta, balanceBefore: before, balanceAfter: after, occurredAt: document.occurredAt, documentRevision: Number(document.revision ?? 0) }, { session });
+  await db.collection("stockMovements").insertOne({ id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId, warehouseName: warehouse.name, productId, productName: product.name, type, quantityDelta: delta, balanceBefore: before, balanceAfter: after, quantityUnit:product.perfumeStockUnit==="ml"?"ml":"piece", occurredAt: document.occurredAt, documentRevision: Number(document.revision ?? 0) }, { session });
   return { before, after };
 }
 
@@ -648,7 +649,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     const warehouseId=text(body.id), warehouse=await warehouses(db).findOne({_id:warehouseId},{session}); if(!warehouse)throw new CommandError("المخزن غير موجود",404);
     if(warehouse.isSalesDefault)throw new CommandError("عيّن مخزنًا آخر للبيع قبل حذف هذا المخزن",409);
     if(await db.collection("products").findOne({[`stocks.${warehouseId}`]:{$exists:true,$ne:0}},{session}))throw new CommandError("لا يمكن حذف مخزن يحتوي على مخزون",409);
-    const referenced=await db.collection("documents").findOne({$or:[{warehouseId},{destinationWarehouseId:warehouseId}]},{session})||await db.collection("stockMovements").findOne({warehouseId},{session});
+    const referenced=await db.collection("documents").findOne({$or:[{warehouseId},{destinationWarehouseId:warehouseId}]},{session})||await db.collection("stockMovements").findOne({warehouseId},{session})||await db.collection("products").findOne({[`stocks.${warehouseId}`]:{$exists:true}},{session})||await db.collection("importMappings").findOne({targetEntityType:"warehouses",targetId:warehouseId},{session});
     if(referenced)await warehouses(db).updateOne({_id:warehouseId},{$set:{isArchived:true,archivedAt:new Date(),isSalesDefault:false}},{session});else await warehouses(db).deleteOne({_id:warehouseId},{session}); return warehouseId;
   }
   if (type === "product-category.create" || type === "product-category.update") {
@@ -888,6 +889,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     for (const line of input) {
       const product = map.get(line.productId)!;
       const stocks = (product.stocks ?? {}) as Record<string, number>;
+      if(product.perfumeStockUnit==="ml")throw new CommandError("سوِّ رصيد السائل من تسوية دفعات التقسيمات لحفظ تكلفة الدفعة",409);
       const before = Number(stocks[warehouseId] ?? 0);
       const hasWarehouseField = Object.prototype.hasOwnProperty.call(stocks, warehouseId);
       const hasWarehouseMovement = hasWarehouseField ? true : Boolean(await db.collection("stockMovements").findOne({ productId: product.id, warehouseId }, { session }));

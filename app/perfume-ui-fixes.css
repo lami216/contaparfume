@@ -1482,6 +1482,21 @@
   min-width: 0;
   margin-block-start: 5px;
 }
+
+/* Volume and packaging use a compact row control, sharing the existing invoice
+   buttons and quick-entry popover rather than adding another product-name row. */
+.decant-invoices-hub .decant-fill-trigger { display:inline-flex; align-items:center; justify-content:center; gap:4px; width:100%; min-width:0; padding:3px 5px; white-space:nowrap; }
+.decant-invoices-hub .decant-fill-trigger svg { width:12px; height:12px; flex-shrink:0; }
+.decant-invoices-hub .decant-fill-trigger.missing { border-color:var(--danger); }
+.decant-invoices-hub .decant-compact-name > span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.decant-fill-popover { display:grid; gap:8px; }
+.decant-fill-popover label { display:grid; gap:4px; min-width:0; }
+.decant-fill-popover :is(input,select) { width:100%; min-width:0; box-sizing:border-box; }
+.perfume-management-page .pm-defaults-row { display:flex; align-items:end; gap:6px; flex-wrap:wrap; padding:4px 0 8px; border-bottom:1px solid var(--border); }
+.perfume-management-page .pm-defaults-row label { display:grid; gap:3px; min-width:0; flex:1 1 130px; }
+.perfume-management-page .pm-defaults-row label:first-child { flex:0 1 125px; }
+.perfume-management-page .pm-defaults-row :is(input,select) { min-width:0; width:100%; box-sizing:border-box; }
+.perfume-management-page .pm-defaults-row small { flex-basis:100%; }
 .decant-invoices-hub .decant-transaction-page .decant-line-bottle label {
   display: grid;
   gap: 3px;
