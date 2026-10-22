@@ -81,6 +81,11 @@ export interface Product {
   perfumeForm?: PerfumeForm | null;
   parentProductId?: string | null;
   decantSizeMl?: number | null;
+  perfumeStockUnit?: "ml";
+  perfumeBottleVolumeMl?: number;
+  decantPriceBasisMl?: number;
+  legacyDecantUnitMl?: number;
+  partialVolumeMl?: number;
   decantBottleCost?: number | null;
   partialRemainingParts?: number | null;
   partialOriginalParts?: number | null;
@@ -101,6 +106,8 @@ export function isProductExpired(product: unknown, businessDate = new Date().toI
   return typeof expiryDate === "string" && expiryDate !== "" && expiryDate < businessDate;
 }
 export interface DocumentLine {
+  fillMl?: number;
+  liquidQuantityMl?: number;
   id: string;
   productId: string | null;
   description: string;
@@ -120,6 +127,10 @@ export interface DocumentLine {
   balanceAfter?: number;
 }
 export interface DocumentRecord {
+  quantityUnit?: "ml" | "piece";
+  actualQuantity?: number;
+  inventoryGain?: number;
+  reconciliationDelta?: number;
   id: string;
   number: string;
   sequence?: number;
@@ -152,6 +163,7 @@ export interface DocumentRecord {
   perfumeConversionType?: string;
   managementInput?: Record<string, unknown>;
   managementProductId?: string;
+  bottleStockReason?: import("./perfume-management").BottleStockReason;
   sourceProductId?: string;
   perfumeLotBefore?: PerfumeLot | null;
   perfumeLotAfter?: PerfumeLot;
@@ -162,7 +174,7 @@ export interface DocumentRecord {
   replacedByDocumentId?: string;
   replacesDocumentId?: string;
   /** Specialized decant stock lifecycle operation. */
-  perfumeStockOperationType?: "opening" | "consumption" | "yield-correction";
+  perfumeStockOperationType?: "opening" | "consumption" | "yield-correction" | "reconciliation" | "bottle-reconciliation" | "unit-conversion";
   perfumeStockReasonCode?: string | null;
   inventoryLoss?: number;
   bookValueBefore?: number;
@@ -192,6 +204,7 @@ export interface DocumentRecord {
   lines: DocumentLine[];
 }
 export interface Movement {
+  quantityUnit?: "ml" | "piece";
   id: string;
   documentId: string;
   documentNumber: string;
@@ -207,6 +220,7 @@ export interface Movement {
   documentRevision?: number;
 }
 export interface BootstrapData {
+  perfumeDefaults?: import("./perfume-volume").PerfumeDefaults;
   principal: { principalType: "local" | "owner" | "user"; name: string; permissions: string[] };
   branding: InvoiceBrandingSettings;
   currency: CurrencySettings;

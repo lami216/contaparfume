@@ -20,7 +20,8 @@ test("specialized sales and purchases use identical regular workspace, table and
     assert.match(block, /"invoice-preview has-items"/);
     assert.match(block, /className="erp-table-wrap invoice-preview-list"/);
     assert.match(block, /className="erp-table invoice-table"/);
-    assert.match(block, /<colgroup><col style=\{\{width:"38%"\}\}\/\><col style=\{\{width:"14%"\}\}\/\><col style=\{\{width:"17%"\}\}\/\><col style=\{\{width:"19%"\}\}\/\><col style=\{\{width:"12%"\}\}\/\><\/colgroup>/);
+    const columns=block.match(/<colgroup>(.*?)<\/colgroup>/s)?.[1]??"";
+    assert.equal((columns.match(/<col /g)??[]).length,name==="sale"?6:5);
     assert.match(block, /className="checkout-layout"/);
     assert.match(block, /className="checkout-footer"/);
     assert.match(block, /className="total invoice-total"/);
@@ -31,7 +32,9 @@ test("specialized sales and purchases use identical regular workspace, table and
   }
   assert.match(standard, /transaction-workspace pos-workspace/);
   assert.match(standard, /transaction-workspace purchase-workspace/);
-  assert.match(sale, /className="decant-line-bottle"/);
+  assert.match(sale, /<DecantFillPicker/);
+  assert.match(sale, /<th>\{tr\("التعبئة"\)\}<\/th>/);
+  assert.doesNotMatch(sale, /className="decant-line-bottle"/);
   assert.doesNotMatch(sale, /<th>\{tr\("زجاجة التقسيمة"\)\}<\/th>/);
   assert.doesNotMatch(purchase, /<th>\{tr\("الحجم"\)\}<\/th>/);
   assert.match(special, /className="quick-invoice-head"/);

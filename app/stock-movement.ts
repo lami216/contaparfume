@@ -53,6 +53,8 @@ export function isProductArchiveStockClearanceDocument(document: StockMovementDo
 
 export function classifyStockMovementType(type: unknown, document?: StockMovementDocumentHint | null) {
   const current = asText(type);
+  if(current==="perfume-unit-conversion")return "decant-unit-conversion";
+  if(current.startsWith("perfume-reconciliation"))return current.includes("-void")?"decant-reconciliation-void":"decant-yield-correction";
   if (current.startsWith("perfume-split")) return current.includes("-void") ? "decant-split-void" : "decant-split";
   if (current.startsWith("perfume-recombine")) return current.includes("-void") ? "decant-recombine-void" : "decant-recombine";
   if (isOpeningStockCorrectionDocument(document)) return current.startsWith("opening-correction-") ? current : "opening-correction";
@@ -75,6 +77,8 @@ export function classifyStockMovementType(type: unknown, document?: StockMovemen
  * authority; this key is presentation-only. */
 export function stockMovementPresentationType(type: unknown, quantityDelta: unknown = 0) {
   const current = asText(type), delta = Number(quantityDelta);
+  if(current==="perfume-unit-conversion")return "decant-unit-conversion";
+  if(current.startsWith("perfume-reconciliation"))return current.includes("-void")?"decant-reconciliation-void":"decant-yield-correction";
   if (current.startsWith("perfume-split")) return current.includes("-void") ? "decant-split-void" : "decant-split";
   if (current.startsWith("perfume-recombine")) return current.includes("-void") ? "decant-recombine-void" : "decant-recombine";
   if (current === "perfume-opening-in") return "decant-opening";

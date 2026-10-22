@@ -2,11 +2,15 @@ import type { SqliteDatabase as Db, SqliteSession as ClientSession } from "../li
 import { nextDocumentSequence } from "../lib/document-sequences.ts";
 import { normalizePartyNet, partyNet } from "./party-balance.ts";
 import type { PerfumeAllocation, PerfumeLot } from "./perfume-logic.ts";
+import { lineLiquidMl, roundMl, volumeMl } from "./perfume-volume.ts";
+import { currentProductCost } from "../lib/product-cost.ts";
 
 type Input = Record<string, unknown>;
 type ProductDoc = Record<string, unknown>;
 type WarehouseDoc = { _id: string; name: string; isArchived?: boolean; [key: string]: unknown };
 type InvoiceLine = {
+  fillMl?: number;
+  liquidQuantityMl?: number;
   id: string;
   productId: string;
   description: string;
@@ -102,13 +106,13 @@ async function applyPartyNetDelta(db: Db, session: ClientSession, partyId: unkno
 
 async function authoritativeCost(db: Db, session: ClientSession, product: ProductDoc) {
   if (product.perfumeForm === "partial" && Number.isFinite(Number(product.pieceCost))) return Number(product.pieceCost);
-  if (Number.isFinite(Number(product.lastPurchaseCost))) return Number(product.lastPurchaseCost);
+  if (product.lastPurchaseCost != null && Number.isFinite(Number(product.lastPurchaseCost))) return Number(product.lastPurchaseCost);
   const latest = await db.collection("documents").findOne(
     { kind: { $in: ["purchase", "decant-purchase"] }, status: "posted", "lines.productId": product.id },
     { session, sort: { occurredAt: -1 }, projection: { lines: 1, occurredAt: 1 } },
   );
   const line = (latest?.lines as Array<Record<string, unknown>> | undefined)?.find(item => item.productId === product.id);
-  if (!line || !Number.isFinite(Number(line.unitPrice))) return null;
+  if (!line || !Number.isFinite(Number(line.unitPrice))) return currentProductCost(db, session, product);
   const cost = Number(line.unitPrice);
   await db.collection("products").updateOne({ id: product.id }, { $set: { lastPurchaseCost: cost, lastPurchaseAt: latest?.occurredAt } }, { session });
   product.lastPurchaseCost = cost;
@@ -116,17 +120,13 @@ async function authoritativeCost(db: Db, session: ClientSession, product: Produc
 }
 
 async function recomputeBottleCost(db: Db, session: ClientSession, productId: string) {
-  const latest = await db.collection("documents").findOne(
-    { kind: "decant-purchase", status: "posted", "lines.productId": productId },
-    { session, sort: { occurredAt: -1 } },
-  );
-  const line = (latest?.lines as Array<Record<string, unknown>> | undefined)?.find(item => item.productId === productId);
-  await db.collection("products").updateOne({ id: productId }, { $set: { lastPurchaseCost: line ? Number(line.unitPrice) : null, lastPurchaseAt: latest?.occurredAt ?? null } }, { session });
+  const product = await db.collection("products").findOne({ id: productId }, { session });
+  if (product) await currentProductCost(db, session, product);
 }
 
 async function changeStock(db: Db, session: ClientSession, product: ProductDoc, warehouse: WarehouseDoc, delta: number, document: Record<string, unknown>, type: string) {
   const warehouseId = String(warehouse._id), productId = String(product.id);
-  const before = Number((product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0), after = before + delta;
+  const before = Number((product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0), after = product.perfumeStockUnit === "ml" ? roundMl(before + delta) : before + delta;
   if (after < 0) throw new PerfumeInvoiceCommandError(`المخزون غير كافٍ للمنتج ${product.name}`);
   const stockPath = `stocks.${warehouseId}`;
   const stockMatch = before === 0 ? { $or: [{ [stockPath]: 0 }, { [stockPath]: { $exists: false } }] } : { [stockPath]: before };
@@ -136,7 +136,7 @@ async function changeStock(db: Db, session: ClientSession, product: ProductDoc, 
   await db.collection("stockMovements").insertOne({
     id: id("mov"), documentId: document.id, documentNumber: document.number,
     warehouseId, warehouseName: warehouse.name, productId, productName: product.name,
-    type, quantityDelta: delta, balanceBefore: before, balanceAfter: after, occurredAt: document.occurredAt,
+    type, quantityDelta: delta, balanceBefore: before, balanceAfter: after, quantityUnit: product.perfumeStockUnit === "ml" ? "ml" : "piece", occurredAt: document.occurredAt,
   }, { session });
 }
 
@@ -149,20 +149,22 @@ async function savePerfumeLots(db: Db, session: ClientSession, product: ProductD
 }
 async function consumeLiquidLots(db: Db, session: ClientSession, product: ProductDoc, warehouseId: string, quantity: number) {
   if (product.perfumeForm !== "decant") throw new PerfumeInvoiceCommandError("هذا المنتج ليس تقسيمة", 409);
-  if (!Number.isInteger(quantity) || quantity <= 0) throw new PerfumeInvoiceCommandError("كمية التقسيمات يجب أن تكون عددًا صحيحًا");
+  if (product.perfumeStockUnit === "ml") volumeMl(quantity);
+  else if (!Number.isInteger(quantity) || quantity <= 0) throw new PerfumeInvoiceCommandError("كمية التقسيمات يجب أن تكون عددًا صحيحًا");
   const lots = perfumeLots(product).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
   let remaining = quantity, totalCost = 0;
   const allocations: PerfumeAllocation[] = [];
   for (const lot of lots) {
+    if (product.perfumeStockUnit === "ml" && lot.quantityUnit !== "ml") throw new PerfumeInvoiceCommandError("وحدات دفعات السائل غير متطابقة",409);
     const available = Number(lot.stocks?.[warehouseId] ?? 0);
     if (available <= 0 || remaining <= 0) continue;
     const take = Math.min(available, remaining);
-    lot.stocks = { ...(lot.stocks ?? {}), [warehouseId]: available - take };
-    lot.remainingQuantity = Math.max(0, Number(lot.remainingQuantity ?? 0) - take);
+    lot.stocks = { ...(lot.stocks ?? {}), [warehouseId]: roundMl(available - take) };
+    lot.remainingQuantity = Math.max(0, roundMl(Number(lot.remainingQuantity ?? 0) - take));
     const liquidUnitCost = Number(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0);
     totalCost += take * liquidUnitCost;
-    allocations.push({ lotId: lot.id, quantity: take, unitCost: liquidUnitCost, warehouseId });
-    remaining -= take;
+    allocations.push({ lotId: lot.id, quantity: take, unitCost: liquidUnitCost, warehouseId, ...(lot.quantityUnit === "ml" ? {quantityUnit:"ml" as const} : {}) });
+    remaining = roundMl(remaining - take);
   }
   if (remaining > 0) throw new PerfumeInvoiceCommandError("مخزون دفعات التقسيمات غير كافٍ", 409);
   await savePerfumeLots(db, session, product, lots);
@@ -174,9 +176,12 @@ async function restoreLiquidAllocations(db: Db, session: ClientSession, product:
   for (const allocation of allocations) {
     const lot = byId.get(allocation.lotId);
     if (!lot) throw new PerfumeInvoiceCommandError("تعذر العثور على دفعة التقسيم الأصلية", 409);
-    const amount = Number(allocation.quantity), warehouseId = String(allocation.warehouseId);
-    lot.stocks = { ...(lot.stocks ?? {}), [warehouseId]: Number(lot.stocks?.[warehouseId] ?? 0) + amount };
-    lot.remainingQuantity = Number(lot.remainingQuantity ?? 0) + amount;
+    if (lot.recombinedAt || lot.settledAt) throw new PerfumeInvoiceCommandError("تمت تسوية أو إرجاع الدفعة؛ ألغِ التسوية الأحدث أولًا",409);
+    const factor = product.perfumeStockUnit === "ml" && allocation.quantityUnit !== "ml" ? Number(product.legacyDecantUnitMl ?? 1) : 1;
+    const amount = roundMl(Number(allocation.quantity) * factor), warehouseId = String(allocation.warehouseId);
+    if (Math.abs(Number(lot.liquidUnitCost) - Number(allocation.unitCost)/factor) > 1e-6) throw new PerfumeInvoiceCommandError("تغيرت تكلفة الدفعة بعد البيع؛ ألغِ التصحيح الأحدث أولًا",409);
+    lot.stocks = { ...(lot.stocks ?? {}), [warehouseId]: roundMl(Number(lot.stocks?.[warehouseId] ?? 0) + amount) };
+    lot.remainingQuantity = roundMl(Number(lot.remainingQuantity ?? 0) + amount);
   }
   await savePerfumeLots(db, session, product, lots);
 }
@@ -187,9 +192,11 @@ function parseLines(body: Input) {
   return body.lines.map(raw => {
     const line = raw as Input, productId = text(line.productId), quantity = positive(line.quantity, "الكمية"), unitPrice = positive(line.unitPrice ?? line.piecePrice, "سعر الفرد");
     if (!Number.isInteger(quantity)) throw new PerfumeInvoiceCommandError("الكمية يجب أن تكون عددًا صحيحًا");
-    if (!productId || seen.has(productId)) throw new PerfumeInvoiceCommandError("المنتجات غير صالحة أو مكررة");
-    seen.add(productId);
-    return { productId, quantity, unitPrice, bottleProductId: text(line.bottleProductId) || null };
+    const bottleProductId = text(line.bottleProductId) || null, fillMl = line.fillMl == null ? undefined : volumeMl(line.fillMl);
+    const key = `${productId}:${fillMl ?? ""}:${bottleProductId ?? ""}`;
+    if (!productId || seen.has(key)) throw new PerfumeInvoiceCommandError("المنتجات غير صالحة أو مكررة");
+    seen.add(key);
+    return { productId, quantity, unitPrice, bottleProductId, fillMl };
   });
 }
 
@@ -260,17 +267,21 @@ async function postSale(db: Db, session: ClientSession, body: Input, existing?: 
       if (!line.bottleProductId) throw new PerfumeInvoiceCommandError(`اختر زجاجة التقسيمة للمنتج ${product.name}`);
       const bottle = products.get(line.bottleProductId);
       if (!bottle || bottle.perfumeForm !== "bottle") throw new PerfumeInvoiceCommandError("زجاجة التقسيمة غير صالحة", 409);
-      const liquid = await consumeLiquidLots(db, session, product, warehouseId, line.quantity);
+      const ml = product.perfumeStockUnit === "ml", fillMl = ml ? volumeMl(line.fillMl) : undefined;
+      if (ml && (Number(bottle.decantSizeMl) < fillMl! || !Number.isFinite(Number(bottle.decantSizeMl)))) throw new PerfumeInvoiceCommandError("حجم التعبئة أكبر من سعة العبوة",409);
+      const liquidQuantity = ml ? roundMl(line.quantity * fillMl!) : line.quantity;
+      const liquid = await consumeLiquidLots(db, session, product, warehouseId, liquidQuantity);
       const bottleCost = await authoritativeCost(db, session, bottle);
       if (bottleCost == null || bottleCost < 0) throw new PerfumeInvoiceCommandError(`لا توجد تكلفة شراء معتمدة للزجاجة ${bottle.name}`, 409);
       const totalCost = liquid.totalCost + line.quantity * bottleCost;
       doc.lines.push({
-        id: id("line"), productId: line.productId, description: `${product.name} — ${bottle.name}`, quantity: line.quantity,
+        id: id("line"), productId: line.productId, description: `${product.name}${ml ? ` — ${fillMl} مل` : ""} — ${bottle.name}`, quantity: line.quantity,
+        ...(ml ? {fillMl, liquidQuantityMl: liquidQuantity} : {}),
         unitPrice: line.unitPrice, lineTotal, costAtSale: totalCost / line.quantity, grossProfit: lineTotal - totalCost,
         perfumeAllocations: liquid.allocations, bottleProductId: String(bottle.id), bottleProductName: String(bottle.name),
         bottleUnitCost: bottleCost, bottleQuantity: line.quantity,
       });
-      await changeStock(db, session, product, warehouse, -line.quantity, doc, "decant-sale-liquid");
+      await changeStock(db, session, product, warehouse, -liquidQuantity, doc, "decant-sale-liquid");
       await changeStock(db, session, bottle, warehouse, -line.quantity, doc, "decant-sale-bottle");
     } else {
       if (line.bottleProductId) throw new PerfumeInvoiceCommandError("بيع الزجاجة الفارغة لا يحتاج اختيار زجاجة أخرى");
@@ -342,7 +353,8 @@ async function voidSale(db: Db, session: ClientSession, body: Input) {
     const product = products.get(line.productId)!;
     if (product.perfumeForm === "decant") {
       await restoreLiquidAllocations(db, session, product, line.perfumeAllocations);
-      await changeStock(db, session, product, warehouse, line.quantity, original, "decant-sale-void-liquid");
+      const liquidQuantity = product.perfumeStockUnit === "ml" ? lineLiquidMl(line,product) : line.quantity;
+      await changeStock(db, session, product, warehouse, liquidQuantity, original, "decant-sale-void-liquid");
       if (line.bottleProductId) await changeStock(db, session, products.get(line.bottleProductId)!, warehouse, Number(line.bottleQuantity ?? line.quantity), original, "decant-sale-void-bottle");
     } else await changeStock(db, session, product, warehouse, line.quantity, original, "decant-sale-void-empty-bottle");
   }

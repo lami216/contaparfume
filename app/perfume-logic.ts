@@ -1,6 +1,7 @@
 export type PerfumeForm = "full" | "decant" | "partial" | "bottle";
 
 export type PerfumeAllocation = {
+  quantityUnit?: "ml";
   lotId: string;
   quantity: number;
   unitCost: number;
@@ -8,6 +9,10 @@ export type PerfumeAllocation = {
 };
 
 export type PerfumeLot = {
+  quantityUnit?: "ml";
+  quantityAdjustmentMl?: number;
+  settledAt?: string | null;
+  legacyQuantityScaleMl?: number;
   id: string;
   sourceProductId: string;
   sourceProductName: string;

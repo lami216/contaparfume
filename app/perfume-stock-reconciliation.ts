@@ -1,4 +1,5 @@
 import type { PerfumeLot } from "./perfume-logic";
+import { lotQuantity, roundMl, volumeMl } from "./perfume-volume";
 
 const finiteNonNegative = (value: unknown, label: string) => {
   const parsed = Number(value);
@@ -12,9 +13,9 @@ const nonNegativeInteger = (value: unknown, label: string) => {
   return parsed;
 };
 
-function assertPerfumeLotStockBalance(lot: Pick<PerfumeLot, "remainingQuantity" | "stocks">) {
-  const remaining = nonNegativeInteger(lot.remainingQuantity ?? 0, "الرصيد المتبقي");
-  const stocks = Object.values(lot.stocks ?? {}).reduce((sum, value) => sum + nonNegativeInteger(value, "رصيد الدفعة في المخزن"), 0);
+function assertPerfumeLotStockBalance(lot: Pick<PerfumeLot, "remainingQuantity" | "stocks" | "quantityUnit">) {
+  const remaining = lotQuantity(lot, lot.remainingQuantity ?? 0);
+  const stocks = roundMl(Object.values(lot.stocks ?? {}).reduce((sum, value) => sum + lotQuantity(lot, value), 0));
   if (stocks !== remaining) throw new Error("رصيد دفعة التقسيم غير متطابق مع مجموع المخازن؛ أصلح البيانات قبل التسوية");
   return remaining;
 }
@@ -92,16 +93,16 @@ export type LotConsumption = {
 };
 
 export function consumePerfumeLot(lot: PerfumeLot, warehouseId: string, quantity: number): LotConsumption {
-  const amount = nonNegativeInteger(quantity, "الكمية");
+  const amount = lotQuantity(lot, quantity);
   if (amount <= 0) throw new Error("الكمية يجب أن تكون أكبر من صفر");
-  const beforeWarehouseQuantity = nonNegativeInteger(lot.stocks?.[warehouseId] ?? 0, "رصيد المخزن");
+  const beforeWarehouseQuantity = lotQuantity(lot, lot.stocks?.[warehouseId] ?? 0);
   const beforeRemainingQuantity = assertPerfumeLotStockBalance(lot);
   if (amount > beforeWarehouseQuantity || amount > beforeRemainingQuantity) throw new Error("الكمية أكبر من رصيد الدفعة");
   const unitCost = finiteNonNegative(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0, "تكلفة التقسيمة");
   const updated: PerfumeLot = {
     ...structuredClone(lot),
-    remainingQuantity: beforeRemainingQuantity - amount,
-    stocks: { ...(lot.stocks ?? {}), [warehouseId]: beforeWarehouseQuantity - amount },
+    remainingQuantity: roundMl(beforeRemainingQuantity - amount),
+    stocks: { ...(lot.stocks ?? {}), [warehouseId]: roundMl(beforeWarehouseQuantity - amount) },
   };
   return {
     lot: updated,
@@ -109,7 +110,7 @@ export function consumePerfumeLot(lot: PerfumeLot, warehouseId: string, quantity
     unitCost,
     inventoryLoss: amount * unitCost,
     beforeWarehouseQuantity,
-    afterWarehouseQuantity: beforeWarehouseQuantity - amount,
+    afterWarehouseQuantity: roundMl(beforeWarehouseQuantity - amount),
   };
 }
 
@@ -152,7 +153,8 @@ export type PerfumeLotTransferAllocation = {
 
 export function transferPerfumeLotStock(lots: PerfumeLot[], fromWarehouseId: string, toWarehouseId: string, quantity: number) {
   if (!fromWarehouseId || !toWarehouseId || fromWarehouseId === toWarehouseId) throw new Error("اختر مخزنين مختلفين");
-  const amount = nonNegativeInteger(quantity, "كمية التحويل");
+  const ml = lots.length>0 && lots.every(lot=>lot.quantityUnit==="ml");
+  const amount = ml ? volumeMl(quantity) : nonNegativeInteger(quantity, "كمية التحويل");
   if (amount <= 0) throw new Error("كمية التحويل يجب أن تكون أكبر من صفر");
   const updated = structuredClone(lots);
   for (const lot of updated) assertPerfumeLotStockBalance(lot);
@@ -163,13 +165,13 @@ export function transferPerfumeLotStock(lots: PerfumeLot[], fromWarehouseId: str
   const allocations: PerfumeLotTransferAllocation[] = [];
   for (const { lot } of ordered) {
     if (remaining <= 0) break;
-    const available = nonNegativeInteger(lot.stocks?.[fromWarehouseId] ?? 0, "رصيد الدفعة في مخزن المصدر");
+    const available = lotQuantity(lot, lot.stocks?.[fromWarehouseId] ?? 0);
     if (available <= 0) continue;
     const moved = Math.min(available, remaining);
-    const target = nonNegativeInteger(lot.stocks?.[toWarehouseId] ?? 0, "رصيد الدفعة في مخزن الوجهة");
-    lot.stocks = { ...(lot.stocks ?? {}), [fromWarehouseId]: available - moved, [toWarehouseId]: target + moved };
+    const target = lotQuantity(lot, lot.stocks?.[toWarehouseId] ?? 0);
+    lot.stocks = { ...(lot.stocks ?? {}), [fromWarehouseId]: roundMl(available - moved), [toWarehouseId]: roundMl(target + moved) };
     allocations.push({ lotId: lot.id, quantity: moved, unitCost: finiteNonNegative(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0, "تكلفة التقسيمة") });
-    remaining -= moved;
+    remaining = roundMl(remaining - moved);
   }
   if (remaining > 0) throw new Error("لا يمكن تحويل كمية تقسيمات أكبر من رصيد دفعات مخزن المصدر");
   return { lots: updated, allocations };
@@ -184,15 +186,15 @@ export function reversePerfumeLotTransfer(lots: PerfumeLot[], fromWarehouseId: s
   for (const allocation of allocations) {
     const lot = byId.get(allocation.lotId);
     if (!lot) throw new Error("تعذر العثور على دفعة التقسيم الأصلية للتحويل");
-    const amount = nonNegativeInteger(allocation.quantity, "كمية توزيع التحويل");
+    const amount = lotQuantity(lot, allocation.quantity);
     if (amount <= 0) throw new Error("توزيع التحويل غير صالح");
     const currentUnitCost = finiteNonNegative(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0, "تكلفة التقسيمة");
     const transferredUnitCost = finiteNonNegative(allocation.unitCost, "تكلفة التقسيمة وقت التحويل");
     if (Math.abs(currentUnitCost - transferredUnitCost) > 1e-9) throw new Error("لا يمكن عكس تحويل التقسيمات لأن تكلفة الدفعة تغيرت بعده. ألغِ تصحيح الناتج الأحدث أولًا");
-    const destination = nonNegativeInteger(lot.stocks?.[toWarehouseId] ?? 0, "رصيد الدفعة في مخزن الوجهة");
+    const destination = lotQuantity(lot, lot.stocks?.[toWarehouseId] ?? 0);
     if (destination < amount) throw new Error("لا يمكن عكس تحويل التقسيمات لأن جزءًا من الدفعة المحولة تم التصرف فيه");
-    const source = nonNegativeInteger(lot.stocks?.[fromWarehouseId] ?? 0, "رصيد الدفعة في مخزن المصدر");
-    lot.stocks = { ...(lot.stocks ?? {}), [toWarehouseId]: destination - amount, [fromWarehouseId]: source + amount };
+    const source = lotQuantity(lot, lot.stocks?.[fromWarehouseId] ?? 0);
+    lot.stocks = { ...(lot.stocks ?? {}), [toWarehouseId]: roundMl(destination - amount), [fromWarehouseId]: roundMl(source + amount) };
   }
   return updated;
 }

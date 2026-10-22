@@ -1,6 +1,11 @@
 import type { Locale } from "./locale";
 
 const exactFrench: Record<string, string> = {
+  "سوِّ الزجاج من جرد زجاج التقسيمات لتحديد الكسر أو التلف أو تصحيح خطأ الإدخال": "Utilisez l’inventaire des flacons de décant pour distinguer casse, détérioration et correction de saisie.",
+  "اختر سبب فرق الزجاج: كسر أو تلف أو تصحيح خطأ إدخال": "Choisissez le motif : casse, détérioration ou correction de saisie.",
+  "الكسر والتلف يتطلبان كمية فعلية أقل من رصيد البرنامج": "La casse et la détérioration nécessitent une quantité réelle inférieure au stock enregistré.",
+  "لا توجد تكلفة معتمدة للزجاج لحساب خسارة الكسر أو التلف": "Aucun coût validé ne permet de calculer la perte des flacons.",
+  "تغير رصيد الزجاج بعد الجرد أو تم التصرف فيه؛ ألغِ الحركات الأحدث أولًا.": "Le stock des flacons a changé après l’inventaire. Annulez les mouvements suivants avant de modifier le comptage.",
   "لا يمكن تعديل أو إلغاء العملية لأن لها حركات لاحقة. ألغِ الحركات المرتبطة الأحدث أولًا.": "Des opérations ultérieures dépendent de celle-ci. Annulez-les d’abord.",
   "العملية ملغاة أو تم تعديلها. افتح أحدث سجل.": "Cette opération est annulée ou remplacée. Ouvrez sa dernière version.",
   "تغيرت العملية. حدّث الصفحة وأعد المحاولة.": "L’opération a changé. Actualisez la page.",

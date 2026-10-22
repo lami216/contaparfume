@@ -172,7 +172,8 @@ test("decant reconciliation commands are specialized, reversible and noncash", a
   assert.match(bootstrap, /perfumeAccess/);
   assert.match(ui, /pm.openingHelp/);
   assert.match(ui, /pm.reasonCode/);
-  assert.match(ui, /pm.correctHelp/);
+  assert.match(ui, /المتبقي الفعلي بالمل/);
+  assert.match(ui, /فرق الجرد/);
   assert.match(ui, /divisionLiquidCost/);
   assert.doesNotMatch(ui, /roundedDivisionLiquidCost/);
   assert.match(coreCommands, /transferPerfumeLotStock/);
