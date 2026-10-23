@@ -16,6 +16,8 @@ export async function exportNativeBackup(locale: 'ar' | 'fr'): Promise<BackupSav
         EROFS: ['المكان المختار للقراءة فقط. اختر مكانًا آخر للحفظ.', 'Le support est en lecture seule. Choisissez un autre emplacement.'],
         ENOENT: ['المجلد أو الفلاشة لم يعد متاحًا. أعد توصيله واختر مكان الحفظ من جديد.', 'Le dossier ou le support n’est plus disponible. Reconnectez-le et choisissez à nouveau l’emplacement.'],
         ENODEV: ['انفصل وسيط التخزين أثناء الحفظ. أعد توصيله ثم أعد المحاولة.', 'Le support a été déconnecté. Reconnectez-le puis réessayez.'],
+        'backup-write-timeout': ['لم تكتمل عملية النسخ خلال مهلة الحفظ. بقي التطبيق مفتوحًا؛ جرّب الحفظ في مجلد محلي. بيانات البرنامج لم تتغير.', 'La sauvegarde n’a pas été confirmée dans le délai imparti. L’application reste ouverte ; essayez un dossier local. Les données de l’application sont inchangées.'],
+        'backup-worker-failed': ['توقف حفظ الملف قبل تأكيد اكتماله. جرّب الحفظ في مجلد محلي. بيانات البرنامج لم تتغير.', 'L’enregistrement s’est arrêté avant sa confirmation. Essayez un dossier local. Les données de l’application sont inchangées.'],
         'backup-target-changed': ['تغيّر الملف أثناء النسخ. لم نستبدله؛ أعد المحاولة باسم آخر.', 'Le fichier a changé. Il est conservé ; choisissez un autre nom.'],
         'invalid-backup-target': ['اختر اسمًا ينتهي بـ .conta.json أو .json.', 'Choisissez un nom se terminant par .conta.json ou .json.'],
       };

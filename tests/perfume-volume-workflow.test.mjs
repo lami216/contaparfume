@@ -11,6 +11,7 @@ import {join} from 'node:path';
 import {createRequire} from 'node:module';
 import {managementInputFor} from '../app/perfume-management.ts';
 const {createNativeBackupService}=createRequire(import.meta.url)('../desktop/native-backup.cjs');
+const {createIsolatedBackupWriter}=createRequire(import.meta.url)('../desktop/backup-writer.cjs');
 
 async function fixture(){
  const h=await sqliteHarness();await h.reset();const db=h.db,wh='wh-volume';
@@ -43,7 +44,7 @@ test('a saved native backup restores millilitres, defaults, revised bottle losse
   assert.equal(before.inventoryGain,300);assert.equal(before.inventoryLoss,40);
   const snapshot=parseAndValidateBackup(JSON.stringify(await createNativeBackup(f.db))), filePath=join(f.h.directory,'perfume-round-trip.conta.json');
   const owner={isDestroyed:()=>false};
-  const service=createNativeBackupService({dialog:{showSaveDialog:async()=>({canceled:false,filePath})},getWindow:()=>owner,homeDirectory:f.h.directory});
+  const service=createNativeBackupService({dialog:{showSaveDialog:async()=>({canceled:false,filePath})},getWindow:()=>owner,homeDirectory:f.h.directory,writeBackup:createIsolatedBackupWriter()});
   const saved=await service.save(async()=>new Response(JSON.stringify(snapshot),{headers:{'content-type':'application/json'}}));
   assert.equal(saved.ok,true);assert.equal(saved.canceled,false);
   const fromDisk=parseAndValidateBackup(await readFile(filePath,'utf8'));

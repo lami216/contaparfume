@@ -33,4 +33,6 @@ test('Windows write restrictions and a disconnected backup drive report an actio
   reply = { ok: false, code: 'EROFS' }; await assert.rejects(exportNativeBackup('ar'), /للقراءة فقط/);
   reply = { ok: false, code: 'ENOENT' }; await assert.rejects(exportNativeBackup('fr'), /plus disponible/);
   reply = { ok: false, code: 'ENODEV' }; await assert.rejects(exportNativeBackup('ar'), /انفصل/);
+  reply = { ok: false, code: 'backup-write-timeout' }; await assert.rejects(exportNativeBackup('ar'), /مهلة الحفظ/);
+  reply = { ok: false, code: 'backup-worker-failed' }; await assert.rejects(exportNativeBackup('fr'), /confirmation/);
 });
