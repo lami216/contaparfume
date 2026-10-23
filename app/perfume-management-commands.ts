@@ -4,6 +4,7 @@ import { perfumeLotEquals } from "./perfume-stock-reconciliation.ts";
 import type { PerfumeLot } from "./perfume-logic.ts";
 import { undoVolumeOperation } from "./perfume-volume-commands.ts";
 import { roundMl } from "./perfume-volume.ts";
+import { splitReversalEvidence } from "./perfume-split-reversal.ts";
 
 type Row = Record<string, unknown>;
 type Delegate = (db: Db, session: Session, body: Row) => Promise<unknown>;
@@ -127,23 +128,28 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
       const index=lots.findIndex(l=>l.id===d.perfumeLotId||(k==="split"?l.conversionDocumentId===d.id:l.partialProductId===partialId));
       if(index<0||!incoming||!outgoing)throw stockConflict();
       const lot=lots[index],expected=d.perfumeLotAfter as PerfumeLot|undefined;
-      if(expected&&!perfumeLotEquals(lot,expected))throw stockConflict();
+      if(k!=="split"&&expected&&!perfumeLotEquals(lot,expected))throw stockConflict();
       if(k==="split"){
-        const qty=Number(incoming.quantity),stock=Object.values(lot.stocks).reduce((s,q)=>s+q,0);
-        if(lot.originalQuantity!==qty||lot.remainingQuantity!==qty||stock!==qty||Number(lot.stocks[wh])!==qty||lot.recombinedAt||Math.abs(lot.liquidUnitCost-Number(incoming.unitPrice))>1e-9)throw stockConflict();
+        const evidence=await splitReversalEvidence(db,session,d,p,lot,lots,incoming,outgoing);
+        const qty=Number(evidence.quantityRemoved);
         const source=await product(outgoing.productId);
         await move(p,wh,-qty,d,"perfume-split-void-out");await move(source,wh,1,d,"perfume-split-void-in");lots.splice(index,1);await setLots(p,lots);
+        await documents.updateOne({id:d.id},{$set:{perfumeSplitReversal:evidence}},{session});
         if(d.decantProductCreated===true&&lots.length===0&&total(p)===0)await products.updateOne({id:p.id},{$set:{isArchived:true,archivedAt:new Date()}},{session});
         const before=d.decantProductBefore as Row|null,after=d.decantProductAfter as Row|null;
         if(before&&after&&JSON.stringify(meta(p))===JSON.stringify(after))await products.updateOne({id:p.id},{$set:before},{session});
       } else {
         const partial=await product(partialId),qty=-Number(outgoing.quantity);
-        if(partial.isArchived||total(partial)!==1||Number((partial.stocks as Row??{})[wh])!==1||lot.remainingQuantity!==0||lot.partialProductId!==partialId)throw stockConflict();
+        if(partial.isArchived||total(partial)!==1||Number((partial.stocks as Row??{})[wh])!==1||lot.partialProductId!==partialId)throw stockConflict();
         // Older recombinations predate snapshots; their signed document lines,
         // closed lot and intact single partial bottle provide the inverse values.
         let before=d.perfumeLotBefore as PerfumeLot|undefined;
-        if(!before){before={...structuredClone(lot),remainingQuantity:qty,stocks:{...lot.stocks,[wh]:qty}};delete before.recombinedAt;delete before.partialProductId;}
-        if(!Number.isSafeInteger(qty)||qty<=0||before.remainingQuantity!==qty)throw stockConflict();
+        if(!before){
+          const live=Number(lot.remainingQuantity),liveStock=Object.values(lot.stocks).reduce((sum,value)=>sum+Number(value),0);
+          if(!Number.isSafeInteger(live)||live<0||live!==liveStock||live+qty>lot.originalQuantity)throw stockConflict();
+          before={...structuredClone(lot),remainingQuantity:live+qty,stocks:{...lot.stocks,[wh]:Number(lot.stocks[wh]??0)+qty}};delete before.recombinedAt;delete before.partialProductId;
+        } else if(lot.remainingQuantity!==0||before.remainingQuantity!==qty)throw stockConflict();
+        if(!Number.isSafeInteger(qty)||qty<=0)throw stockConflict();
         await move(partial,wh,-1,d,"perfume-recombine-void-out");await move(p,wh,qty,d,"perfume-recombine-void-in");lots[index]=before;await setLots(p,lots);
         await products.updateOne({id:partial.id},{$set:{isArchived:true,archivedAt:new Date()}},{session});
       }

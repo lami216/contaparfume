@@ -8,6 +8,7 @@ import { resolvePartyType } from "../../domain.ts";
 import { handlePerfumeManagementCommand } from "../../perfume-management-commands.ts";
 import { execute as executeBaseCommand } from "./base-route.ts";
 import { execute as executeCoreCommand } from "./core-route.ts";
+import { restoreLegacySaleAllocations } from "../../perfume-split-reversal.ts";
 
 type Input = Record<string, unknown>;
 class CommandError extends Error { status: number; constructor(message: string, status = 400) { super(message); this.status = status; } }
@@ -18,6 +19,12 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
   const type = text(body.type);
   const management = await handlePerfumeManagementCommand(db, session, body, executeBaseCommand, executeCoreCommand);
   if (management.handled) return management.result;
+  if (type === "sale.void") {
+    const original = await db.collection("documents").findOne({ id: text(body.documentId), kind: "sale", status: "posted" }, { session });
+    const result = await executeCoreCommand(db, session, body);
+    if (original) await restoreLegacySaleAllocations(db, session, original);
+    return result;
+  }
   if (type === "product-category.create" || type === "product-category.update") {
     const categoryId = text(body.id), name = text(body.name);
     if (!name) throw new CommandError("اسم الفئة مطلوب");

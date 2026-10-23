@@ -24,6 +24,19 @@ export const managementPostType: Record<ManagementKind, string> = {
   bottle: "perfume-bottle.create", "bottle-stock": "perfume-bottle-stock.post",
 };
 
+/** A restored quantity alone does not prove that a sale/count/transfer was voided. */
+export function documentUsesPerfumeLot(document: { perfumeLotId?: unknown; perfumeStockOperationType?: unknown; lines?: unknown }, productId: string, lotId: string) {
+  if (document.perfumeStockOperationType === "unit-conversion") return false;
+  const lines = Array.isArray(document.lines) ? document.lines as Record<string, unknown>[] : [];
+  return lines.some(line => {
+    if (line.productId !== productId || Number(line.quantity) === 0) return false;
+    const allocations = [line.perfumeAllocations, line.perfumeTransferAllocations].flatMap(value => Array.isArray(value) ? value as Record<string, unknown>[] : []);
+    if (allocations.length) return allocations.some(allocation => allocation.lotId === lotId);
+    const reference = line.perfumeLotId ?? document.perfumeLotId;
+    return reference ? reference === lotId : true;
+  });
+}
+
 /** Existing posted operations remain editable even before input snapshots existed. */
 export function managementInputFor(document: import("./domain").DocumentRecord, products: import("./domain").Product[]): Record<string, unknown> {
   if (managementKind(document) === "bottle-stock") {

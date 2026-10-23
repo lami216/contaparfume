@@ -1,6 +1,7 @@
 import type { Locale } from "./locale";
 
 const exactFrench: Record<string, string> = {
+  "لا يمكن إلغاء التحويل لأن له حركات لاحقة غير ملغاة، أو اختلافًا غير موثق في رصيد الدفعة.": "La conversion a des opérations liées non annulées ou un écart de stock non justifié. Annulez les opérations liées avant de réessayer.",
   "سوِّ الزجاج من جرد زجاج التقسيمات لتحديد الكسر أو التلف أو تصحيح خطأ الإدخال": "Utilisez l’inventaire des flacons de décant pour distinguer casse, détérioration et correction de saisie.",
   "اختر سبب فرق الزجاج: كسر أو تلف أو تصحيح خطأ إدخال": "Choisissez le motif : casse, détérioration ou correction de saisie.",
   "الكسر والتلف يتطلبان كمية فعلية أقل من رصيد البرنامج": "La casse et la détérioration nécessitent une quantité réelle inférieure au stock enregistré.",

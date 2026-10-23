@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { Archive, ArchiveRestore, ArrowUpRight, FileText, PencilLine, RotateCcw, Search, SlidersHorizontal, X, type LucideIcon } from "lucide-react";
 import { activeProducts, activeWarehouses, displayDocumentNumber, formatDateTime, inventoryUnitCost, money, quantity, stockInWarehouse, type BootstrapData, type DocumentRecord } from "./domain";
 import { divisionLiquidCost, lotRemainingTotal } from "./perfume-logic";
-import { bottleStockReasonLabels, isBottleStockReason, managementInputFor, managementKind, managementLabel, managementPostType, type ManagementKind } from "./perfume-management";
+import { bottleStockReasonLabels, documentUsesPerfumeLot, isBottleStockReason, managementInputFor, managementKind, managementLabel, managementPostType, type ManagementKind } from "./perfume-management";
 import { useAppConfirm } from "./app-confirm";
 import { useI18n } from "./i18n/provider";
 import { tr } from "./i18n/messages";
@@ -47,6 +47,7 @@ export default function PerfumeDivisions({ data, run, openDoc, editRequest, clea
   const activeBottles=bottles.filter(p=>!p.isArchived);
   const batches=useMemo(()=>data.products.filter(p=>p.perfumeForm==="decant"&&!p.isArchived).flatMap(product=>(product.perfumeLots??[]).map(lot=>({product,lot}))),[data.products]);
   const operations=useMemo(()=>data.documents.filter(d=>managementKind(d)).sort((a,b)=>String(b.occurredAt).localeCompare(String(a.occurredAt))||b.id.localeCompare(a.id)),[data.documents]);
+  const operationsById=useMemo(()=>new Map(operations.map(document=>[document.id,document])),[operations]);
   const needle=search.trim().toLocaleLowerCase(),text=(field:string)=>String(values[field]??""),n=(field:string)=>Number(text(field));
   const set=(field:string,value:string|boolean)=>{setValues(v=>({...v,[field]:value}));setDirty(true);setError("")};
   const source=sources.find(p=>p.id===text("sourceProductId"));
@@ -111,8 +112,10 @@ export default function PerfumeDivisions({ data, run, openDoc, editRequest, clea
     await choose(k,managementInputFor(document,data.products),document,p?.id??"");
   }
   async function voidDocument(document:DocumentRecord){
-    if(!await confirm({message:tr("pm.voidConfirm"),confirmLabel:tr("pm.void"),tone:"danger"}))return;
-    await process({type:"perfume-management.void",documentId:document.id,expectedRevision:document.revision??0});
+    if(busy||!await mayDiscard())return;
+    const split=managementKind(document)==="split";
+    if(!await confirm({message:tr(split?"pm.cancelSplitConfirm":"pm.voidConfirm"),confirmLabel:tr(split?"pm.cancelSplit":"pm.void"),tone:"danger"}))return;
+    await process({type:"perfume-management.void",documentId:document.id,expectedRevision:document.revision??0},()=>reset());
   }
   const field=(key:string,label:string,options:{integer?:boolean;zero?:boolean;type?:string}={})=><label>{label}<input value={text(key)} onChange={e=>set(key,e.target.value)} type={options.type??"number"} min={options.type?undefined:options.zero?"0":options.integer?"1":"0.000001"} step={options.integer?"1":"any"} inputMode={options.type?undefined:options.integer?"numeric":"decimal"}/></label>;
   const selectWarehouse=<label className="pm-wide">{tr("المخزن")}<select value={warehouseId} onChange={e=>{setValues(v=>({...v,warehouseId:e.target.value,...(lot?{actualQuantity:String(lot.stocks[e.target.value]??0)}:{})}));setDirty(true)}}><option value="">{tr("اختر المخزن")}</option>{warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label>;
@@ -164,12 +167,16 @@ export default function PerfumeDivisions({ data, run, openDoc, editRequest, clea
                 <RowAction label={tr("تصحيح الكمية")} icon={SlidersHorizontal} disabled={busy||!canManage} onClick={()=>void choose("bottle-stock",{bottleProductId:b.id,warehouseId,actualQuantity:stockInWarehouse(b,warehouseId),cost:b.lastPurchaseCost??b.pieceCost})}/>
                 <RowAction label={tr("pm.archive")} icon={Archive} danger disabled={busy||!canManage} onClick={()=>void (async()=>{if(await confirm({message:tr("pm.archiveConfirm"),tone:"danger"}))await process({type:"perfume-bottle.archive",id:b.id,expectedProduct:bottleSnapshot(b)})})()}/></>}
             </div></td></tr>)
-            :batches.filter(b=>[b.lot.sourceProductName,b.lot.id].join(" ").toLocaleLowerCase().includes(needle)).map(b=><tr key={b.lot.id}>
+            :batches.filter(b=>[b.lot.sourceProductName,b.lot.id].join(" ").toLocaleLowerCase().includes(needle)).map(b=>{
+              const conversion=operationsById.get(b.lot.conversionDocumentId);
+              const blocked=Boolean(b.lot.recombinedAt||b.lot.settledAt)||data.documents.some(document=>document.id!==conversion?.id&&document.status!=="voided"&&documentUsesPerfumeLot(document,b.product.id,b.lot.id));
+              return <tr key={b.lot.id}>
               <td title={`${b.lot.sourceProductName} · ${formatDateTime(b.lot.createdAt)} · ${b.lot.id}`}><span className="pm-cell-text">{b.lot.sourceProductName}</span><small>{formatDateTime(b.lot.createdAt)} · {b.lot.id.slice(-6)}</small></td>
               <td className="num-cell">{quantity(lotRemainingTotal(b.lot))} {b.lot.quantityUnit==="ml"?tr("مل"):tr("تقسيمة")}</td><td className="num-cell">{money(b.lot.liquidUnitCost)} / {tr(b.lot.quantityUnit==="ml"?"مل":"تقسيمة")}</td>
-              <td><div className="pm-row-actions"><RowAction label={tr("pm.source")} icon={FileText} onClick={()=>open(b.lot.conversionDocumentId)}/>
+              <td><div className="pm-row-actions pm-batch-actions"><RowAction label={tr("pm.source")} icon={FileText} onClick={()=>open(b.lot.conversionDocumentId)}/>
+                {conversion?.status==="posted"&&managementKind(conversion)==="split"&&<RowAction label={tr(blocked?"pm.cancelSplitBlocked":"pm.cancelSplit")} text={tr("pm.short.cancelSplit")} icon={X} danger disabled={busy||!canManage||blocked} onClick={()=>void voidDocument(conversion)}/>}
                 {tab!=="stock"&&<RowAction label={tr("pm.correction")} text={tr("pm.short.correction")} icon={SlidersHorizontal} disabled={busy||!canManage||Boolean(b.lot.recombinedAt)} onClick={()=>void choose("yield-correction",{decantProductId:b.product.id,lotId:b.lot.id,warehouseId})}/>}<RowAction label={tr(tab==="stock"?"pm.correction":"pm.recombine")} icon={tab==="stock"?SlidersHorizontal:RotateCcw} text={tr(tab==="stock"?"pm.short.correction":"pm.short.recombine")} disabled={busy||!canManage||(b.lot.quantityUnit!=="ml"&&lotRemainingTotal(b.lot)<=0)||Boolean(b.lot.recombinedAt)} onClick={()=>void choose(tab==="stock"?"yield-correction":"recombine",{decantProductId:b.product.id,lotId:b.lot.id,warehouseId:Object.entries(b.lot.stocks).find(([,q])=>q>0)?.[0]??defaultWarehouse})}/>
-              </div></td></tr>)}</tbody></table></div>
+              </div></td></tr>})}</tbody></table></div>
         <p className="pm-hint">{tr(tab==="bottles"?"pm.bottleRegisterHelp":"pm.batchRegisterHelp")}</p>
       </fieldset>
     </div>}

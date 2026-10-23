@@ -1651,12 +1651,14 @@
   }
 }
 
-/* Management shares the ordinary ERP fieldsets, compact invoice selectors,
-   search controls and table tokens. This scope leaves commercial invoices alone. */
-.decant-invoices-hub:has(.perfume-management-page) .decant-invoice-modebar { box-shadow: none; background: #fff; }
-.decant-invoices-hub:has(.perfume-management-page) .decant-invoice-mode-tabs { display: flex; flex-wrap: wrap; width: auto; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; }
-.decant-invoices-hub:has(.perfume-management-page) .decant-mode-tab { height: 30px; min-height: 30px; padding: 3px 8px; border: 1px solid var(--border-strong); color: var(--text); background: #fff; box-shadow: none; }
-.decant-invoices-hub:has(.perfume-management-page) .decant-mode-tab.active { color: #fff; border-color: var(--section-color); background: var(--section-color); }
+/* Keep the compact invoice selectors stable across all three decant pages. */
+.decant-invoices-hub .decant-invoice-modebar { box-shadow: none; background: #fff; }
+.decant-invoices-hub .decant-invoice-mode-tabs { display: flex; flex-wrap: wrap; width: auto; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; }
+.decant-invoices-hub .decant-mode-tab { height: 30px; min-height: 30px; padding: 3px 8px; border: 1px solid var(--border-strong); color: var(--text); background: #fff; box-shadow: none; }
+.decant-invoices-hub .decant-mode-tab.active { color: #fff; border-color: var(--color-invoices, #2563a9); background: var(--color-invoices, #2563a9); }
+
+/* Management shares the ordinary ERP fieldsets, search controls and table tokens.
+   This scope leaves the commercial invoice workspaces alone. */
 .decant-invoices-hub-body.management .perfume-divisions-page.perfume-management-page {
   box-sizing: border-box; display: flex; flex-direction: column; gap: 7px;
   min-width: 0; min-height: 100%; height: auto; padding: 8px;
@@ -1696,6 +1698,7 @@
 .perfume-management-page .pm-table-scroll table { width: 100%; min-width: 440px; --erp-row-height: 28px; --erp-head-height: 27px; }
 .perfume-management-page .pm-register th:first-child { width: 44%; }
 .perfume-management-page .pm-register th:last-child { width: 120px; }
+.perfume-management-page .pm-register:has(.pm-batch-actions) th:last-child { width: 150px; }
 .perfume-management-page .pm-history table { min-width: 730px; }
 .perfume-management-page .pm-history th:nth-child(1) { width: 20%; }
 .perfume-management-page .pm-history th:nth-child(2) { width: 20%; }
@@ -1709,6 +1712,7 @@
 .perfume-management-page .pm-cell-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .perfume-management-page .pm-table-scroll td small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-block-start: 1px; color: var(--text-muted); font-size: 9px; }
 .perfume-management-page .pm-row-actions { display: flex; align-items: center; justify-content: center; gap: 3px; flex-wrap: nowrap; }
+.perfume-management-page .pm-batch-actions { flex-wrap: wrap; }
 .perfume-management-page .pm-row-actions .pm-row-action { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; gap: 3px; height: 24px; min-height: 24px; padding: 2px 5px; font-size: 10px; white-space: nowrap; border-radius: 4px; }
 .perfume-management-page .pm-row-actions .pm-icon-action { width: 24px; padding: 3px; }
 .perfume-management-page .pm-row-action svg { width: 13px; height: 13px; flex: 0 0 auto; }
