@@ -6,6 +6,11 @@ import {buildReport,parseReportFilters} from '../lib/reports.ts';
 import {createNativeBackup,parseAndValidateBackup,restoreNativeBackup} from '../lib/backup.ts';
 import {transferPerfumeLotStock,reversePerfumeLotTransfer} from '../app/perfume-stock-reconciliation.ts';
 import {buildReportFooterMetrics} from '../app/report-footer.ts';
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {createRequire} from 'node:module';
+import {managementInputFor} from '../app/perfume-management.ts';
+const {createNativeBackupService}=createRequire(import.meta.url)('../desktop/native-backup.cjs');
 
 async function fixture(){
  const h=await sqliteHarness();await h.reset();const db=h.db,wh='wh-volume';
@@ -25,6 +30,38 @@ async function fixture(){
  const report=()=>buildReport(db,parseReportFilters(new URL('http://127.0.0.1/api/reports?type=overview&allTime=true')));
  return {h,db,wh,run,split,get,p,lot,sale,count,report};
 }
+
+test('a saved native backup restores millilitres, defaults, revised bottle losses and report values, then remains reversible',async()=>{
+ const f=await fixture();try{
+  await f.run({type:'perfume-defaults.update',fillMl:5,bottleProductId:'b5'});
+  await f.sale([{quantity:2,fillMl:5,bottleProductId:'b5',unitPrice:600}]);
+  await f.count(93);
+  const broken=await f.run({type:'perfume-bottle-stock.post',bottleProductId:'b5',warehouseId:f.wh,actualQuantity:17,bottleStockReason:'breakage',reason:'Broken bottle'});
+  const first=await f.db.collection('documents').findOne({id:broken});
+  const replacement=await f.run({type:'perfume-management.update',documentId:broken,expectedRevision:0,...managementInputFor(first,[]),actualQuantity:16});
+  const before=(await f.report()).summary;
+  assert.equal(before.inventoryGain,300);assert.equal(before.inventoryLoss,40);
+  const snapshot=parseAndValidateBackup(JSON.stringify(await createNativeBackup(f.db))), filePath=join(f.h.directory,'perfume-round-trip.conta.json');
+  const owner={isDestroyed:()=>false};
+  const service=createNativeBackupService({dialog:{showSaveDialog:async()=>({canceled:false,filePath})},getWindow:()=>owner,homeDirectory:f.h.directory});
+  const saved=await service.save(async()=>new Response(JSON.stringify(snapshot),{headers:{'content-type':'application/json'}}));
+  assert.equal(saved.ok,true);assert.equal(saved.canceled,false);
+  const fromDisk=parseAndValidateBackup(await readFile(filePath,'utf8'));
+  assert.equal(fromDisk.collections.appSettings.find(x=>x._id==='perfume-defaults').fillMl,5);
+  await f.db.dropDatabase();
+  await f.db.transaction(session=>restoreNativeBackup(f.db,fromDisk,session));
+  const after=parseAndValidateBackup(JSON.stringify(await createNativeBackup(f.db)));
+  for(const collection of ['products','documents','stockMovements','financialMovements','paymentAccounts','appSettings'])assert.deepEqual(after.collections[collection],snapshot.collections[collection],collection);
+  const restored=(await f.report()).summary;
+  for(const key of ['sales','salesProfit','inventoryLoss','inventoryGain','currentInventoryValue','netOperatingResult','currentAccountsBalance'])assert.equal(restored[key],before[key],key);
+  assert.equal((await f.get()).stocks[f.wh],93);
+  assert.equal((await f.db.collection('products').findOne({id:'b5'})).stocks[f.wh],16);
+  await f.run({type:'perfume-management.void',documentId:replacement,expectedRevision:1});
+  assert.equal((await f.db.collection('products').findOne({id:'b5'})).stocks[f.wh],18);
+  assert.equal((await f.report()).summary.inventoryLoss,0);
+  assert.equal((await f.report()).summary.inventoryGain,300);
+ }finally{await f.h.close()}
+});
 test('volume split keeps the full source value and sells mixed sizes with separate bottles',async()=>{
  const f=await fixture();try{
   let p=await f.get();assert.equal(p.stocks[f.wh],100);assert.equal(p.perfumeLots[0].liquidUnitCost,100);assert.equal(p.perfumeLots[0].quantityUnit,'ml');

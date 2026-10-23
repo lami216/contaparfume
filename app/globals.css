@@ -2818,3 +2818,31 @@ html:has(.modal-overlay),body:has(.modal-overlay){overflow:hidden}
 
 /* Saved party cash notes stay compact in history while the printable sheet shows them in full. */
 .record-movement-note{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:400;color:var(--muted);margin-top:3px}
+
+.product-name-hover {
+  display: inline-block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+/* Keep product-name cells aligned with the Arabic interface when the
+   hover label is an inline-block rather than a direct text node. */
+html[dir="rtl"] .name-cell:has(> .product-name-hover) {
+  direction: rtl;
+  unicode-bidi: normal;
+}
+@media print {
+  .product-name-hover {
+    display: inline;
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+}
+
+
+.app-confirm-dialog p{white-space:pre-line}

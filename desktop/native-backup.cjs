@@ -53,6 +53,7 @@ function createNativeBackupService({ dialog, getWindow, homeDirectory, getLocale
     return task;
   }
   async function perform(fetchResponse) {
+    log('backup stage=requested');
     const started = Date.now(), owner = getWindow(), locale = await getLocale();
     if (!owner || owner.isDestroyed()) throw failure('window-closed');
     const directory = await initialDirectory();

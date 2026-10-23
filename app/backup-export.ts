@@ -11,6 +11,11 @@ export async function exportNativeBackup(locale: 'ar' | 'fr'): Promise<BackupSav
       const messages: Record<string, [string, string]> = {
         'backup-busy': ['انتظر انتهاء عملية النسخ الحالية.', 'Patientez pendant la sauvegarde en cours.'],
         ENOSPC: ['لا توجد مساحة كافية في المكان المختار.', 'Espace insuffisant à cet emplacement.'],
+        EACCES: ['Windows منع الكتابة في المجلد المختار. اختر مجلدًا تملك صلاحية الحفظ فيه.', 'Windows refuse l’écriture dans ce dossier. Choisissez un dossier accessible.'],
+        EPERM: ['Windows منع حفظ الملف أو استبداله. أغلق الملف إن كان مفتوحًا وجرّب اسمًا أو مجلدًا آخر.', 'Windows refuse l’enregistrement ou le remplacement. Fermez le fichier et essayez un autre nom ou dossier.'],
+        EROFS: ['المكان المختار للقراءة فقط. اختر مكانًا آخر للحفظ.', 'Le support est en lecture seule. Choisissez un autre emplacement.'],
+        ENOENT: ['المجلد أو الفلاشة لم يعد متاحًا. أعد توصيله واختر مكان الحفظ من جديد.', 'Le dossier ou le support n’est plus disponible. Reconnectez-le et choisissez à nouveau l’emplacement.'],
+        ENODEV: ['انفصل وسيط التخزين أثناء الحفظ. أعد توصيله ثم أعد المحاولة.', 'Le support a été déconnecté. Reconnectez-le puis réessayez.'],
         'backup-target-changed': ['تغيّر الملف أثناء النسخ. لم نستبدله؛ أعد المحاولة باسم آخر.', 'Le fichier a changé. Il est conservé ; choisissez un autre nom.'],
         'invalid-backup-target': ['اختر اسمًا ينتهي بـ .conta.json أو .json.', 'Choisissez un nom se terminant par .conta.json ou .json.'],
       };

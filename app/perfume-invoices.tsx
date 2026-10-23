@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import ProductName from "./product-name";
 import { createPortal } from "react-dom";
 import { Banknote, ChevronDown, PencilLine, Plus, Search, X } from "lucide-react";
 import {
@@ -385,7 +386,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
                 const product = saleProducts.find(item => item.id === line.productId)!;
                 const isDecant = product.perfumeForm === "decant";
                 return <tr key={line.key}>
-                  <td className="name-cell decant-compact-name" title={product.name}><span>{product.name}</span></td>
+                  <td className="name-cell decant-compact-name" title={product.name}><ProductName name={product.name}/></td>
                   <td>{isDecant?<DecantFillPicker fillMl={line.fillMl??String(defaults.fillMl)} bottleProductId={line.bottleProductId} bottles={bottles.map(bottle=>({...bottle,stocks:{...bottle.stocks,[warehouseId]:stockInWarehouse(bottle,warehouseId)+restoredStock(bottle.id)}}))} warehouseId={warehouseId} count={n(line.quantity)} onChange={value=>patchFill(line,value)}/>:"—"}</td>
                   <td className="num-cell"><input className="num" dir="ltr" type="number" min="1" step="1" value={line.quantity} onChange={event => patch(line.key, { quantity: event.target.value })}/></td>
                   <td className="num-cell"><input className="num" dir="ltr" type="number" min="0" value={line.unitPrice} onChange={event => patch(line.key, { unitPrice: event.target.value, priceIsManual:true })}/></td>
@@ -538,7 +539,7 @@ export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint, 
               <tbody>{lines.length === 0 ? <tr className="invoice-empty-row"><td colSpan={5}>{tr("الفاتورة فارغة")}</td></tr> : lines.map(line => {
                 const product = bottles.find(item => item.id === line.productId)!;
                 return <tr key={line.key}>
-                  <td className="name-cell"><span>{product.name}</span>{product.decantSizeMl ? <small className="muted decant-bottle-size">{String(product.decantSizeMl) + " ml"}</small> : null}</td>
+                  <td className="name-cell"><ProductName name={product.name}/>{product.decantSizeMl ? <small className="muted decant-bottle-size">{String(product.decantSizeMl) + " ml"}</small> : null}</td>
                   <td className="num-cell"><input className="num" dir="ltr" type="number" min="1" step="1" value={line.quantity} onChange={event => patch(line.key, { quantity: event.target.value })}/></td>
                   <td className="num-cell"><input className="num" dir="ltr" type="number" min="0" value={line.unitPrice} onChange={event => patch(line.key, { unitPrice: event.target.value })}/></td>
                   <td className="num-cell"><span className="financial-amount money-neutral">{money(n(line.quantity) * n(line.unitPrice))}</span></td>

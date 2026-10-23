@@ -25,3 +25,12 @@ test('permission, changed destination and disk-full failures remain errors in bo
   reply = { ok: false, code: 'ENOSPC' }; await assert.rejects(exportNativeBackup('fr'), /Espace/);
   reply = { ok: false, code: 'backup-target-changed' }; await assert.rejects(exportNativeBackup('ar'), /لم نستبدله/);
 });
+
+test('Windows write restrictions and a disconnected backup drive report an actionable failure', async t => {
+  let reply; globals(t, { alkarnaBackup: { save: async () => reply } });
+  reply = { ok: false, code: 'EACCES' }; await assert.rejects(exportNativeBackup('ar'), /صلاحية/);
+  reply = { ok: false, code: 'EPERM' }; await assert.rejects(exportNativeBackup('fr'), /Windows refuse/);
+  reply = { ok: false, code: 'EROFS' }; await assert.rejects(exportNativeBackup('ar'), /للقراءة فقط/);
+  reply = { ok: false, code: 'ENOENT' }; await assert.rejects(exportNativeBackup('fr'), /plus disponible/);
+  reply = { ok: false, code: 'ENODEV' }; await assert.rejects(exportNativeBackup('ar'), /انفصل/);
+});
