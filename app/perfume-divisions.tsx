@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Archive, ArchiveRestore, List, PencilLine, RotateCcw, Search, SlidersHorizontal, X, type LucideIcon } from "lucide-react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
+import { Archive, ArchiveRestore, List, PencilLine, Search, SlidersHorizontal, X, type LucideIcon } from "lucide-react";
 import { activeProducts, activeWarehouses, formatDateTime, inventoryUnitCost, money, quantity, stockInWarehouse, type BootstrapData, type DocumentRecord } from "./domain";
 import { divisionLiquidCost, lotRemainingTotal } from "./perfume-logic";
-import { bottleStockReasonLabels, documentUsesPerfumeLot, isBottleStockReason, managementInputFor, managementKind, managementLabel, managementPostType, managementPreviewLot, type ManagementKind } from "./perfume-management";
+import { bottleStockReasonLabels, documentUsesPerfumeLot, isBottleStockReason, managementInputFor, managementKind, managementLabel, managementPostType, managementPreviewLot, managementTabForKind, conversionSourceProducts, type PerfumeManagementTab, type ManagementKind } from "./perfume-management";
 import { useAppConfirm } from "./app-confirm";
 import { useI18n } from "./i18n/provider";
 import { tr } from "./i18n/messages";
@@ -14,13 +14,17 @@ import PerfumeDefaultsEditor from "./perfume-defaults-editor";
 import PerfumeActivityPanel from "./perfume-activity-panel";
 import type { PerfumeContext } from "./perfume-activity";
 import { DEFAULT_PERFUME_SETTINGS, roundMl } from "./perfume-volume";
+import { defaultWarehouse as preferredWarehouse, warehouseSelectionId } from "./warehouse-selection";
+import { DEFAULT_ORIGINAL_VOLUME_ML, openingLiquidValue } from "./perfume-opening-valuation";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
-type Props = { data: BootstrapData; run: RunCommand; openDoc?: (id: string) => void; onSource?: (document:DocumentRecord) => void; editRequest?: string | null; clearEditRequest?: () => void };
-type Tab = "convert" | "bottles" | "stock";
+type Props = { data: BootstrapData; run: RunCommand; openDoc?: (id: string) => void; onSource?: (document:DocumentRecord) => void; editRequest?: string | null; clearEditRequest?: () => void; section?: Tab; onSectionChange?: (tab:Tab)=>void; navigationRef?:Ref<PerfumeManagementNavigation> };
+type Tab = PerfumeManagementTab;
+export type PerfumeManagementNavigation = {navigate:(next:Tab)=>Promise<boolean>;canLeave:()=>Promise<boolean>};
 type Values = Record<string, string | boolean>;
-const tabFor = (kind: ManagementKind): Tab => ["split", "recombine"].includes(kind) ? "convert" : ["bottle", "bottle-stock"].includes(kind) ? "bottles" : "stock";
-const blank = (warehouseId: string): Values => ({ sourceProductId:"",decantProductId:"",lotId:"",warehouseId,divisionsCount:"10",volumeMl:"",legacyPortionMl:"10",salePrice:"",name:"",sizeMl:"10",cost:"",quantity:"",remainingValue:"",actualQuantity:"",reason:"",reasonCode:"samples",bottleStockReason:"",consumeBottle:false,bottleQuantity:"1",bottleProductId:"",note:"" });
+const tabFor = managementTabForKind;
+
+const blank = (warehouseId: string): Values => ({ sourceProductId:"",decantProductId:"",lotId:"",warehouseId,divisionsCount:"10",volumeMl:"",originalVolumeMl:String(DEFAULT_ORIGINAL_VOLUME_ML),legacyPortionMl:"10",salePrice:"",name:"",sizeMl:"10",cost:"",quantity:"",remainingValue:"",actualQuantity:"",reason:"",reasonCode:"samples",bottleStockReason:"",consumeBottle:false,bottleQuantity:"1",bottleProductId:"",note:"" });
 const normalize = (values: Record<string, unknown>): Values => Object.fromEntries(Object.entries(values).filter(([,v])=>v!==undefined&&v!==null).map(([k,v])=>[k,typeof v==="boolean"?v:String(v)]));
 const bottleSnapshot = (p: BootstrapData["products"][number]) => ({name:p.name,sizeMl:p.decantSizeMl,cost:p.pieceCost,isArchived:p.isArchived===true});
 const shortKindLabel: Record<ManagementKind, string> = {split:"pm.short.split",recombine:"pm.short.recombine",opening:"pm.short.opening",consumption:"pm.short.consumption","yield-correction":"pm.short.correction",bottle:"pm.short.bottle","bottle-stock":"pm.short.bottleStock"};
@@ -29,12 +33,12 @@ function RowAction({label, icon: Icon, text, disabled, danger, onClick}: {label:
   return <button type="button" className={`soft pm-row-action${danger?" danger":""}${text?"":" pm-icon-action"}`} title={label} aria-label={label} disabled={disabled} onClick={onClick}><Icon aria-hidden="true"/>{text&&<span>{text}</span>}</button>;
 }
 
-export default function PerfumeDivisions({ data, run, openDoc, onSource, editRequest, clearEditRequest }: Props) {
+export default function PerfumeDivisions({ data, run, openDoc, onSource, editRequest, clearEditRequest, section="convert", onSectionChange, navigationRef }: Props) {
   const {locale}=useI18n(), confirm=useAppConfirm();
-  const warehouses=activeWarehouses(data.warehouses),defaultWarehouse=warehouses.find(w=>w.isSalesDefault)?.id??warehouses[0]?.id??"";
+  const warehouses=activeWarehouses(data.warehouses),defaultWarehouse=preferredWarehouse(warehouses)?.id??"";
   const initialDocument=editRequest?data.documents.find(d=>d.id===editRequest&&managementKind(d)):undefined;
   const initialEditing=initialDocument?.status==="posted"?initialDocument:undefined;
-  const initialKind=initialDocument?managementKind(initialDocument)!:"split";
+  const initialKind=initialDocument?managementKind(initialDocument)!:section==="stock"?"opening":section==="bottles"?"bottle":"split";
   const initialBottle=initialEditing&&initialKind==="bottle"?data.products.find(p=>p.id===initialEditing.managementProductId):undefined;
   const [tab,setTab]=useState<Tab>(tabFor(initialKind)),[kind,setKind]=useState<ManagementKind>(initialKind);
   const [editing,setEditing]=useState<DocumentRecord|undefined>(initialEditing),[bottleEdit,setBottleEdit]=useState(initialBottle?.id??"");
@@ -66,9 +70,14 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
   const set=(field:string,value:string|boolean)=>{setValues(v=>({...v,[field]:value}));setDirty(true);setError("")};
   const source=sources.find(p=>p.id===text("sourceProductId"));
   const selectedBatch=batches.find(b=>b.product.id===text("decantProductId")&&b.lot.id===text("lotId"));
-  const lot=selectedBatch?.lot,warehouseId=text("warehouseId");
+  const lot=selectedBatch?.lot,warehouseId=warehouseSelectionId(warehouses,text("warehouseId"),Boolean(editing));
   const ml=lot?.quantityUnit==="ml",legacyEdit=Boolean(editing&&editing.quantityUnit!=="ml"),defaults=data.perfumeDefaults??DEFAULT_PERFUME_SETTINGS;
   const sourceCost=source?inventoryUnitCost(source):0;
+  const automaticOpening=kind==="opening"&&!legacyEdit&&(!editing||editing.openingBottleCost!==undefined);
+  const openingCost=editing?.sourceProductId===source?.id&&editing?.openingBottleCost!==undefined?editing.openingBottleCost:sourceCost;
+  let openingValue:ReturnType<typeof openingLiquidValue>|null=null;
+  if(automaticOpening&&source){try{openingValue=openingLiquidValue(openingCost,text("volumeMl"),text("originalVolumeMl"))}catch{ /* Incomplete fields remain unsaved. */ }}
+  const sourceChoices=kind==="split"?conversionSourceProducts(sources,warehouseId,editing?.sourceProductId):sources;
   const splitQuantity=legacyEdit?n("divisionsCount"):n("volumeMl");
   const liquidCost=sourceCost>0&&splitQuantity>0?(legacyEdit?divisionLiquidCost(sourceCost,splitQuantity):sourceCost/splitQuantity):0;
   const previewLot=managementPreviewLot(editing,text("decantProductId"),text("lotId"),warehouseId,lot);
@@ -89,11 +98,12 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
     if(busy||!await mayDiscard())return;
     const selected=batches.find(batch=>batch.product.id===seed.decantProductId&&batch.lot.id===seed.lotId);
     const wh=String(seed.warehouseId??defaultWarehouse);
-    setKind(next);setTab(tabFor(next));setValues({...blank(defaultWarehouse),...(selected?{actualQuantity:String(selected.lot.stocks[wh]??0)}:{}),...normalize(seed)});setEditing(document);setBottleEdit(productId);setDirty(false);setError("");setSearch("");
+    setKind(next);setTab(tabFor(next));onSectionChange?.(tabFor(next));setValues({...blank(defaultWarehouse),...(selected?{actualQuantity:String(selected.lot.stocks[wh]??0)}:{}),...normalize(seed)});setEditing(document);setBottleEdit(productId);setDirty(false);setError("");setSearch("");
     const selectedBottle=bottles.find(p=>p.id===productId);setBottleExpected(selectedBottle?bottleSnapshot(selectedBottle):undefined);
     editorRef.current?.scrollIntoView({block:"start",behavior:"smooth"});
   }
-  async function switchTab(next:Tab){if(busy||!await mayDiscard())return;reset();setContext(null);setLastSaved("");setTab(next);setKind(next==="bottles"?"bottle":next==="stock"?"opening":"split");setSearch("")}
+  async function switchTab(next:Tab){if(busy||!await mayDiscard())return false;reset();setContext(null);setLastSaved("");setTab(next);setKind(next==="bottles"?"bottle":next==="stock"?"opening":"split");setSearch("");return true}
+  useImperativeHandle(navigationRef,()=>({navigate:switchTab,canLeave:async()=>!busy&&await mayDiscard()}));
   const process=async(body:Record<string,unknown>,after?:(result:unknown)=>void)=>{
     if(locked.current||!canManage)return;locked.current=true;setBusy(true);setError("");
     try{const result=await run(body,tr("pm.saved"));setDirty(false);after?.(result)}catch(e){setError(translateApiError(locale,e instanceof Error?e.message:tr("pm.failed")))}finally{locked.current=false;setBusy(false)}
@@ -102,7 +112,7 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
     const good=(key:string,integer=false,zero=false)=>text(key).trim()!==""&&Number.isFinite(n(key))&&(integer?Number.isSafeInteger(n(key)):true)&&(zero?n(key)>=0:n(key)>0);
     let valid=kind==="bottle"?!!text("name").trim()&&good("sizeMl")&&good("cost"):!!warehouseId;
     if(kind==="split")valid=valid&&!!source&&good(legacyEdit?"divisionsCount":"volumeMl",legacyEdit)&&good("salePrice")&&liquidCost>0;
-    if(kind==="opening")valid=valid&&!!source&&good(legacyEdit?"quantity":"volumeMl",legacyEdit)&&good("remainingValue")&&good("salePrice");
+    if(kind==="opening")valid=valid&&!!source&&good(legacyEdit?"quantity":"volumeMl",legacyEdit)&&(automaticOpening?!!openingValue:good("remainingValue"))&&good("salePrice");
     if(kind==="recombine")valid=valid&&!!selectedBatch&&(ml?good("actualQuantity",false,true)&&(n("actualQuantity")===0||good("salePrice"))&&(n("actualQuantity")===lotStock||!!text("reason").trim()):good("salePrice"));
     if(kind==="consumption")valid=valid&&!!selectedBatch&&!!text("reason").trim()&&good("quantity",!ml)&&(!values.consumeBottle||!!text("bottleProductId")&&good("bottleQuantity",true));
     if(kind==="yield-correction")valid=valid&&!!selectedBatch&&(ml?good("actualQuantity",false,true)&&(n("actualQuantity")===lotStock||!!text("reason").trim()):good("legacyPortionMl"));
@@ -111,8 +121,9 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
   }
   async function save(){
     if(!validate())return;
-    const payload:Record<string,unknown>={...values,type:editing?"perfume-management.update":managementPostType[kind],...(editing?{documentId:editing.id,expectedRevision:editing.revision??0}:{})};
+    const payload:Record<string,unknown>={...values,warehouseId,type:editing?"perfume-management.update":managementPostType[kind],...(editing?{documentId:editing.id,expectedRevision:editing.revision??0}:{})};
     if(!["split","opening"].includes(kind)||legacyEdit)delete payload.volumeMl;
+    if(automaticOpening)payload.remainingValue=openingValue!.remainingValue;else delete payload.originalVolumeMl;
     if(!legacyEdit&&["split","opening"].includes(kind))payload.priceBasisMl=defaults.fillMl;
     if(kind==="yield-correction"&&!ml&&!editing){
       if(!await confirm({message:tr("سيتم تحويل وحدة الرصيد إلى المل مع حفظ قيمته وسجله")+` (${quantity(lotStock)} × ${text("legacyPortionMl")} ${tr("مل")})`}))return;
@@ -149,17 +160,15 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
   },[editRequest]);
   const field=(key:string,label:string,options:{integer?:boolean;zero?:boolean;type?:string}={})=><label>{label}<input value={text(key)} onChange={e=>set(key,e.target.value)} type={options.type??"number"} min={options.type?undefined:options.zero?"0":options.integer?"1":"0.000001"} step={options.integer?"1":"any"} inputMode={options.type?undefined:options.integer?"numeric":"decimal"}/></label>;
   const selectWarehouse=<label className="pm-wide">{tr("المخزن")}<select value={warehouseId} onChange={e=>{setValues(v=>({...v,warehouseId:e.target.value,...(lot?{actualQuantity:String(lot.stocks[e.target.value]??0)}:{})}));setDirty(true)}}><option value="">{tr("اختر المخزن")}</option>{warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label>;
-  const selectSource=<label className="pm-wide">{tr("العطر")}<PerfumeProductPicker items={sources.map(p=>({id:p.id,name:p.name,meta:`${tr("المتوفر")}: ${quantity(stockInWarehouse(p,warehouseId))}`}))} value={text("sourceProductId")} onChange={value=>{const p=sources.find(p=>p.id===value);setValues(v=>({...v,sourceProductId:value,...(p?.perfumeBottleVolumeMl?{volumeMl:String(p.perfumeBottleVolumeMl)}:{})}));setDirty(true)}} placeholder={tr("اختر العطر")} ariaLabel={tr("العطر")}/></label>;
+  const selectSource=<label className="pm-wide">{tr("العطر")}<PerfumeProductPicker items={sourceChoices.map(p=>({id:p.id,name:p.name,meta:`${tr("المتوفر")}: ${quantity(stockInWarehouse(p,warehouseId))}`}))} value={text("sourceProductId")} onChange={value=>{const p=sources.find(p=>p.id===value);setValues(v=>({...v,sourceProductId:value,...(kind==="split"?{volumeMl:String(p?.perfumeBottleVolumeMl??DEFAULT_ORIGINAL_VOLUME_ML)}:{}),originalVolumeMl:String(p?.perfumeBottleVolumeMl??DEFAULT_ORIGINAL_VOLUME_ML)}));setDirty(true)}} placeholder={tr("اختر العطر")} ariaLabel={tr("العطر")}/></label>;
   const selectBatch=<label className="pm-wide">{tr("pm.batch")}<PerfumeProductPicker items={batchItems} value={text("decantProductId")?`${text("decantProductId")}::${text("lotId")}`:""} onChange={value=>{const [productId,lotId]=value.split("::"),batch=batches.find(b=>b.product.id===productId&&b.lot.id===lotId);setValues(v=>({...v,decantProductId:productId??"",lotId:lotId??"",actualQuantity:String(batch?.lot.stocks[warehouseId]??0)}));setDirty(true)}} placeholder={tr("pm.chooseBatch")} ariaLabel={tr("pm.batch")}/></label>;
   const selectBottle=<label>{tr("الزجاجة")}<select value={text("bottleProductId")} onChange={e=>{set("bottleProductId",e.target.value);const p=bottles.find(b=>b.id===e.target.value);if(p)set("cost",String(p.lastPurchaseCost??p.pieceCost??""))}}><option value="">{tr("pm.chooseBottle")}</option>{activeBottles.map(b=><option key={b.id} value={b.id}>{b.name} · {quantity(stockInWarehouse(b,warehouseId))}</option>)}</select></label>;
   const open=(id:string)=>openDoc?.(id);
   return <section className="perfume-divisions-page perfume-management-page">
-    <fieldset className="erp-fieldset pm-navigation"><legend>{tr("pm.title")}</legend><div className="pm-navigation-row">
-      <nav className="invoice-toolbar-modes pm-tabs" aria-label={tr("pm.title")}>{(["convert","stock","bottles"] as const).map(t=><button key={t} type="button" aria-pressed={tab===t} className="selection-option" disabled={busy} onClick={()=>void switchTab(t)}>{tr(`pm.tab.${t}`)}</button>)}</nav>
-      <div className="pm-overview"><span>{tr("pm.batches")}: <b>{quantity(batches.filter(b=>lotRemainingTotal(b.lot)>0).length)}</b></span><span>{tr("زجاج التقسيمات")}: <b>{quantity(activeBottles.length)}</b></span>{lastSaved&&<button type="button" className="soft" onClick={()=>open(lastSaved)}>{tr("آخر مستند")}</button>}</div>
-    </div></fieldset>
+    <div className="pm-overview pm-overview-row"><span>{tr("pm.batches")}: <b>{quantity(batches.filter(b=>lotRemainingTotal(b.lot)>0).length)}</b></span><span>{tr("زجاج التقسيمات")}: <b>{quantity(activeBottles.length)}</b></span>{lastSaved&&<button type="button" className="soft" onClick={()=>open(lastSaved)}>{tr("آخر مستند")}</button>}</div>
     {!canManage&&<p className="pm-hint">{tr("pm.readOnly")}</p>}
     {error&&<div className="error perfume-local-error" role="alert">{error}</div>}
+    {tab==="stock"&&<p className="pm-hint pm-stock-explanation">{tr(kind==="consumption"?"pm.consumptionHelp":kind==="yield-correction"?"pm.reconciliationHelp":"pm.stockModesHelp")}</p>}
     <div className="pm-workspace">
       <fieldset ref={editorRef} className="erp-fieldset popover-host pm-editor"><legend>{editing||bottleEdit?`${tr("تعديل")} · ${formTitle}`:formTitle}</legend>
       <form className="bank-operation-form pm-editor-form" onSubmit={event=>{event.preventDefault();void save()}}>
@@ -172,7 +181,7 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
           {["recombine","consumption","yield-correction"].includes(kind)&&selectBatch}
           {kind==="bottle"&&<>{field("name",tr("اسم الزجاجة"),{type:"text"})}{field("sizeMl",tr("الحجم (ml)"))}{field("cost",tr("التكلفة المرجعية"))}<p className="pm-hint">{tr("pm.bottleHelp")}</p></>}
           {kind==="bottle-stock"&&<>{selectBottle}{field("actualQuantity",tr("pm.actual"),{integer:true,zero:true})}<label className="pm-wide">{tr("pm.bottleReason")}<select value={text("bottleStockReason")} onChange={e=>set("bottleStockReason",e.target.value)}><option value="">{tr("pm.chooseBottleReason")}</option>{Object.entries(bottleStockReasonLabels).map(([value,label])=><option key={value} value={value}>{tr(label)}</option>)}</select></label><p className="pm-hint">{tr("pm.stockHelp")}</p>{isBottleStockReason(text("bottleStockReason"))&&<p className="pm-hint">{tr(physicalBottleLoss?"pm.bottleLossHelp":"pm.bottleCorrectionHelp")}</p>}</>}
-          {kind==="opening"&&<>{field(legacyEdit?"quantity":"volumeMl",tr(legacyEdit?"pm.actual":"المتبقي الفعلي بالمل"),{integer:legacyEdit})}{field("remainingValue",tr("pm.remainingValue"))}<p className="pm-hint">{tr("pm.openingHelp")}</p></>}
+          {kind==="opening"&&<>{automaticOpening&&field("originalVolumeMl",tr("pm.originalVolume"))}{field(legacyEdit?"quantity":"volumeMl",tr(legacyEdit?"pm.actual":"المتبقي الفعلي بالمل"),{integer:legacyEdit})}{automaticOpening?<><label>{tr("pm.remainingValue")}<input readOnly value={openingValue?money(openingValue.remainingValue):"—"}/></label><p className="pm-hint">{tr("pm.openingValuationHelp")} {source&&<b>{tr("pm.originalBottleCost")}: {money(openingCost)}</b>}</p></>:field("remainingValue",tr("pm.remainingValue"))}<p className="pm-hint">{tr("pm.openingHelp")}</p></>}
           {kind==="consumption"&&<>{field("quantity",tr(ml?"الكمية الخارجة بالمل":"pm.quantityOut"),{integer:!ml})}<label>{tr("pm.reasonCode")}<select value={text("reasonCode")} onChange={e=>set("reasonCode",e.target.value)}>{["samples","waste","leak","internal","stock-difference","other"].map(r=><option value={r} key={r}>{tr(`pm.reason.${r}`)}</option>)}</select></label><label className="pm-check"><input type="checkbox" checked={values.consumeBottle===true} onChange={e=>set("consumeBottle",e.target.checked)}/>{tr("خرجت عبوات مع السائل")}</label>{values.consumeBottle&&<>{selectBottle}{ml&&field("bottleQuantity",tr("عدد العبوات"),{integer:true})}</>}</>}
           {kind==="yield-correction"&&lot&&!ml&&field("legacyPortionMl",tr("حجم التقسيمة القديمة بالمل"))}
           {ml&&["yield-correction","recombine"].includes(kind)&&<>{field("actualQuantity",tr("المتبقي الفعلي بالمل"),{zero:true})}<p className="pm-hint">{tr("أدخل صفرًا إذا انتهى العطر فعليًا؛ يُحسب النقص أو الزيادة من رصيد البرنامج")}</p></>}
@@ -206,8 +215,6 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
               <td>{tr(b.lot.recombinedAt?"أُرجع الباقي":b.lot.settledAt?"مغلقة":lotRemainingTotal(b.lot)===0?"بانتظار الجرد":"نشطة")}</td>
               <td><div className="pm-row-actions pm-batch-actions"><RowAction label={tr("تفاصيل الدفعة")} icon={List} onClick={()=>showContext({productId:b.product.id,lotId:b.lot.id,conversionId:b.lot.conversionDocumentId,name:b.lot.sourceProductName})}/>{conversion?.status==="posted"&&<RowAction label={tr("تعديل العملية")} icon={PencilLine} disabled={busy||!canManage||blocked} onClick={()=>void edit(conversion)}/>}
                 {conversion?.status==="posted"&&["split","opening"].includes(managementKind(conversion)??"")&&<RowAction label={tr(blocked?"pm.cancelSplitBlocked":"pm.cancelSplit")} text={tr("pm.short.cancelSplit")} icon={X} danger disabled={busy||!canManage||blocked} onClick={()=>void voidDocument(conversion)}/>}
-                {!b.lot.recombinedAt&&!b.lot.settledAt&&<RowAction label={tr("صرف من الدفعة")} icon={Archive} disabled={busy||!canManage||lotRemainingTotal(b.lot)<=0} onClick={()=>void choose("consumption",{decantProductId:b.product.id,lotId:b.lot.id,warehouseId})}/>}
-                {tab!=="stock"&&<RowAction label={tr("pm.correction")} text={tr("pm.short.correction")} icon={SlidersHorizontal} disabled={busy||!canManage||Boolean(b.lot.recombinedAt)} onClick={()=>void choose("yield-correction",{decantProductId:b.product.id,lotId:b.lot.id,warehouseId})}/>}<RowAction label={tr(tab==="stock"?"pm.correction":"pm.recombine")} icon={tab==="stock"?SlidersHorizontal:RotateCcw} text={tr(tab==="stock"?"pm.short.correction":"pm.short.recombine")} disabled={busy||!canManage||(b.lot.quantityUnit!=="ml"&&lotRemainingTotal(b.lot)<=0)||Boolean(b.lot.recombinedAt)} onClick={()=>void choose(tab==="stock"?"yield-correction":"recombine",{decantProductId:b.product.id,lotId:b.lot.id,warehouseId:Object.entries(b.lot.stocks).find(([,q])=>q>0)?.[0]??defaultWarehouse})}/>
               </div></td></tr>})}</tbody></table></div>
         <p className="pm-hint">{tr(tab==="bottles"?"pm.bottleRegisterHelp":"pm.batchRegisterHelp")}</p>
       </fieldset>

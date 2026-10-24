@@ -1,5 +1,10 @@
 /** Shared identification for authorization, history, source navigation and management. */
 export type ManagementKind = "split" | "recombine" | "opening" | "consumption" | "yield-correction" | "bottle" | "bottle-stock";
+export type PerfumeManagementTab = "convert" | "stock" | "bottles";
+export const managementTabForKind = (kind: ManagementKind): PerfumeManagementTab => ["split", "recombine"].includes(kind) ? "convert" : ["bottle", "bottle-stock"].includes(kind) ? "bottles" : "stock";
+export function conversionSourceProducts<T extends {id:string;isArchived?:boolean;perfumeForm?:unknown;stocks?:Record<string,number>}>(products:T[], warehouseId:string, retainedId?:string) {
+  return products.filter(p=>!p.isArchived&&!["decant","partial","bottle"].includes(String(p.perfumeForm??""))&&(p.id===retainedId||Number(p.stocks?.[warehouseId]??0)>=1));
+}
 export type BottleStockReason = "correction" | "breakage" | "damage";
 export const bottleStockReasonLabels = {
   correction: "pm.bottleReason.correction", breakage: "pm.bottleReason.breakage", damage: "pm.bottleReason.damage",

@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { soleWarehouseId } from "./warehouse-selection";
 import { displayDocumentNumber, formatDateTime, kindLabels, money, number, type BootstrapData, type DocumentKind, type DocumentRecord } from "./domain";
 import { useAppConfirm } from "./app-confirm";
 import { tr } from "./i18n/messages";
@@ -38,7 +39,7 @@ const asBlockedPayload = (reason: unknown): OpeningCorrectionBlockedPayload | nu
 function OpeningCorrectionEditor({ document, data, run, close, onBlocked }: { document: DocumentRecord; data: BootstrapData; run: RunCommand; close: () => void; onBlocked: (payload: OpeningCorrectionBlockedPayload) => void }) {
   const productId = correctionProductId(document);
   const product = data.products.find(item => item.id === productId);
-  const currentWarehouseId = product?.openingWarehouseId ?? document.destinationWarehouseId ?? document.warehouseId ?? "";
+  const currentWarehouseId = product?.openingWarehouseId ?? document.destinationWarehouseId ?? document.warehouseId ?? soleWarehouseId(data.warehouses);
   const initialOpening = optionalFiniteNumber(document.openingStockAfter) ?? optionalFiniteNumber(product?.openingStock) ?? 0;
   const initialCost = optionalFiniteNumber(document.openingCostAfter) ?? optionalFiniteNumber(product?.openingCost);
   const [openingStock, setOpeningStock] = useState(String(initialOpening));

@@ -10,3 +10,10 @@
 .perfume-management-page .pm-defaults-row small { flex: 1 1 170px; font-size: 11px; line-height: 1.6; }
 .perfume-management-page .pm-register .pm-check { white-space: nowrap; }
 .perfume-management-page .pm-batch-actions { max-width: 170px; }
+.decant-invoices-hub > .decant-invoice-modebar { display:flex; align-items:center; flex-wrap:wrap; height:auto; min-height:50px; overflow:visible; gap:6px 14px; }
+.decant-invoices-hub .decant-invoice-mode-tabs { flex:1 1 auto; width:auto; min-width:0; }
+.decant-invoices-hub .decant-invoice-mode-help { flex:0 1 260px; margin:0; }
+.perfume-management-page .pm-overview-row { min-height:22px; padding-inline:6px; }
+.perfume-management-page .pm-fields input[readonly] { background:var(--surface-muted,#f5f8fb); font-weight:700; }
+.perfume-management-page .pm-stock-explanation { padding:6px 9px; line-height:1.6; border-inline-start:3px solid var(--section-color); background:var(--surface,#fff); }
+@media(max-width:1000px) { .decant-invoices-hub .decant-invoice-mode-help { flex-basis:100%; } }

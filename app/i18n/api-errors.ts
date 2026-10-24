@@ -1,6 +1,8 @@
 import type { Locale } from "./locale";
 
 const exactFrench: Record<string, string> = {
+  "المتبقي لا يمكن أن يتجاوز حجم العطر الأصلي": "Le restant ne peut pas dépasser le volume du parfum d’origine.",
+  "لا توجد تكلفة شراء معتمدة للعطر لحساب قيمة المتبقي": "Aucun coût d’achat validé ne permet de calculer la valeur restante.",
   "الدفعة مغلقة بالفعل؛ لا توجد حركة جديدة لاعتمادها": "Ce lot est déjà clôturé ; aucun nouveau mouvement à enregistrer.",
   "تغير تعريف الزجاجة بعد هذا السجل؛ عدّلها من قائمة الزجاج.": "La définition a changé depuis ce document. Modifiez le flacon dans son catalogue.",
   "لا يمكن أرشفة زجاجة لها مخزون. صحح الرصيد أولًا.": "Régularisez le stock du flacon avant de l’archiver.",

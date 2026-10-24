@@ -1,4 +1,5 @@
 "use client";
+import { defaultWarehouse as preferredWarehouse, soleWarehouseId, warehouseSelectionId } from "./warehouse-selection";
 import { selectLatestOpeningCorrection } from "./opening-correction-order";
 import { Fragment, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
@@ -936,7 +937,7 @@ function Pos({
     [printAfterSave, setPrintAfterSave] = useState(false),
     quickButton = useRef<HTMLButtonElement>(null);
   const baseline = useRef(""), productSearchRef = useRef<HTMLInputElement>(null), paymentRef = useRef<HTMLSelectElement>(null), customerRef = useRef<HTMLButtonElement>(null), submittingRef = useRef(false), editingDocument = editingDocumentId ? data.documents.find(document => document.id === editingDocumentId) ?? null : null;
-  const wh = editingDocument ? data.warehouses.find(warehouse => warehouse.id === editingDocument.warehouseId) : data.warehouses.find((w) => w.isSalesDefault),
+  const wh = editingDocument ? data.warehouses.find(warehouse => warehouse.id === editingDocument.warehouseId) : preferredWarehouse(data.warehouses),
     details = lines.flatMap((l) => {
       const p = data.products.find((x) => x.id === l.productId);
       return p
@@ -1070,7 +1071,7 @@ function Purchases({ data, run, openDoc, editRequest, clearEditRequest, requestP
   const confirmAction=useAppConfirm();
   const canCreatePurchase=canUseCapability(data.principal,"purchases.create"),canEditPurchase=canUseCapability(data.principal,"purchases.edit"),canDeletePurchase=canUseCapability(data.principal,"purchases.delete"),canCreateSupplier=canUseCapability(data.principal,"suppliers.create"),canCreateWarehouse=canUseCapability(data.principal,"warehouses.create");
   const [partyId, setPartyId] = useSessionDraft("purchase-party", "");
-  const [warehouseId, setWarehouseId] = useSessionDraft("purchase-warehouse", "");
+  const [warehouseDraft, setWarehouseId] = useSessionDraft("purchase-warehouse", "");
   const [lines, setLines] = useSessionDraft<DraftLine[]>("purchase-lines", []);
   const [payment, setPayment] = useSessionDraft("purchase-payment", "");
   const [query, setQuery] = useState("");
@@ -1080,11 +1081,12 @@ function Purchases({ data, run, openDoc, editRequest, clearEditRequest, requestP
   const [selectedLine, setSelectedLine] = useState<string | null>(null);
   const [editingDocumentId, setEditingDocumentId] = useSessionDraft<string | null>("purchase-editing-document", null), [printAfterSave, setPrintAfterSave] = useState(false);
   const baseline = useRef(""), quickSupplierButton = useRef<HTMLButtonElement>(null), productSearchRef = useRef<HTMLInputElement>(null), paymentRef = useRef<HTMLSelectElement>(null), supplierRef = useRef<HTMLButtonElement>(null), warehouseRef = useRef<HTMLButtonElement>(null), submittingRef = useRef(false), editingDocument = editingDocumentId ? data.documents.find(document => document.id === editingDocumentId) ?? null : null;
+  const defaultPurchaseWarehouseId=soleWarehouseId(data.warehouses), warehouseId=warehouseSelectionId(data.warehouses,warehouseDraft,Boolean(editingDocumentId));
   const details = lines.flatMap(line => { const product = data.products.find(p => p.id === line.productId); return product ? [{ line, product }] : []; });
   const total = details.reduce((sum, item) => sum + Math.round(val(item.line.quantity) * val(item.line.unitPrice)), 0);
   const currentSupplier=partyId?data.parties.find(p=>p.id===partyId&&resolvePartyType(p)==="supplier"):null,supplierOptions=[...(editingDocument&&currentSupplier?.isArchived?[{value:currentSupplier.id,label:`${currentSupplier.name} (${tr("مؤرشف")})`,search:currentSupplier.phone}]:[]),...data.parties.filter(p=>p.isArchived!==true&&resolvePartyType(p)==="supplier").map(p=>({value:p.id,label:p.name,search:p.phone}))];
   const snapshot = () => JSON.stringify({ lines, payment, partyId, warehouseId });
-  const dirty = () => editingDocumentId ? snapshot() !== baseline.current : lines.length > 0 || partyId !== "" || warehouseId !== "" || payment !== "";
+  const dirty = () => editingDocumentId ? snapshot() !== baseline.current : lines.length > 0 || partyId !== "" || warehouseId !== defaultPurchaseWarehouseId || payment !== "";
   const resetEditor = () => { for(const key of ["purchase-lines","purchase-party","purchase-warehouse","purchase-payment"])sessionStorage.removeItem(`conta:${key}`); setEditingDocumentId(null); setLines([]); setPartyId(""); setWarehouseId(""); setPayment(""); setSelectedLine(null); setQuery(""); baseline.current = ""; };
   useEffect(() => { registerEditorGuard({ isEditing: () => Boolean(editingDocumentId) || dirty(), isDirty: dirty, discard: resetEditor }); return () => registerEditorGuard(null); });
   const loadDocument = async (document: DocumentRecord) => {
@@ -1332,18 +1334,18 @@ function WarehouseAdmin({data,run,canDelete}:{data:BootstrapData;run:RunCommand;
 
 function Warehouses({ data, openDoc, sourceRequest, clearSourceRequest }: { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void; sourceRequest?: string | null; clearSourceRequest?: () => void }) {
   const {locale}=useI18n();
-  const availableWarehouses=activeWarehouses(data.warehouses), activeWarehouseIds=availableWarehouses.map(warehouse=>warehouse.id), [wh, setWh] = useState(ALL_WAREHOUSES), [q, setQ] = useState(""), [detailProduct, setDetailProduct] = useState<Product | null>(null), [movementFilter, setMovementFilter] = useState("all");
+  const availableWarehouses=activeWarehouses(data.warehouses), activeWarehouseIds=availableWarehouses.map(warehouse=>warehouse.id), [wh, setWh] = useState(soleWarehouseId(data.warehouses)||ALL_WAREHOUSES), [q, setQ] = useState(""), [detailProduct, setDetailProduct] = useState<Product | null>(null), [movementFilter, setMovementFilter] = useState("all");
   const today=localBusinessDay(),[draftFrom,setDraftFrom]=useState(today),[draftTo,setDraftTo]=useState(today),[committedPeriod,setCommittedPeriod]=useState<CommittedPeriod>(null),[hasInventoryView,setHasInventoryView]=useState(false),[periodError,setPeriodError]=useState(""),[printingInventory,setPrintingInventory]=useState(false),[inventoryOutputOpen,setInventoryOutputOpen]=useState(false);
   useEffect(()=>{
     if(!sourceRequest)return;
     const timeout=window.setTimeout(()=>{
       const product=data.products.find(item=>item.id===sourceRequest);
-      setWh(ALL_WAREHOUSES);setDraftFrom("");setDraftTo("");setCommittedPeriod(null);setHasInventoryView(true);setQ("");setMovementFilter("all");
+      setWh(soleWarehouseId(data.warehouses)||ALL_WAREHOUSES);setDraftFrom("");setDraftTo("");setCommittedPeriod(null);setHasInventoryView(true);setQ("");setMovementFilter("all");
       if(product)setDetailProduct(product);
       clearSourceRequest?.();
     },0);
     return()=>window.clearTimeout(timeout);
-  },[sourceRequest,data.products,clearSourceRequest]);
+  },[sourceRequest,data.products,data.warehouses,clearSourceRequest]);
   const normalized = q.trim().toLocaleLowerCase(), allSelected=wh===ALL_WAREHOUSES, scopedWarehouseIds=allSelected?activeWarehouseIds:[wh], qty = (product: Product) => scopedWarehouseIds.reduce((sum,id)=>sum+Number(product.stocks[id]??0),0);
   const inventoryProducts = data.products.filter(p => qty(p) > 0), filteredProducts = inventoryProducts.filter(p => !normalized || `${p.name} ${p.sku} ${p.barcode}`.toLocaleLowerCase().includes(normalized));
   const inventoryValueFor = (product: Product) => inventoryValueAcrossWarehouses(product, scopedWarehouseIds);
@@ -1504,7 +1506,7 @@ function ProductDetails({product,warehouses,categories,canEdit,close,edit}:{prod
 type ProductOpeningView = { total:number; remaining:number; consumed:number; allocations:Record<string,number>; warehouseId:string|null; warehouseName?:string|null; cost:number|null; hasNativeOpening:boolean; hasStockHistory:boolean; legacySnapshot:boolean };
 function ProductForm({ run, close, product, warehouses, categories, canAdjustOpening, openProductMovements }: { run: RunCommand; close: () => void; product: Product | null; warehouses: BootstrapData["warehouses"]; categories: BootstrapData["categories"]; canAdjustOpening:boolean; openProductMovements: (productId: string) => void }) {
   const confirmAction=useAppConfirm();
-  const defaultWarehouseId=warehouses.find(warehouse=>warehouse.isSalesDefault)?.id??"";
+  const defaultWarehouseId=preferredWarehouse(warehouses)?.id??"";
   const [name,setName]=useState(product?.name??""),[cost,setCost]=useState(String(product?.pieceCost??"")),[price,setPrice]=useState(String(product?.piecePrice??"")),[wholesalePrice,setWholesalePrice]=useState(String(product?.wholesalePrice??"")),
     [openingStock,setOpeningStock]=useState(product?String(product.openingStock??""):""),[openingCost,setOpeningCost]=useState(String(product?.openingCost??"")),[openingWarehouseId,setOpeningWarehouseId]=useState(product?.openingWarehouseId??defaultWarehouseId),
     [openingState,setOpeningState]=useState<ProductOpeningView|null>(null),[openingLoading,setOpeningLoading]=useState(Boolean(product)),[openingError,setOpeningError]=useState(""),
@@ -1575,7 +1577,7 @@ function MultiStockForm({
   onCancelEdit?: () => void;
   registerEditorGuard: RegisterEditorGuard;
 }) {
-  const [from, setFrom] = useSessionDraft(`${mode}-from`, prefill?.warehouseId ?? ""),
+  const [fromDraft, setFrom] = useSessionDraft(`${mode}-from`, prefill?.warehouseId ?? ""),
     [to, setTo] = useSessionDraft(`${mode}-to`, ""),
     [q, setQ] = useState(""),
     [reason, setReason] = useSessionDraft(`${mode}-reason`, ""),
@@ -1583,6 +1585,7 @@ function MultiStockForm({
       const product = data.products.find((item) => item.id === prefill?.productId);
       return product ? [lineFor(product)] : [];
     })());
+  const from=warehouseSelectionId(data.warehouses,fromDraft,Boolean(editingDocument||prefill));
   useEffect(() => {
     if (editingDocument || mode !== "adjust" || !prefill) return;
     const product = data.products.find(item => item.id === prefill.productId);

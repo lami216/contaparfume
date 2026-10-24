@@ -205,7 +205,7 @@ async function refs(db: Db, session: ClientSession, body: Input, partyType: "cus
   const [warehouse, party] = await Promise.all([
     existing
       ? warehouses(db).findOne({ _id: String(existing.warehouseId) }, { session })
-      : warehouses(db).findOne({ isSalesDefault: true, isArchived: { $ne: true } }, { session }),
+      : warehouses(db).find({ isArchived: { $ne: true } }, { session }).toArray().then(choices=>(choices.find(w=>w.isSalesDefault)??(choices.length===1?choices[0]:null)) as WarehouseDoc|null),
     partyId ? db.collection("parties").findOne({ id: partyId }, { session }) : null,
   ]);
   if (!warehouse) throw new PerfumeInvoiceCommandError("عيّن مخزن البيع الافتراضي من إدارة المخازن أولًا.", 409);

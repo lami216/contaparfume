@@ -1,4 +1,5 @@
 "use client";
+import { defaultWarehouse as preferredWarehouse } from "./warehouse-selection";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import ProductName from "./product-name";
@@ -245,7 +246,7 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, canMana
 export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editRequest, clearEditRequest }: Props) {
   const confirmAction = useAppConfirm();
   const defaults=data.perfumeDefaults??DEFAULT_PERFUME_SETTINGS;
-  const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
+  const defaultWarehouse = preferredWarehouse(data.warehouses) ?? null;
   const [editingDocumentId, setEditingDocumentId] = useDecantSessionDraft<string | null>("sale-editing", null);
   const editingDocument = editingDocumentId ? data.documents.find(document => document.id === editingDocumentId && document.kind === "decant-sale" && document.status === "posted") ?? null : null;
   const warehouseId = editingDocument?.warehouseId ?? defaultWarehouse?.id ?? "";
@@ -432,7 +433,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
 
 export function DecantBottlePurchaseInvoice({ data, run, openDoc, requestPrint, editRequest, clearEditRequest }: Props) {
   const confirmAction = useAppConfirm();
-  const defaultWarehouse = data.warehouses.find(warehouse => warehouse.isSalesDefault && warehouse.isArchived !== true) ?? null;
+  const defaultWarehouse = preferredWarehouse(data.warehouses) ?? null;
   const accounts = activePaymentAccounts(data.paymentAccounts);
   const suppliers = data.parties.filter(party => party.partyType === "supplier" && party.isArchived !== true);
   const bottles = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "bottle"), [data.products]);

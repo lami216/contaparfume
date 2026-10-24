@@ -5,6 +5,8 @@ import type { PerfumeLot } from "./perfume-logic.ts";
 import { undoVolumeOperation } from "./perfume-volume-commands.ts";
 import { roundMl } from "./perfume-volume.ts";
 import { splitReversalEvidence } from "./perfume-split-reversal.ts";
+import { currentProductCost } from "../lib/product-cost.ts";
+import { openingLiquidValue } from "./perfume-opening-valuation.ts";
 
 type Row = Record<string, unknown>;
 type Delegate = (db: Db, session: Session, body: Row) => Promise<unknown>;
@@ -17,7 +19,7 @@ const meta = (product: Row) => ({ name: product.name, piecePrice: product.pieceP
 const snapshotBottle = (product: Row) => ({ name: product.name, sizeMl: product.decantSizeMl, cost: product.pieceCost, isArchived: product.isArchived === true });
 const positive = (value: unknown, label: string) => { const n=Number(value); if(!Number.isFinite(n)||n<=0)throw fail(`${label} غير صالح`,400);return n; };
 const commandKinds = new Map(Object.entries(managementPostType).map(([kind,command]) => [command,kind as ManagementKind]));
-const inputFields = ["sourceProductId","decantProductId","lotId","warehouseId","divisionsCount","volumeMl","priceBasisMl","salePrice","quantity","remainingValue","actualQuantity","reason","reasonCode","bottleStockReason","consumeBottle","bottleQuantity","bottleProductId","name","sizeMl","cost","note"];
+const inputFields = ["sourceProductId","decantProductId","lotId","warehouseId","divisionsCount","volumeMl","originalVolumeMl","priceBasisMl","salePrice","quantity","remainingValue","actualQuantity","reason","reasonCode","bottleStockReason","consumeBottle","bottleQuantity","bottleProductId","name","sizeMl","cost","note"];
 const cleanInput = (body: Row) => Object.fromEntries(inputFields.filter(key => body[key] !== undefined).map(key => [key,body[key]]));
 const stockConflict = () => fail("لا يمكن تعديل أو إلغاء العملية لأن لها حركات لاحقة. ألغِ الحركات المرتبطة الأحدث أولًا.");
 
@@ -53,6 +55,14 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     await documents.updateOne({id:newId},{$set:{replacesDocumentId:old.id,revision:Number(old.revision??0)+1}},{session});
   }
   async function post(postKind:ManagementKind,input:Row,previous?:Row) {
+    let openingValuation:ReturnType<typeof openingLiquidValue>|undefined;
+    if(postKind==="opening"&&input.volumeMl!==undefined&&input.originalVolumeMl!==undefined){
+      const source=await product(input.sourceProductId);
+      const keepCost=previous?.sourceProductId===source.id&&previous?.openingBottleCost!==undefined;
+      const cost=keepCost?Number(previous.openingBottleCost):Number(await currentProductCost(db,session,source));
+      openingValuation=openingLiquidValue(cost,input.volumeMl,input.originalVolumeMl);
+      input={...input,remainingValue:openingValuation.remainingValue,originalVolumeMl:openingValuation.originalVolumeMl};
+    }
     let previousDecant:Row|null=null,previousLot:PerfumeLot|null=null;
     if(["split","opening"].includes(postKind))previousDecant=(await products.findOne({parentProductId:String(input.sourceProductId),perfumeForm:"decant",isArchived:{$ne:true}},{session}))??null;
     if(postKind==="recombine")previousLot=lotsOf(await product(input.decantProductId)).find(l=>l.id===input.lotId)??null;
@@ -77,6 +87,7 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     if(postKind==="recombine"&&!d)d=await documents.findOne({perfumeConversionType:"perfume-recombine",status:"posted","lines.productId":String(result)},{session});
     if(!d)throw fail("تعذر ربط العملية بسجل الفواتير");
     const added:Row={perfumeManagementType:postKind,managementInput:cleanInput(input),revision:0,note:String(input.note||input.reason||"")};
+    if(openingValuation)Object.assign(added,{openingBottleCost:openingValuation.bottleCost,openingOriginalVolumeMl:openingValuation.originalVolumeMl});
     if(postKind==="split"){
       const line=rows(d.lines).find(l=>Number(l.quantity)>0);const p=await product(line?.productId);const lot=lotsOf(p).find(l=>l.conversionDocumentId===d!.id);if(!lot)throw fail("دفعة التحويل غير موجودة");
       Object.assign(added,{sourceProductId:String(input.sourceProductId),decantProductId:String(p.id),perfumeLotId:lot.id,perfumeLotBefore:null,perfumeLotAfter:lot,decantProductCreated:!previousDecant,decantProductBefore:previousDecant?meta(previousDecant):null,decantProductAfter:meta(p)});

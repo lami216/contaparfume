@@ -1,4 +1,11 @@
 export const arMessages = {
+  "pm.originalVolume": "حجم العطر الأصلي بالمل",
+  "pm.originalBottleCost": "تكلفة العطر الأصلي",
+  "pm.openingValuationHelp": "القيمة = تكلفة العطر الأصلي × المتبقي بالمل ÷ الحجم الأصلي. غيّر الحجم إذا كانت العبوة مختلفة.",
+  "pm.stockTabHelp": "رصيد افتتاحي، استهلاك معروف، أو جرد الكمية الفعلية.",
+  "pm.stockModesHelp": "رصيد افتتاحي: عطر مفتوح موجود عند بدء النظام. استهلاك: كمية خرجت لسبب معروف. تسوية: مطابقة الرصيد مع القياس الفعلي عند الجرد.",
+  "pm.consumptionHelp": "الاستهلاك يسجل كمية خرجت فعلًا، مثل عينة أو تسرّب. أدخل الكمية الخارجة وسببها؛ تخصم بتكلفتها دون تسجيل بيع أو حركة نقدية.",
+  "pm.reconciliationHelp": "التسوية تقارن المتبقي المقاس برصيد البرنامج. النقص يسجل خسارة مخزون، والزيادة تسجل فرق جرد موجب؛ لا تعاود تسجيل كمية سبق صرفها كاستهلاك.",
   "تاريخ التعديل": "تاريخ التعديل",
   "القسم": "القسم",
   "كل الأقسام": "كل الأقسام",
@@ -1312,6 +1319,13 @@ export type MessageKey = keyof typeof arMessages;
 export type TranslationParams = Record<string, string | number>;
 
 export const frMessages: Record<MessageKey, string> = {
+  "pm.originalVolume": "Volume du parfum d’origine (ml)",
+  "pm.originalBottleCost": "Coût du parfum d’origine",
+  "pm.openingValuationHelp": "Valeur = coût du parfum × volume restant ÷ volume d’origine. Adaptez le volume au flacon.",
+  "pm.stockTabHelp": "Solde initial, consommation connue ou inventaire réel.",
+  "pm.stockModesHelp": "Solde initial : parfum déjà ouvert au démarrage. Consommation : sortie connue. Régularisation : comparaison avec la quantité réellement mesurée.",
+  "pm.consumptionHelp": "La consommation enregistre une sortie réelle, par exemple un échantillon ou une fuite. Saisissez la quantité sortie et son motif ; elle est valorisée au coût, sans vente ni mouvement de trésorerie.",
+  "pm.reconciliationHelp": "La régularisation compare le restant mesuré au stock du logiciel. Un manque constate une perte, un surplus un écart positif. Ne déduisez pas à nouveau une consommation déjà enregistrée.",
   "تاريخ التعديل": "Historique des modifications",
   "القسم": "Section",
   "كل الأقسام": "Toutes les sections",
