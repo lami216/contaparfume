@@ -30,7 +30,12 @@ export const managementPostType: Record<ManagementKind, string> = {
 };
 /** Editing replaces the old effect: preview against its original lot, not the already-adjusted balance. */
 export function managementPreviewLot(document:import("./domain").DocumentRecord|undefined,productId:string,lotId:string,warehouseId:string,current:import("./perfume-logic").PerfumeLot|undefined){
-  return document?.decantProductId===productId&&document.perfumeLotId===lotId&&document.warehouseId===warehouseId&&document.perfumeLotBefore?document.perfumeLotBefore:current;
+  if(document?.decantProductId!==productId||document.perfumeLotId!==lotId||document.warehouseId!==warehouseId||!document.perfumeLotBefore)return current;
+  if(current&&!document.partialProductId&&["consumption","reconciliation"].includes(document.perfumeStockOperationType??"")){
+    const delta=Number(document.stockDelta??0);
+    return {...current,remainingQuantity:current.remainingQuantity-delta,stocks:{...current.stocks,[warehouseId]:Number(current.stocks[warehouseId]??0)-delta}};
+  }
+  return document.perfumeLotBefore;
 }
 
 /** A restored quantity alone does not prove that a sale/count/transfer was voided. */

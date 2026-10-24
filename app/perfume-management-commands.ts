@@ -7,6 +7,7 @@ import { roundMl } from "./perfume-volume.ts";
 import { splitReversalEvidence } from "./perfume-split-reversal.ts";
 import { currentProductCost } from "../lib/product-cost.ts";
 import { openingLiquidValue } from "./perfume-opening-valuation.ts";
+import {assertSourceCleared, prepareLotDeltaUndo} from "./perfume-operation-guards.ts";
 
 type Row = Record<string, unknown>;
 type Delegate = (db: Db, session: Session, body: Row) => Promise<unknown>;
@@ -55,6 +56,7 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     await documents.updateOne({id:newId},{$set:{replacesDocumentId:old.id,revision:Number(old.revision??0)+1}},{session});
   }
   async function post(postKind:ManagementKind,input:Row,previous?:Row) {
+    if(postKind==="split")await assertSourceCleared(db,session,String(input.sourceProductId));
     let openingValuation:ReturnType<typeof openingLiquidValue>|undefined;
     if(postKind==="opening"&&input.volumeMl!==undefined&&input.originalVolumeMl!==undefined){
       const source=await product(input.sourceProductId);
@@ -87,6 +89,7 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     if(postKind==="recombine"&&!d)d=await documents.findOne({perfumeConversionType:"perfume-recombine",status:"posted","lines.productId":String(result)},{session});
     if(!d)throw fail("تعذر ربط العملية بسجل الفواتير");
     const added:Row={perfumeManagementType:postKind,managementInput:cleanInput(input),revision:0,note:String(input.note||input.reason||"")};
+    if(postKind==="consumption")added.quantityUnit=(d.perfumeLotAfter as Row|undefined)?.quantityUnit??"portion";
     if(openingValuation)Object.assign(added,{openingBottleCost:openingValuation.bottleCost,openingOriginalVolumeMl:openingValuation.originalVolumeMl});
     if(postKind==="split"){
       const line=rows(d.lines).find(l=>Number(l.quantity)>0);const p=await product(line?.productId);const lot=lotsOf(p).find(l=>l.conversionDocumentId===d!.id);if(!lot)throw fail("دفعة التحويل غير موجودة");
@@ -114,6 +117,16 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     const k=managementKind(d)!;
     if(d.quantityUnit==="ml"&&d.perfumeStockOperationType==="reconciliation"){
       await undoVolumeOperation(db,session,d);return;
+    }
+    if(k==="consumption"){
+      const p=await product(d.decantProductId),lots=lotsOf(p),index=lots.findIndex(l=>l.id===d.perfumeLotId);
+      if(index<0)throw fail("دفعة الاستهلاك الأصلية غير موجودة؛ يلزم مراجعة البيانات.");
+      lots[index]=await prepareLotDeltaUndo(db,session,d,lots[index]);
+      await move(p,String(d.warehouseId),-Number(d.stockDelta),d,"perfume-consumption-void-liquid");
+      if(d.bottleProductId&&Number(d.bottleQuantity)>0)await move(await product(d.bottleProductId),String(d.warehouseId),Number(d.bottleQuantity),d,"perfume-consumption-void-bottle");
+      await setLots(p,lots);
+      await documents.updateOne({id:d.id,status:"posted"},{$set:{status:"voided",voidedAt:new Date().toISOString(),voidReason:String(body.reason??"إلغاء الاستهلاك") }},{session});
+      return;
     }
     if(["opening","consumption","yield-correction"].includes(k)){
       await base(db,session,{type:"perfume-stock-operation.void",documentId:d.id});return;

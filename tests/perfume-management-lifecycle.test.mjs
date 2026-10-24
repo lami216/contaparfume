@@ -66,7 +66,7 @@ test('opening, consumption and yield corrections are editable, noncash and rever
  assert.equal((await doc(revised)).inventoryLoss,200);assert.equal((await product(d.decantProductId)).stocks.w,6);
  const correction=await cmd({type:'perfume-lot-correct.post',decantProductId:d.decantProductId,lotId:d.perfumeLotId,warehouseId:'w',actualQuantity:7,reason:'yield'});
  assert.equal((await doc(correction)).bookValueAfter,600);
- await assert.rejects(cmd({type:'perfume-management.void',documentId:revised}),/دفعة التقسيم تغيرت/);
+ await assert.rejects(cmd({type:'perfume-management.void',documentId:revised}),e=>e.dependencies.some(d=>d.documentId===correction));
  await cmd({type:'perfume-management.void',documentId:correction});await cmd({type:'perfume-management.void',documentId:revised});
  assert.equal((await product(d.decantProductId)).stocks.w,8);await cmd({type:'perfume-management.void',documentId:opening});
  assert.equal((await product('source')).stocks.w,5);assert.equal(await db.collection('financialMovements').countDocuments({}),0);

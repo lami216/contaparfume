@@ -167,6 +167,7 @@ export async function POST(request: Request) {
         : 500;
     const message = status !== 500 && error instanceof Error ? error.message : "تعذر تنفيذ العملية";
     log("error", "api.command.failed", { commandType: type, error });
-    return Response.json({ error: message }, { status });
+    const conflict=error as {code?:string;dependencies?:unknown};
+    return Response.json({ error: message,...(conflict.code==="PERFUME_OPERATION_BLOCKED"?{code:conflict.code,dependencies:conflict.dependencies}: {}) }, { status });
   }
 }

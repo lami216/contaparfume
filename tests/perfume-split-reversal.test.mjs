@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {sqliteHarness} from './sqlite-harness.mjs';
 import {execute} from '../app/api/command/route.ts';
+import {execute as historicalBase} from '../app/api/command/base-route.ts';
 import {buildReport,parseReportFilters} from '../lib/reports.ts';
 
 async function setup(t,{legacy=false}={}) {
@@ -60,13 +61,21 @@ test('a live sale remains a dependency even when a count restores the apparent o
   assert.equal((await f.db.collection('products').findOne({id:'full'})).stocks.w,3);
 });
 
-test('another independent lot and its active sale remain intact when canceling an unused lot',async t=>{
+test('historical overlapping lots and their active sales remain intact when canceling an unused lot',async t=>{
   const f=await setup(t);
-  const second=await f.run({type:'perfume-split.post',sourceProductId:'full',warehouseId:'w',volumeMl:100,salePrice:150});
+  // Old backups can contain overlapping lots. Seed their old persisted flow;
+  // the current public command now rejects creating such overlaps.
+  const seedOldSplit=()=>f.db.transaction(async session=>{
+    const id=await historicalBase(f.db,session,{type:'perfume-split.post',sourceProductId:'full',warehouseId:'w',volumeMl:100,salePrice:150});
+    const p=await f.product(),lot=p.perfumeLots.find(l=>l.conversionDocumentId===id);
+    await f.db.collection('documents').updateOne({id},{$set:{perfumeLotId:lot.id,decantProductId:p.id,perfumeLotAfter:lot,perfumeManagementType:'split'}},{session});
+    return id;
+  });
+  const second=await seedOldSplit();
   const d=await f.db.collection('documents').findOne({id:second});
   await f.run({type:'perfume-management.void',documentId:f.split});
   const sale=await f.run({type:'decant-sale.post',paymentMethod:'cash',lines:[{productId:f.p,quantity:1,fillMl:5,bottleProductId:'bottle',unitPrice:150}]});
-  const third=await f.run({type:'perfume-split.post',sourceProductId:'full',warehouseId:'w',volumeMl:100,salePrice:150});
+  const third=await seedOldSplit();
   const before=await f.report();
   await f.run({type:'perfume-management.void',documentId:third});
   const p=await f.product();assert.equal(p.perfumeLots.length,1);assert.equal(p.perfumeLots[0].id,d.perfumeLotId);assert.equal(p.stocks.w,95);

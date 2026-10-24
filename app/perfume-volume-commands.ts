@@ -2,6 +2,7 @@ import type { SqliteDatabase as Db, SqliteSession as Session, DbDocument as Row 
 import type { PerfumeLot } from "./perfume-logic.ts";
 import { perfumeLotEquals } from "./perfume-stock-reconciliation.ts";
 import { resolvePerfumeDefaults, reconcileVolumeLot, roundMl, volumeMl } from "./perfume-volume.ts";
+import {laterLotDocuments,perfumeOperationBlocked,prepareLotDeltaUndo} from "./perfume-operation-guards.ts";
 
 type Delegate = (db: Db, session: Session, body: Row) => Promise<unknown>;
 const fail = (message: string) => Object.assign(new Error(message), { status: 409 });
@@ -23,14 +24,16 @@ export async function undoVolumeOperation(db: Db, session: Session, original: Ro
   const warehouse = await db.collection("warehouses").findOne({ _id: original.warehouseId }, { session });
   if (!product || !warehouse) throw fail("تعذر العثور على دفعة التسوية أو مخزنها");
   const lots = lotsOf(product), index = lots.findIndex(lot => lot.id === original.perfumeLotId);
-  if (index < 0 || !original.perfumeLotBefore || !original.perfumeLotAfter || !perfumeLotEquals(lots[index], original.perfumeLotAfter)) throw fail("تغيرت الدفعة بعد التسوية؛ ألغِ الحركات الأحدث أولًا");
+  if(index<0)throw fail("دفعة التسوية الأصلية غير موجودة؛ يلزم مراجعة البيانات.");
+  const restored=!original.partialProductId?await prepareLotDeltaUndo(db,session,original,lots[index]):null;
+  if(original.partialProductId&&(!original.perfumeLotBefore||!original.perfumeLotAfter||!perfumeLotEquals(lots[index],original.perfumeLotAfter)))throw perfumeOperationBlocked("تغيرت الدفعة بعد إرجاع الباقي؛ راجع الحركة المرتبطة:",await laterLotDocuments(db,session,original));
   if (original.partialProductId) {
     const partial = await db.collection("products").findOne({ id: original.partialProductId }, { session });
     if (!partial || partial.isArchived || Number(partial.stocks?.[warehouse._id]) !== 1 || Object.values(partial.stocks ?? {}).reduce((sum: number, q) => sum + Number(q), 0) !== 1) throw fail("تم التصرف في العطر الناقص؛ ألغِ حركته الأحدث أولًا");
     await move(db, session, partial, warehouse, -1, original, "perfume-recombine-void-in");
     await db.collection("products").updateOne({ id: partial.id }, { $set: { isArchived: true, archivedAt: new Date().toISOString() } }, { session });
   }
-  const before = original.perfumeLotBefore as PerfumeLot;
+  const before = restored??original.perfumeLotBefore as PerfumeLot;
   const delta = roundMl(Number(before.stocks[warehouse._id] ?? 0) - Number(lots[index].stocks[warehouse._id] ?? 0));
   if (delta) await move(db, session, product, warehouse, delta, original, "perfume-reconciliation-void");
   lots[index] = structuredClone(before);

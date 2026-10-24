@@ -7,6 +7,7 @@ import { validateRequiredDateRange } from "../../date-range-validation.ts";
 import { classifyStockMovementType, collapseLegacyStockEditMovements } from "../../stock-movement.ts";
 import { presentVolumeMovement } from "../../perfume-volume.ts";
 import { isPerfumeBusinessDocument, isPerfumeCatalogDocument, relatedPerfumeDocuments, currentPerfumeOperations } from "../../perfume-activity.ts";
+import {managementKind} from "../../perfume-management.ts";
 
 const bounded = (value:string|null, fallback:number, max:number) => {
   const parsed=Number(value);return Number.isInteger(parsed)&&parsed>0?Math.min(parsed,max):fallback;
@@ -56,7 +57,9 @@ export async function GET(request:Request){
    if(productId)authorized=relatedPerfumeDocuments(authorized,{productId,lotId:lotId||undefined,conversionId:url.searchParams.get("conversionId")??undefined});
    if(url.searchParams.get("latest")==="true")authorized=currentPerfumeOperations(authorized,true);
    if(status&&status!=="all")authorized=authorized.filter(d=>d.status===status);
-   const visible=search?authorized.filter(document=>[document.number,document.sequence,document.legacyBillCode,document.partyName,document.title,document.kind,document.status].map(value=>String(value??"")).join(" ").toLocaleLowerCase().includes(search)):authorized;
+   const operation=url.searchParams.get("managementKind");
+   if(operation){if(!["opening","consumption","yield-correction"].includes(operation))return Response.json({error:"نوع حركة المخزون غير صالح"},{status:400});authorized=authorized.filter(d=>managementKind(d)===operation)}
+   const visible=search?authorized.filter(document=>[document.number,document.sequence,document.legacyBillCode,document.partyName,document.title,document.note,document.warehouseName,(document.perfumeLotBefore as {sourceProductName?:unknown}|undefined)?.sourceProductName,(document.perfumeLotAfter as {sourceProductName?:unknown}|undefined)?.sourceProductName,...(Array.isArray(document.lines)?document.lines:[]).map((l:Record<string,unknown>)=>l.description),document.kind,document.status].map(value=>String(value??"")).join(" ").toLocaleLowerCase().includes(search)):authorized;
    const total=visible.length,rows=visible.slice((page-1)*pageSize,page*pageSize);
    return Response.json({resource,page,pageSize,total,totalPages:Math.ceil(total/pageSize),rows:rows.map(({_id,...row})=>({id:row.id??String(_id),...row}))});
  }

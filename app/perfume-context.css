@@ -16,4 +16,12 @@
 .perfume-management-page .pm-overview-row { min-height:22px; padding-inline:6px; }
 .perfume-management-page .pm-fields input[readonly] { background:var(--surface-muted,#f5f8fb); font-weight:700; }
 .perfume-management-page .pm-stock-explanation { padding:6px 9px; line-height:1.6; border-inline-start:3px solid var(--section-color); background:var(--surface,#fff); }
+.perfume-management-page .pm-stock-register .pm-section-head { flex-wrap:wrap; align-items:end; gap:8px; }
+.perfume-management-page .pm-stock-register .pm-section-head > label:not(.pm-check) { display:flex; flex-direction:column; gap:3px; font-size:11px; }
+.perfume-management-page .pm-stock-register .pm-section-head .compact-search { flex:1 1 220px; flex-direction:row!important; }
+.perfume-management-page .pm-stock-register table { min-width:760px; table-layout:auto; }
+.perfume-management-page .pm-stock-register td small { display:block; color:var(--muted); font-size:11px; white-space:normal; line-height:1.5; }
+.perfume-management-page .pm-stock-register .pm-stock-description { min-width:155px; max-width:250px; white-space:normal; }
+.perfume-management-page .pm-blocking-documents,.perfume-management-page .pm-source-blocked { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.summary-breakdown-table thead th { background:#2763a5; color:#fff; }
 @media(max-width:1000px) { .decant-invoices-hub .decant-invoice-mode-help { flex-basis:100%; } }

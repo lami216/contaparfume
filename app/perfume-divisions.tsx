@@ -12,6 +12,8 @@ import { translateApiError } from "./i18n/api-errors";
 import PerfumeProductPicker from "./perfume-product-picker";
 import PerfumeDefaultsEditor from "./perfume-defaults-editor";
 import PerfumeActivityPanel from "./perfume-activity-panel";
+import PerfumeStockRegister from "./perfume-stock-register";
+import {openSourceLots,type PerfumeDependency} from "./perfume-operation-guards";
 import type { PerfumeContext } from "./perfume-activity";
 import { DEFAULT_PERFUME_SETTINGS, roundMl } from "./perfume-volume";
 import { defaultWarehouse as preferredWarehouse, warehouseSelectionId } from "./warehouse-selection";
@@ -45,6 +47,7 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
   const [bottleExpected,setBottleExpected]=useState<ReturnType<typeof bottleSnapshot>|undefined>(()=>initialBottle?bottleSnapshot(initialBottle):undefined);
   const [values,setValues]=useState<Values>(()=>({...blank(defaultWarehouse),...(initialEditing?normalize(managementInputFor(initialEditing,data.products)): {})}));
   const [dirty,setDirty]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
+  const [dependencies,setDependencies]=useState<PerfumeDependency[]>([]);
   const locked=useRef(false);
   const [search,setSearch]=useState(""),[archived,setArchived]=useState(false),[showClosed,setShowClosed]=useState(false);
   const [context,setContext]=useState<PerfumeContext|null>(null),[lastSaved,setLastSaved]=useState("");
@@ -67,7 +70,7 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
   const operations=useMemo(()=>data.documents.filter(d=>managementKind(d)).sort((a,b)=>String(b.occurredAt).localeCompare(String(a.occurredAt))||b.id.localeCompare(a.id)),[data.documents]);
   const operationsById=useMemo(()=>new Map(operations.map(document=>[document.id,document])),[operations]);
   const needle=search.trim().toLocaleLowerCase(),text=(field:string)=>String(values[field]??""),n=(field:string)=>Number(text(field));
-  const set=(field:string,value:string|boolean)=>{setValues(v=>({...v,[field]:value}));setDirty(true);setError("")};
+  const set=(field:string,value:string|boolean)=>{setValues(v=>({...v,[field]:value}));setDirty(true);setError("");setDependencies([])};
   const source=sources.find(p=>p.id===text("sourceProductId"));
   const selectedBatch=batches.find(b=>b.product.id===text("decantProductId")&&b.lot.id===text("lotId"));
   const lot=selectedBatch?.lot,warehouseId=warehouseSelectionId(warehouses,text("warehouseId"),Boolean(editing));
@@ -78,6 +81,7 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
   let openingValue:ReturnType<typeof openingLiquidValue>|null=null;
   if(automaticOpening&&source){try{openingValue=openingLiquidValue(openingCost,text("volumeMl"),text("originalVolumeMl"))}catch{ /* Incomplete fields remain unsaved. */ }}
   const sourceChoices=kind==="split"?conversionSourceProducts(sources,warehouseId,editing?.sourceProductId):sources;
+  const pendingSourceLots=source&&kind==="split"?openSourceLots(data.products,source.id,editing?.perfumeLotId??undefined):[];
   const splitQuantity=legacyEdit?n("divisionsCount"):n("volumeMl");
   const liquidCost=sourceCost>0&&splitQuantity>0?(legacyEdit?divisionLiquidCost(sourceCost,splitQuantity):sourceCost/splitQuantity):0;
   const previewLot=managementPreviewLot(editing,text("decantProductId"),text("lotId"),warehouseId,lot);
@@ -93,9 +97,10 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
   const batchItems=batches.map(b=>({id:`${b.product.id}::${b.lot.id}`,name:b.lot.sourceProductName,meta:`${formatDateTime(b.lot.createdAt)} · ${tr("pm.remaining")}: ${quantity(lotRemainingTotal(b.lot))} ${b.lot.quantityUnit==="ml"?tr("مل"):tr("تقسيمة")} · ${b.lot.id.slice(-6)}`}));
 
   async function mayDiscard(){return !dirty||await confirm({message:tr("pm.discard"),tone:"warning"})}
-  function reset(){setEditing(undefined);setBottleEdit("");setBottleExpected(undefined);setValues(blank(defaultWarehouse));setDirty(false);setError("");clearEditRequest?.()}
+  function reset(){setDependencies([]);setEditing(undefined);setBottleEdit("");setBottleExpected(undefined);setValues(blank(defaultWarehouse));setDirty(false);setError("");clearEditRequest?.()}
   async function choose(next:ManagementKind,seed:Record<string,unknown>={},document?:DocumentRecord,productId=""){
     if(busy||!await mayDiscard())return;
+    setDependencies([]);
     const selected=batches.find(batch=>batch.product.id===seed.decantProductId&&batch.lot.id===seed.lotId);
     const wh=String(seed.warehouseId??defaultWarehouse);
     setKind(next);setTab(tabFor(next));onSectionChange?.(tabFor(next));setValues({...blank(defaultWarehouse),...(selected?{actualQuantity:String(selected.lot.stocks[wh]??0)}:{}),...normalize(seed)});setEditing(document);setBottleEdit(productId);setDirty(false);setError("");setSearch("");
@@ -105,8 +110,8 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
   async function switchTab(next:Tab){if(busy||!await mayDiscard())return false;reset();setContext(null);setLastSaved("");setTab(next);setKind(next==="bottles"?"bottle":next==="stock"?"opening":"split");setSearch("");return true}
   useImperativeHandle(navigationRef,()=>({navigate:switchTab,canLeave:async()=>!busy&&await mayDiscard()}));
   const process=async(body:Record<string,unknown>,after?:(result:unknown)=>void)=>{
-    if(locked.current||!canManage)return;locked.current=true;setBusy(true);setError("");
-    try{const result=await run(body,tr("pm.saved"));setDirty(false);after?.(result)}catch(e){setError(translateApiError(locale,e instanceof Error?e.message:tr("pm.failed")))}finally{locked.current=false;setBusy(false)}
+    if(locked.current||!canManage)return;locked.current=true;setBusy(true);setError("");setDependencies([]);
+    try{const result=await run(body,tr("pm.saved"));setDirty(false);after?.(result)}catch(e){const payload=(e as {payload?:{dependencies?:PerfumeDependency[]}}).payload;setDependencies(payload?.dependencies??[]);setError(translateApiError(locale,e instanceof Error?e.message:tr("pm.failed")))}finally{locked.current=false;setBusy(false)}
   };
   function validate():boolean{
     const good=(key:string,integer=false,zero=false)=>text(key).trim()!==""&&Number.isFinite(n(key))&&(integer?Number.isSafeInteger(n(key)):true)&&(zero?n(key)>=0:n(key)>0);
@@ -139,7 +144,7 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
     const k=managementKind(document)!;const p=k==="bottle"?bottles.find(b=>b.id===document.managementProductId):undefined;
     await choose(k,managementInputFor(document,data.products),document,p?.id??"");
     const productId=document.decantProductId??document.managementProductId;
-    if(productId)setContext({productId,lotId:document.perfumeLotId??undefined,conversionId:document.perfumeLotId?undefined:document.id,name:data.products.find(p=>p.id===productId)?.name});
+    if(productId&&tabFor(k)!=="stock")setContext({productId,lotId:document.perfumeLotId??undefined,conversionId:document.perfumeLotId?undefined:document.id,name:data.products.find(p=>p.id===productId)?.name});
     editorRef.current?.scrollIntoView({block:"start",behavior:"smooth"});
   }
   async function voidDocument(document:DocumentRecord){
@@ -168,6 +173,7 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
     <div className="pm-overview pm-overview-row"><span>{tr("pm.batches")}: <b>{quantity(batches.filter(b=>lotRemainingTotal(b.lot)>0).length)}</b></span><span>{tr("زجاج التقسيمات")}: <b>{quantity(activeBottles.length)}</b></span>{lastSaved&&<button type="button" className="soft" onClick={()=>open(lastSaved)}>{tr("آخر مستند")}</button>}</div>
     {!canManage&&<p className="pm-hint">{tr("pm.readOnly")}</p>}
     {error&&<div className="error perfume-local-error" role="alert">{error}</div>}
+    {dependencies.length>0&&<div className="pm-blocking-documents">{dependencies.map(d=><button type="button" className="soft" key={d.documentId} onClick={()=>open(d.documentId)}>{tr("عرض الحركة المرتبطة")} · {d.number}</button>)}</div>}
     {tab==="stock"&&<p className="pm-hint pm-stock-explanation">{tr(kind==="consumption"?"pm.consumptionHelp":kind==="yield-correction"?"pm.reconciliationHelp":"pm.stockModesHelp")}</p>}
     <div className="pm-workspace">
       <fieldset ref={editorRef} className="erp-fieldset popover-host pm-editor"><legend>{editing||bottleEdit?`${tr("تعديل")} · ${formTitle}`:formTitle}</legend>
@@ -185,15 +191,16 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
           {kind==="consumption"&&<>{field("quantity",tr(ml?"الكمية الخارجة بالمل":"pm.quantityOut"),{integer:!ml})}<label>{tr("pm.reasonCode")}<select value={text("reasonCode")} onChange={e=>set("reasonCode",e.target.value)}>{["samples","waste","leak","internal","stock-difference","other"].map(r=><option value={r} key={r}>{tr(`pm.reason.${r}`)}</option>)}</select></label><label className="pm-check"><input type="checkbox" checked={values.consumeBottle===true} onChange={e=>set("consumeBottle",e.target.checked)}/>{tr("خرجت عبوات مع السائل")}</label>{values.consumeBottle&&<>{selectBottle}{ml&&field("bottleQuantity",tr("عدد العبوات"),{integer:true})}</>}</>}
           {kind==="yield-correction"&&lot&&!ml&&field("legacyPortionMl",tr("حجم التقسيمة القديمة بالمل"))}
           {ml&&["yield-correction","recombine"].includes(kind)&&<>{field("actualQuantity",tr("المتبقي الفعلي بالمل"),{zero:true})}<p className="pm-hint">{tr("أدخل صفرًا إذا انتهى العطر فعليًا؛ يُحسب النقص أو الزيادة من رصيد البرنامج")}</p></>}
-          {(["consumption","yield-correction","bottle-stock"].includes(kind)||kind==="recombine"&&ml)&&field("reason",tr(kind==="bottle-stock"?"البيان":"سبب التصحيح"),{type:"text"})}
+          {(["consumption","yield-correction","bottle-stock"].includes(kind)||kind==="recombine"&&ml)&&field("reason",tr(kind==="bottle-stock"?"البيان":kind==="consumption"?"سبب الاستهلاك":"سبب التصحيح"),{type:"text"})}
           <label className="pm-wide">{tr("ملاحظة")}<textarea rows={1} maxLength={1000} value={text("note")} onChange={e=>set("note",e.target.value)}/></label>
         </fieldset>
+        {kind==="split"&&pendingSourceLots.length>0&&<p role="status" className="pm-hint pm-source-blocked">{tr("للعطر رصيد تقسيمات سابق؛ صفّه قبل فتح دفعة جديدة.")} {pendingSourceLots.map(l=><button type="button" className="soft" key={l.lotId||l.productId} onClick={()=>showContext({productId:l.productId,lotId:l.lotId,conversionId:l.documentId,name:l.name})}>{quantity(l.quantity)} {tr("مل")} · {tr("تفاصيل الدفعة")}</button>)}</p>}
         {kind==="split"&&<div className="pm-summary"><span>{tr("pm.sourceValue")}: <b>{money(sourceCost)}</b></span><span>{tr(legacyEdit?"تكلفة السائل للتقسيمة":"تكلفة المل")}: <b>{money(liquidCost)}</b></span><small>{tr("لا تشمل الزجاجة")} · {tr("سعر البيع للتقسيمة")} {defaults.fillMl} {tr("مل")}</small></div>}
         {selectedBatch&&<div className="pm-summary"><span>{tr("رصيد البرنامج")}: <b>{quantity(lotStock)} {ml?tr("مل"):tr("تقسيمة")}</b></span><span>{tr("pm.remainingValue")}: <b>{money(bookValue)}</b></span>{ml&&["yield-correction","recombine"].includes(kind)&&text("actualQuantity")!==""&&<span>{tr("فرق الجرد")}: <b>{roundMl(n("actualQuantity")-lotStock)>0?"+":""}{quantity(roundMl(n("actualQuantity")-lotStock))} {tr("مل")}</b></span>}{kind==="recombine"&&<small>{tr("pm.recombineHelp")}</small>}</div>}
         {kind==="bottle-stock"&&selectedBottle&&<div className="pm-summary"><span>{tr("رصيد البرنامج")}: <b>{quantity(bottleBefore)}</b></span><span>{tr("pm.addedCost")}: <b>{bottleCost>0?money(bottleCost):"—"}</b></span>{isBottleStockReason(text("bottleStockReason"))&&<span>{tr("pm.bottleRecognizedLoss")}: <b>{money(bottleLoss)}</b></span>}</div>}
         <footer className="pm-form-actions"><button type="submit" className="primary" disabled={busy||!canManage}>{busy?tr("جاري الحفظ…"):editing||bottleEdit?tr("pm.saveEdit"):tr("pm.post")}</button>{(editing||bottleEdit)&&<button type="button" className="soft" disabled={busy} onClick={()=>void choose(kind)}>{tr("إلغاء")}</button>}{editing&&<><button type="button" className="soft danger" disabled={busy} onClick={()=>void voidDocument(editing)}>{tr("إلغاء العملية")}</button><button type="button" className="soft" onClick={()=>open(editing.id)}>{tr("pm.view")}</button></>}</footer>
       </form></fieldset>
-      <fieldset className="erp-fieldset pm-register"><legend>{tr(tab==="bottles"?"زجاج التقسيمات":"pm.batches")}</legend>
+      {tab==="stock"?<PerfumeStockRegister key={kind} kind={kind as "opening"|"consumption"|"yield-correction"} data={data} busy={busy} onEdit={d=>void edit(d)} onVoid={d=>void voidDocument(d)} openDoc={open}/>:<fieldset className="erp-fieldset pm-register"><legend>{tr(tab==="bottles"?"زجاج التقسيمات":"pm.batches")}</legend>
         {tab==="bottles"&&<PerfumeDefaultsEditor key={`${defaults.fillMl}:${defaults.bottleProductId}`} defaults={defaults} bottles={activeBottles} run={run} disabled={busy||!canManage}/>}
         <div className="pm-section-head"><label className="search compact-search"><Search aria-hidden="true"/><input aria-label={tr("بحث")} placeholder={tr("بحث")} value={search} onChange={e=>setSearch(e.target.value)} /></label>{tab!=="bottles"&&<label className="pm-check"><input type="checkbox" checked={showClosed} onChange={e=>setShowClosed(e.target.checked)}/>{tr("إظهار الدفعات المغلقة")}</label>}{tab==="bottles"&&<label className="pm-check"><input type="checkbox" checked={archived} onChange={e=>setArchived(e.target.checked)}/>{tr("pm.showArchived")}</label>}</div>
         <div className="erp-table-wrap pm-table-scroll"><table className="erp-table"><thead>{tab==="bottles"?<tr><th>{tr("الزجاجة")}</th><th>{tr("الحجم")}</th><th>{tr("المخزون")}</th><th>{tr("إجراء")}</th></tr>:<tr><th>{tr("pm.batch")}</th><th>{tr("pm.remaining")}</th><th>{tr("تكلفة السائل")}</th><th>{tr("الحالة")}</th><th>{tr("إجراء")}</th></tr>}</thead>
@@ -217,7 +224,7 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
                 {conversion?.status==="posted"&&["split","opening"].includes(managementKind(conversion)??"")&&<RowAction label={tr(blocked?"pm.cancelSplitBlocked":"pm.cancelSplit")} text={tr("pm.short.cancelSplit")} icon={X} danger disabled={busy||!canManage||blocked} onClick={()=>void voidDocument(conversion)}/>}
               </div></td></tr>})}</tbody></table></div>
         <p className="pm-hint">{tr(tab==="bottles"?"pm.bottleRegisterHelp":"pm.batchRegisterHelp")}</p>
-      </fieldset>
+      </fieldset>}
     </div>
     {context&&<div ref={contextRef}><PerfumeActivityPanel key={context.productId+":"+(context.lotId??"")} context={context} data={data} busy={busy} onEdit={d=>void edit(d)} onVoid={d=>void voidDocument(d)} openDoc={open} onSource={onSource?d=>{void(async()=>{if(await mayDiscard()){reset();onSource(d)}})()}:undefined} close={()=>setContext(null)}/></div>}
   </section>;

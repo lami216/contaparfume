@@ -117,20 +117,21 @@ async function expiredInventoryLoss(db: Db) {
   }, 0);
 }
 
-async function decantInventoryLoss(db: Db, f: ReportFilters, categoryScope: ProductScope = null, field: "inventoryLoss" | "inventoryGain" = "inventoryLoss") {
+async function decantInventoryEffects(db: Db, f: ReportFilters, categoryScope: ProductScope = null) {
   const query: Document = { kind: "adjustment", status: "posted", perfumeStockOperationType: { $in: ["consumption", "reconciliation", "bottle-reconciliation"] }, ...matchDate(f) };
   const constraint = productConstraint(f, categoryScope);
   if (constraint) query["lines.productId"] = constraint;
   const rows = await db.collection("documents").find(query).toArray();
-  if (!constraint) return rows.reduce((sum, document) => sum + n(document[field]), 0);
-  return rows.reduce((sum, document) => {
+  const effects={loss:[] as import("../app/report-types").InventoryEffectRow[],gain:[] as import("../app/report-types").InventoryEffectRow[]};
+  for(const document of rows){
     const operationProductId = String(document.decantProductId ?? "");
     const operationMatches = (!f.productId || operationProductId === f.productId) && (!categoryScope || categoryScope.has(operationProductId));
-    if (operationMatches) return sum + n(document[field]);
-    return sum + ((document.lines ?? []) as Document[])
-      .filter(line => lineMatches(line, f, categoryScope))
-      .reduce((lineSum, line) => lineSum + n(line[field]), 0);
-  }, 0);
+    for(const [key,field] of [["loss","inventoryLoss"],["gain","inventoryGain"]] as const){
+      const value=!constraint||operationMatches?n(document[field]):((document.lines??[]) as Document[]).filter(line=>lineMatches(line,f,categoryScope)).reduce((sum,line)=>sum+n(line[field]),0);
+      if(value>0)effects[key].push({documentId:String(document.id),number:String(document.number??document.id),occurredAt:String(document.occurredAt),operation:String(document.perfumeStockOperationType),product:String(document.perfumeLotBefore?.sourceProductName??document.lines?.[0]?.description??""),warehouse:String(document.warehouseName??""),reason:String(document.note||document.title||""),value});
+    }
+  }
+  return effects;
 }
 
 function productInventoryValueInWarehouse(product: Document, warehouseId: string) {
@@ -161,7 +162,8 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
   const categoryScope: ProductScope = f.categoryId ? new Set((await db.collection("products").find({ categoryId: f.categoryId }).project({ id: 1 }).toArray()).map(product => String(product.id))) : null;
   const constraint = productConstraint(f, categoryScope), hasProductFilter = Boolean(f.productId || f.categoryId);
   const expiryLoss = ["stock", "profit", "overview"].includes(f.type) ? await expiredInventoryLoss(db) : 0;
-  const [inventoryLoss, inventoryGain] = ["profit", "overview"].includes(f.type) ? await Promise.all([decantInventoryLoss(db,f,categoryScope),decantInventoryLoss(db,f,categoryScope,"inventoryGain")]) : [0,0];
+  const inventoryEffects=["profit","overview"].includes(f.type)?await decantInventoryEffects(db,f,categoryScope):{loss:[],gain:[]};
+  const inventoryLoss=inventoryEffects.loss.reduce((sum,row)=>sum+row.value,0),inventoryGain=inventoryEffects.gain.reduce((sum,row)=>sum+row.value,0);
   if (f.type === "sales") {
     const sales = await directDocuments(db, f, SALE_KINDS, categoryScope);
     // Read-only compatibility: fold persisted adjustments into net sales; never expose a KPI.
@@ -226,7 +228,7 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
     for(const purchase of purchases)for(const line of (purchase.lines??[]) as Document[]){const row=map.get(String(line.productId));if(!row)continue;row.purchasedQuantity=n(row.purchasedQuantity)+n(line.quantity);row.purchases=n(row.purchases)+n(line.lineTotal);row.netPurchases=n(row.purchases);row.averagePurchasePrice=n(row.purchasedQuantity)?n(row.purchases)/n(row.purchasedQuantity):0}
     const allRows=[...map.values()],rows=pageReportRows(sortReportRows(allRows,f),f),hasVolumeUnits=allRows.some(row=>row.quantityUnit==="ml"),hasPieceUnits=allRows.some(row=>row.quantityUnit!=="ml"),remainingMl=allRows.filter(row=>row.quantityUnit==="ml").reduce((sum,row)=>sum+n(row.currentQuantity),0),remainingPieces=allRows.filter(row=>row.quantityUnit!=="ml").reduce((sum,row)=>sum+n(row.currentQuantity),0);return{report:f.type,from:f.from!,to:f.to!,summary:{products:allRows.length,hasVolumeUnits,hasPieceUnits,remainingMl,remainingPieces,quantity:hasVolumeUnits?0:remainingPieces,sales:allRows.reduce((sum,row)=>sum+n(row.netSales),0),purchases:allRows.reduce((sum,row)=>sum+n(row.netPurchases),0),profit:allRows.reduce((sum,row)=>sum+n(row.profit),0),unknownRevenue:facts.reduce((sum,row)=>sum+n(row.unknownRevenue),0)},rows,meta:pagination(allRows.length,f)};
   }
-  const grouped=new Map<string,ReportRow>();for(const fact of facts){const key=f.groupBy==="product"?String(fact.productId):String(fact.documentId),g=grouped.get(key)??{id:key,documentId:fact.documentId,number:fact.number,occurredAt:fact.occurredAt,productId:fact.productId,product:fact.product,productMissing:fact.productMissing,sku:fact.sku,quantity:0,revenue:0,cost:0,profit:0,unknownRevenue:0,costKnown:true,invoiceIdList:""};g.quantity=n(g.quantity)+n(fact.quantity);g.revenue=n(g.revenue)+n(fact.revenue);g.cost=n(g.cost)+n(fact.cost);g.profit=n(g.profit)+n(fact.profit);g.unknownRevenue=n(g.unknownRevenue)+n(fact.unknownRevenue);g.costKnown=Boolean(g.costKnown)&&Boolean(fact.costKnown);const ids=new Set(String(g.invoiceIdList).split(",").filter(Boolean));ids.add(String(fact.documentId));g.invoiceIdList=[...ids].join(",");g.invoiceCount=ids.size;g.margin=n(g.revenue)?n(g.profit)/n(g.revenue)*100:0;grouped.set(key,g)}const prows=[...grouped.values()].map(row=>{const copy={...row};delete copy.invoiceIdList;return copy}).sort((a,b)=>n(b.profit)-n(a.profit));if(f.type==="profit"){const rows=pageReportRows(sortReportRows(prows,f),f),gross=profitSummary(facts);return{report:f.type,from:f.from!,to:f.to!,summary:{...gross,inventoryLoss,inventoryGain,netProfitAfterInventoryLoss:gross.profit-inventoryLoss+inventoryGain,expiredInventoryLoss:expiryLoss},rows,meta:pagination(prows.length,f)}};
+  const grouped=new Map<string,ReportRow>();for(const fact of facts){const key=f.groupBy==="product"?String(fact.productId):String(fact.documentId),g=grouped.get(key)??{id:key,documentId:fact.documentId,number:fact.number,occurredAt:fact.occurredAt,productId:fact.productId,product:fact.product,productMissing:fact.productMissing,sku:fact.sku,quantity:0,revenue:0,cost:0,profit:0,unknownRevenue:0,costKnown:true,invoiceIdList:""};g.quantity=n(g.quantity)+n(fact.quantity);g.revenue=n(g.revenue)+n(fact.revenue);g.cost=n(g.cost)+n(fact.cost);g.profit=n(g.profit)+n(fact.profit);g.unknownRevenue=n(g.unknownRevenue)+n(fact.unknownRevenue);g.costKnown=Boolean(g.costKnown)&&Boolean(fact.costKnown);const ids=new Set(String(g.invoiceIdList).split(",").filter(Boolean));ids.add(String(fact.documentId));g.invoiceIdList=[...ids].join(",");g.invoiceCount=ids.size;g.margin=n(g.revenue)?n(g.profit)/n(g.revenue)*100:0;grouped.set(key,g)}const prows=[...grouped.values()].map(row=>{const copy={...row};delete copy.invoiceIdList;return copy}).sort((a,b)=>n(b.profit)-n(a.profit));if(f.type==="profit"){const rows=pageReportRows(sortReportRows(prows,f),f),gross=profitSummary(facts);return{report:f.type,from:f.from!,to:f.to!,inventoryEffects,summary:{...gross,inventoryLoss,inventoryGain,netProfitAfterInventoryLoss:gross.profit-inventoryLoss+inventoryGain,expiredInventoryLoss:expiryLoss},rows,meta:pagination(prows.length,f)}};
   // Overview totals include legacy effects, while the invoice list below hides that retired kind.
   const commercial=overviewCommercial??await db.collection("documents").find({kind:{$in:[...SALE_KINDS,"return",...PURCHASE_KINDS,"expense"]},status:"posted",...matchDate(f)}).toArray();
   // These collections are intentionally unfiltered by the report period: the lower
@@ -259,6 +261,6 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
   const purchaseDetails=commercial.filter(d=>isPurchaseKind(d.kind)).map(d=>detailRow(d,n(d.total)));
   const expenseDetails=commercial.filter(d=>d.kind==="expense").map(d=>detailRow(d,n(d.total)));
   const salesProfitDetails=commercial.filter(d=>isSaleKind(d.kind)||d.kind==="return").map(d=>{const fact=factsByDocument.get(String(d.id))??{cost:0,profit:0};return{...detailRow(d,n(fact.profit)),revenue:d.kind==="return"?-n(d.total):n(d.total),cost:n(fact.cost),profit:n(fact.profit)}});
-  return{report:"overview",from:f.from!,to:f.to!,summary:{sales,salesCost:p.cost,salesProfit:p.profit,purchases:commercial.filter(d=>isPurchaseKind(d.kind)).reduce((v,d)=>v+n(d.total),0),expenses,inventoryLoss,inventoryGain,netOperatingResult:p.profit-expenses-inventoryLoss+inventoryGain,profit:p.profit,currentReceivable,currentPayable,currentInventoryValue,currentAccountsBalance,customerReceivables:currentReceivable,supplierPayables:currentPayable,bankBalance:currentAccountsBalance,inventoryValue:currentInventoryValue,customerCount:typedParties.filter(p=>p.partyType==="customer").length,supplierCount:typedParties.filter(p=>p.partyType==="supplier").length},rows:[],invoices,parties:partyRows,bankAccounts,warehouseValues,overviewDetails:{sales:salesDetails,purchases:purchaseDetails,expenses:expenseDetails,salesProfit:salesProfitDetails},meta:pagination(invoices.length,f)};
+  return{report:"overview",from:f.from!,to:f.to!,summary:{sales,salesCost:p.cost,salesProfit:p.profit,purchases:commercial.filter(d=>isPurchaseKind(d.kind)).reduce((v,d)=>v+n(d.total),0),expenses,inventoryLoss,inventoryGain,netOperatingResult:p.profit-expenses-inventoryLoss+inventoryGain,profit:p.profit,currentReceivable,currentPayable,currentInventoryValue,currentAccountsBalance,customerReceivables:currentReceivable,supplierPayables:currentPayable,bankBalance:currentAccountsBalance,inventoryValue:currentInventoryValue,customerCount:typedParties.filter(p=>p.partyType==="customer").length,supplierCount:typedParties.filter(p=>p.partyType==="supplier").length},inventoryEffects,rows:[],invoices,parties:partyRows,bankAccounts,warehouseValues,overviewDetails:{sales:salesDetails,purchases:purchaseDetails,expenses:expenseDetails,salesProfit:salesProfitDetails},meta:pagination(invoices.length,f)};
 
 }

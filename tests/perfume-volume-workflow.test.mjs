@@ -105,7 +105,7 @@ test('surplus at zero restores a costed quantity without cash, with guarded reve
   const count=await f.count(5),p=await f.get();assert.equal(p.stocks[f.wh],5);assert.equal(p.perfumeLots[0].liquidUnitCost,100);
   assert.equal((await f.report()).summary.inventoryGain,500);assert.equal((await f.db.collection('paymentAccounts').findOne({id:'cash'})).balance,bank);
   const extra=await f.sale([{quantity:1,fillMl:5,bottleProductId:'b5',unitPrice:600}]);
-  await assert.rejects(f.run({type:'perfume-management.void',documentId:count}),/تغيرت الدفعة/);
+  await assert.rejects(f.run({type:'perfume-management.void',documentId:count}),e=>e.dependencies.some(d=>d.documentId===extra));
   await f.run({type:'decant-sale.void',documentId:extra});await f.run({type:'perfume-management.void',documentId:count});
   assert.equal((await f.get()).stocks[f.wh],0);await f.run({type:'decant-sale.void',documentId:sale});assert.equal((await f.get()).stocks[f.wh],100);
  }finally{await f.h.close()}
@@ -230,8 +230,10 @@ test('product activity separates ml balance and sold bottle counts, including ex
 test('new split reversals on migrated ml products retain their explicit unit in stock reports',async()=>{
  const f=await fixture();try{
   await f.db.collection('products').updateOne({id:f.p},{$set:{legacyDecantUnitMl:10}});
+  const cleared=await f.count(0);
   const split=await f.run({type:'perfume-split.post',sourceProductId:'full',warehouseId:f.wh,volumeMl:0.333,priceBasisMl:10,salePrice:1500});
   await f.run({type:'perfume-management.void',documentId:split});
+  await f.run({type:'perfume-management.void',documentId:cleared});
   const r=await buildReport(f.db,parseReportFilters(new URL(`http://127.0.0.1/api/reports?type=stock&allTime=true&productId=${f.p}`)));
   assert.equal(r.rows.find(row=>row.documentId===split&&row.change<0).change,-0.333);
   assert.equal(r.summary.incomingMl-r.summary.outgoingMl,100);
