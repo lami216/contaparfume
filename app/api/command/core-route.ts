@@ -11,11 +11,11 @@ import { currentProductCost, resolveProductCost } from "../../../lib/product-cos
 import { executeLifecycleCommand, findActiveFinancialMovement, LifecycleCommandError, propagatePartyName, reverseFinancialMovement } from "../../../lib/transaction-lifecycle.ts";
 import { transferPerfumeLotStock } from "../../perfume-stock-reconciliation.ts";
 import { roundMl } from "../../perfume-volume.ts";
-import type { PerfumeLot } from "../../perfume-logic.ts";
+import type { PerfumeAllocation, PerfumeLot } from "../../perfume-logic.ts";
 import { nextOpeningCorrectionSequence, selectLatestOpeningCorrection } from "../../opening-correction-order.ts";
 
 type Input = Record<string, unknown>;
-type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; costAtSale?: number | null; grossProfit?: number | null };
+type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; costAtSale?: number | null; grossProfit?: number | null; perfumeAllocations?: PerfumeAllocation[] };
 type WarehouseDoc = { _id: string; name: string; isSalesDefault?: boolean; [key: string]: unknown };
 const warehouses = (db: Db) => db.collection<WarehouseDoc>("warehouses");
 class CommandError extends Error {
@@ -805,7 +805,12 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     const warehouse = await warehouses(db).findOne({ _id: String(original.warehouseId) }, { session });
     if (!warehouse) throw new CommandError("مخزن الفاتورة غير موجود", 409);
     const oldLines = original.lines as Line[], found = await db.collection("products").find({ id: { $in: oldLines.map(line => line.productId) } }, { session }).toArray(), map = new Map(found.map(product => [String(product.id), product]));
-    for (const line of oldLines) try { await changeStock(db, session, map.get(line.productId)!, warehouse, isSale ? line.quantity : -line.quantity, { ...original, occurredAt: new Date().toISOString(), revision: Number(original.revision ?? 0) + 1 }, `${kind}-void`); } catch (error) { if (!isSale && error instanceof CommandError && /المخزون غير كاف/.test(error.message)) throw new CommandError("لا يمكن حذف الفاتورة لأن جزءًا من مخزونها تم التصرف فيه.", 409); throw error; }
+    for (const line of oldLines) try {
+      const product=map.get(line.productId)!;
+      const restoredQuantity=isSale&&product.perfumeStockUnit==="ml"&&line.perfumeAllocations?.length
+        ? roundMl(line.perfumeAllocations.reduce((sum,allocation)=>sum+allocation.quantity*(allocation.quantityUnit==="ml"?1:Number(product.legacyDecantUnitMl)),0)) : line.quantity;
+      await changeStock(db, session, product, warehouse, isSale ? restoredQuantity : -line.quantity, { ...original, occurredAt: new Date().toISOString(), revision: Number(original.revision ?? 0) + 1 }, `${kind}-void`);
+    } catch (error) { if (!isSale && error instanceof CommandError && /المخزون غير كاف/.test(error.message)) throw new CommandError("لا يمكن حذف الفاتورة لأن جزءًا من مخزونها تم التصرف فيه.", 409); throw error; }
     if (Number(original.dueTotal) > 0) await changePartyDebt(db, session, original.partyId, kind, -Number(original.dueTotal), true);
     await reverseInvoicePayment(db, session, original, kind);
     await db.collection("documents").updateOne({ id: documentId, status: "posted" }, { $set: { status: "voided", voidedAt: new Date(), updatedAt: new Date(), revision: Number(original.revision ?? 0) + 1 } }, { session });

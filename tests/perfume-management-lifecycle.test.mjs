@@ -71,20 +71,20 @@ test('opening, consumption and yield corrections are editable, noncash and rever
  assert.equal((await product(d.decantProductId)).stocks.w,8);await cmd({type:'perfume-management.void',documentId:opening});
  assert.equal((await product('source')).stocks.w,5);assert.equal(await db.collection('financialMovements').countDocuments({}),0);
 });
-test('bottle definitions edit/archive/restore with document history and no purchase-cost mutation',async t=>{
- const {db,cmd,doc,product}=await setup(t);
+test('bottle definitions edit/archive/restore with administrative history and no purchase-cost mutation',async t=>{
+ const {db,cmd,product}=await setup(t);
  const id=await cmd({type:'perfume-bottle.create',name:'Bottle',sizeMl:10,cost:5});
- let d=await db.collection('documents').findOne({managementProductId:id,status:'posted'});assert.equal(d.perfumeManagementType,'bottle');
+ assert.equal(await db.collection('documents').countDocuments({managementProductId:id}),0);
  await cmd({type:'decant-purchase.post',paymentMethod:'cash',cashAmount:60,lines:[{productId:id,quantity:10,unitPrice:6}]});
  await cmd({type:'perfume-bottle.update',id,name:'New name',sizeMl:12,cost:4});
- assert.equal((await doc(d.id)).status,'voided');assert.equal((await product(id)).lastPurchaseCost,6);assert.equal((await product(id)).stocks.w,10);
+ assert.equal(await db.collection('documents').countDocuments({managementProductId:id}),0);assert.equal((await product(id)).lastPurchaseCost,6);assert.equal((await product(id)).stocks.w,10);
  const priced=await productsWithCurrentCosts(db,[await product(id)]);assert.equal(priced[0].lastPurchaseCost,6);
  await assert.rejects(cmd({type:'perfume-bottle.archive',id}),/لها مخزون/);
  const adj=await cmd({type:'perfume-bottle-stock.post',bottleProductId:id,warehouseId:'w',actualQuantity:0,reason:'broken',bottleStockReason:'breakage'});
  await cmd({type:'perfume-bottle.archive',id});assert.equal((await product(id)).isArchived,true);
  await cmd({type:'perfume-bottle.restore',id});assert.equal((await product(id)).isArchived,false);
  await cmd({type:'perfume-management.void',documentId:adj});assert.equal((await product(id)).stocks.w,10);
- assert.ok(await db.collection('documents').countDocuments({managementProductId:id})>=4);
+ assert.equal(await db.collection('documents').countDocuments({perfumeManagementType:'bottle'}),0);assert.ok(await db.collection('auditEvents').countDocuments({entityId:id})>=4);
 });
 test('generic adjustment endpoints cannot bypass lot guards or archive a decant definition document',async t=>{
  const {cmd,doc}=await setup(t),id=await cmd(split),d=await doc(id);
@@ -130,7 +130,7 @@ test('bottle metadata note is retained and historical purchase line is unchanged
  const purchase=await cmd({type:'decant-purchase.post',paymentMethod:'cash',cashAmount:60,lines:[{productId:id,quantity:10,unitPrice:6}]});
  const original=await doc(purchase);
  const edit=await cmd({type:'perfume-bottle.update',id,name:'New glass name',sizeMl:12,cost:3,note:'Catalog correction only'});
- assert.equal((await doc(edit)).note,'Catalog correction only');assert.deepEqual(await doc(purchase),original);
+ assert.equal((await db.collection('auditEvents').findOne({entityId:id,action:'perfume-bottle.update'})).note,'Catalog correction only');assert.deepEqual(await doc(purchase),original);assert.equal(await db.collection('documents').countDocuments({perfumeManagementType:'bottle'}),0);
  assert.equal((await product(id)).lastPurchaseCost,6);assert.equal(await db.collection('financialMovements').countDocuments({documentId:edit}),0);
 });
 

@@ -4,6 +4,9 @@ import { perfumeLotEquals } from "./perfume-stock-reconciliation.ts";
 import type { PerfumeLot } from "./perfume-logic.ts";
 import { undoVolumeOperation } from "./perfume-volume-commands.ts";
 import { roundMl } from "./perfume-volume.ts";
+import { splitReversalEvidence } from "./perfume-split-reversal.ts";
+import { currentProductCost } from "../lib/product-cost.ts";
+import { openingLiquidValue } from "./perfume-opening-valuation.ts";
 
 type Row = Record<string, unknown>;
 type Delegate = (db: Db, session: Session, body: Row) => Promise<unknown>;
@@ -16,7 +19,7 @@ const meta = (product: Row) => ({ name: product.name, piecePrice: product.pieceP
 const snapshotBottle = (product: Row) => ({ name: product.name, sizeMl: product.decantSizeMl, cost: product.pieceCost, isArchived: product.isArchived === true });
 const positive = (value: unknown, label: string) => { const n=Number(value); if(!Number.isFinite(n)||n<=0)throw fail(`${label} غير صالح`,400);return n; };
 const commandKinds = new Map(Object.entries(managementPostType).map(([kind,command]) => [command,kind as ManagementKind]));
-const inputFields = ["sourceProductId","decantProductId","lotId","warehouseId","divisionsCount","volumeMl","priceBasisMl","salePrice","quantity","remainingValue","actualQuantity","reason","reasonCode","bottleStockReason","consumeBottle","bottleQuantity","bottleProductId","name","sizeMl","cost","note"];
+const inputFields = ["sourceProductId","decantProductId","lotId","warehouseId","divisionsCount","volumeMl","originalVolumeMl","priceBasisMl","salePrice","quantity","remainingValue","actualQuantity","reason","reasonCode","bottleStockReason","consumeBottle","bottleQuantity","bottleProductId","name","sizeMl","cost","note"];
 const cleanInput = (body: Row) => Object.fromEntries(inputFields.filter(key => body[key] !== undefined).map(key => [key,body[key]]));
 const stockConflict = () => fail("لا يمكن تعديل أو إلغاء العملية لأن لها حركات لاحقة. ألغِ الحركات المرتبطة الأحدث أولًا.");
 
@@ -44,17 +47,22 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     // Lot book values are authoritative. Do not reset prices or another lot's stock.
     await products.updateOne({id:p.id},{$set:{perfumeLots:lots}},{session});p.perfumeLots=lots;
   }
-  async function definition(p: Row, input: Row, before: Row|null, previous?:Row) {
-    const d={id:id("adjustment"),number:`BDEF-${Date.now()}-${crypto.randomUUID().slice(0,6)}`,kind:"adjustment",status:"posted",occurredAt:new Date().toISOString(),perfumeManagementType:"bottle",managementProductId:String(p.id),managementInput:input,bottleDefinitionBefore:before,bottleDefinitionAfter:snapshotBottle(p),revision:0,title:String(p.name),note:String(input.note??""),partyId:null,partyName:null,warehouseId:null,warehouseName:null,parentDocumentId:null,paymentMethod:null,total:0,paidTotal:0,dueTotal:0,lines:[{id:id("line"),productId:String(p.id),description:String(p.name),quantity:0,unitPrice:0,lineTotal:0}]};
-    await documents.insertOne(d,{session});
-    if(previous)await linkRevision(previous,d.id);
-    return d;
+  async function catalogAudit(p: Row, before: Row|null, action: string) {
+    await db.collection("auditEvents").insertOne({id:id("audit"),action,entityId:p.id,before,after:snapshotBottle(p),note:String(body.note??""),status:"committed",createdAt:new Date()},{session});
   }
   async function linkRevision(old:Row,newId:unknown) {
     await documents.updateOne({id:old.id},{$set:{status:"voided",voidedAt:new Date().toISOString(),replacedByDocumentId:newId,voidReason:"تعديل العملية مع الاحتفاظ بالنسخة السابقة"}},{session});
     await documents.updateOne({id:newId},{$set:{replacesDocumentId:old.id,revision:Number(old.revision??0)+1}},{session});
   }
   async function post(postKind:ManagementKind,input:Row,previous?:Row) {
+    let openingValuation:ReturnType<typeof openingLiquidValue>|undefined;
+    if(postKind==="opening"&&input.volumeMl!==undefined&&input.originalVolumeMl!==undefined){
+      const source=await product(input.sourceProductId);
+      const keepCost=previous?.sourceProductId===source.id&&previous?.openingBottleCost!==undefined;
+      const cost=keepCost?Number(previous.openingBottleCost):Number(await currentProductCost(db,session,source));
+      openingValuation=openingLiquidValue(cost,input.volumeMl,input.originalVolumeMl);
+      input={...input,remainingValue:openingValuation.remainingValue,originalVolumeMl:openingValuation.originalVolumeMl};
+    }
     let previousDecant:Row|null=null,previousLot:PerfumeLot|null=null;
     if(["split","opening"].includes(postKind))previousDecant=(await products.findOne({parentProductId:String(input.sourceProductId),perfumeForm:"decant",isArchived:{$ne:true}},{session}))??null;
     if(postKind==="recombine")previousLot=lotsOf(await product(input.decantProductId)).find(l=>l.id===input.lotId)??null;
@@ -73,12 +81,13 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
       result=await core(db,session,{type:"adjustment.post",warehouseId:input.warehouseId,reason:input.reason,lines:[{productId:p.id,actualQuantity:actual}]});
     }else result=await base(db,session,payload);
     if(postKind==="bottle"){
-      const p=await product(result);const d=await definition(p,cleanInput(input),null);return {result,documentId:d.id};
+      const p=await product(result);await catalogAudit(p,null,"perfume-bottle.create");return {result,documentId:String(result)};
     }
     let d=await documents.findOne({id:String(result)},{session});
     if(postKind==="recombine"&&!d)d=await documents.findOne({perfumeConversionType:"perfume-recombine",status:"posted","lines.productId":String(result)},{session});
     if(!d)throw fail("تعذر ربط العملية بسجل الفواتير");
     const added:Row={perfumeManagementType:postKind,managementInput:cleanInput(input),revision:0,note:String(input.note||input.reason||"")};
+    if(openingValuation)Object.assign(added,{openingBottleCost:openingValuation.bottleCost,openingOriginalVolumeMl:openingValuation.originalVolumeMl});
     if(postKind==="split"){
       const line=rows(d.lines).find(l=>Number(l.quantity)>0);const p=await product(line?.productId);const lot=lotsOf(p).find(l=>l.conversionDocumentId===d!.id);if(!lot)throw fail("دفعة التحويل غير موجودة");
       Object.assign(added,{sourceProductId:String(input.sourceProductId),decantProductId:String(p.id),perfumeLotId:lot.id,perfumeLotBefore:null,perfumeLotAfter:lot,decantProductCreated:!previousDecant,decantProductBefore:previousDecant?meta(previousDecant):null,decantProductAfter:meta(p)});
@@ -117,8 +126,18 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
       await core(db,session,{type:"adjustment.void",documentId:d.id});return;
     }
     if(k==="bottle"){
-      const p=await product(d.managementProductId);if(total(p)!==0)throw fail("لا يمكن أرشفة زجاجة لها مخزون. صحح الرصيد أو انقل الكميات أولًا.");
-      await base(db,session,{type:"product.delete",id:p.id});
+      // Historical BDEF records remain readable, but canceling a metadata edit
+      // restores metadata rather than archiving the existing catalog product.
+      const p=await product(d.managementProductId),current=snapshotBottle(p),after=d.bottleDefinitionAfter as Row|undefined,before=d.bottleDefinitionBefore as Row|null;
+      if(after&&JSON.stringify(current)!==JSON.stringify(after))throw fail("تغير تعريف الزجاجة بعد هذا السجل؛ عدّلها من قائمة الزجاج.");
+      if(before){
+        if(before.isArchived&&total(p)!==0)throw fail("لا يمكن أرشفة زجاجة لها مخزون. صحح الرصيد أولًا.");
+        await products.updateOne({id:p.id},{$set:{name:before.name,decantSizeMl:before.sizeMl,pieceCost:before.cost,isArchived:before.isArchived===true,updatedAt:new Date()}},{session});
+      }else{
+        if(total(p)!==0)throw fail("لا يمكن أرشفة زجاجة لها مخزون. صحح الرصيد أو انقل الكميات أولًا.");
+        await base(db,session,{type:"product.delete",id:p.id});
+      }
+      await catalogAudit(await product(p.id),current,"perfume-bottle.legacy-void");
     } else {
       const lines=rows(d.lines),wh=String(d.warehouseId);
       const incoming=lines.find(l=>Number(l.quantity)>0),outgoing=lines.find(l=>Number(l.quantity)<0);
@@ -127,23 +146,28 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
       const index=lots.findIndex(l=>l.id===d.perfumeLotId||(k==="split"?l.conversionDocumentId===d.id:l.partialProductId===partialId));
       if(index<0||!incoming||!outgoing)throw stockConflict();
       const lot=lots[index],expected=d.perfumeLotAfter as PerfumeLot|undefined;
-      if(expected&&!perfumeLotEquals(lot,expected))throw stockConflict();
+      if(k!=="split"&&expected&&!perfumeLotEquals(lot,expected))throw stockConflict();
       if(k==="split"){
-        const qty=Number(incoming.quantity),stock=Object.values(lot.stocks).reduce((s,q)=>s+q,0);
-        if(lot.originalQuantity!==qty||lot.remainingQuantity!==qty||stock!==qty||Number(lot.stocks[wh])!==qty||lot.recombinedAt||Math.abs(lot.liquidUnitCost-Number(incoming.unitPrice))>1e-9)throw stockConflict();
+        const evidence=await splitReversalEvidence(db,session,d,p,lot,lots,incoming,outgoing);
+        const qty=Number(evidence.quantityRemoved);
         const source=await product(outgoing.productId);
         await move(p,wh,-qty,d,"perfume-split-void-out");await move(source,wh,1,d,"perfume-split-void-in");lots.splice(index,1);await setLots(p,lots);
+        await documents.updateOne({id:d.id},{$set:{perfumeSplitReversal:evidence}},{session});
         if(d.decantProductCreated===true&&lots.length===0&&total(p)===0)await products.updateOne({id:p.id},{$set:{isArchived:true,archivedAt:new Date()}},{session});
         const before=d.decantProductBefore as Row|null,after=d.decantProductAfter as Row|null;
         if(before&&after&&JSON.stringify(meta(p))===JSON.stringify(after))await products.updateOne({id:p.id},{$set:before},{session});
       } else {
         const partial=await product(partialId),qty=-Number(outgoing.quantity);
-        if(partial.isArchived||total(partial)!==1||Number((partial.stocks as Row??{})[wh])!==1||lot.remainingQuantity!==0||lot.partialProductId!==partialId)throw stockConflict();
+        if(partial.isArchived||total(partial)!==1||Number((partial.stocks as Row??{})[wh])!==1||lot.partialProductId!==partialId)throw stockConflict();
         // Older recombinations predate snapshots; their signed document lines,
         // closed lot and intact single partial bottle provide the inverse values.
         let before=d.perfumeLotBefore as PerfumeLot|undefined;
-        if(!before){before={...structuredClone(lot),remainingQuantity:qty,stocks:{...lot.stocks,[wh]:qty}};delete before.recombinedAt;delete before.partialProductId;}
-        if(!Number.isSafeInteger(qty)||qty<=0||before.remainingQuantity!==qty)throw stockConflict();
+        if(!before){
+          const live=Number(lot.remainingQuantity),liveStock=Object.values(lot.stocks).reduce((sum,value)=>sum+Number(value),0);
+          if(!Number.isSafeInteger(live)||live<0||live!==liveStock||live+qty>lot.originalQuantity)throw stockConflict();
+          before={...structuredClone(lot),remainingQuantity:live+qty,stocks:{...lot.stocks,[wh]:Number(lot.stocks[wh]??0)+qty}};delete before.recombinedAt;delete before.partialProductId;
+        } else if(lot.remainingQuantity!==0||before.remainingQuantity!==qty)throw stockConflict();
+        if(!Number.isSafeInteger(qty)||qty<=0)throw stockConflict();
         await move(partial,wh,-1,d,"perfume-recombine-void-out");await move(p,wh,qty,d,"perfume-recombine-void-in");lots[index]=before;await setLots(p,lots);
         await products.updateOne({id:partial.id},{$set:{isArchived:true,archivedAt:new Date()}},{session});
       }
@@ -155,20 +179,23 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     const p=await product(body.id);if(p.perfumeForm!=="bottle")throw fail("المنتج ليس زجاجة تقسيمات",400);
     const before=snapshotBottle(p);
     if(body.expectedProduct&&JSON.stringify(body.expectedProduct)!==JSON.stringify(before))throw fail("تغيرت الزجاجة. حدّث الصفحة وأعد المحاولة.");
-    const prior=await documents.findOne({perfumeManagementType:"bottle",managementProductId:String(p.id),status:"posted"},{session,sort:{occurredAt:-1}});
     if(type==="perfume-bottle.archive"){
-      const d=prior??await definition(p,{name:p.name,sizeMl:p.decantSizeMl,cost:p.pieceCost},before);await undo(d);return {handled:true,result:d.id};
+      if(total(p)!==0)throw fail("لا يمكن أرشفة زجاجة لها مخزون. صحح الرصيد أو انقل الكميات أولًا.");
+      await base(db,session,{type:"product.delete",id:p.id});await catalogAudit(await product(p.id),before,type);return {handled:true,result:p.id};
     }
     if(type==="perfume-bottle.restore"){
       if(!p.isArchived)throw fail("الزجاجة نشطة بالفعل");
-      await base(db,session,{type:"product.restore",id:p.id});const fresh=await product(p.id);const d=await definition(fresh,{name:fresh.name,sizeMl:fresh.decantSizeMl,cost:fresh.pieceCost},before);return {handled:true,result:d.id};
+      await base(db,session,{type:"product.restore",id:p.id});await catalogAudit(await product(p.id),before,type);return {handled:true,result:p.id};
     }
     if(p.isArchived)throw fail("استعد الزجاجة من الأرشيف قبل تعديلها");
     const name=String(body.name??"").trim(),size=positive(body.sizeMl,"حجم الزجاجة"),cost=positive(body.cost,"التكلفة المرجعية");
     if(!name||name.length>160)throw fail("اسم الزجاجة غير صالح",400);
     if(await products.findOne({id:{$ne:p.id},perfumeForm:"bottle",name,decantSizeMl:size,isArchived:{$ne:true}},{session}))throw fail("زجاجة بنفس الاسم والحجم موجودة بالفعل");
     await products.updateOne({id:p.id},{$set:{name,decantSizeMl:size,pieceCost:cost,updatedAt:new Date()}},{session});
-    const fresh=await product(p.id);const d=await definition(fresh,{name,sizeMl:size,cost,note:String(body.note??"")},before,prior??undefined);return {handled:true,result:d.id};
+    const fresh=await product(p.id);await catalogAudit(fresh,before,type);
+    await documents.updateMany({perfumeManagementType:"bottle",managementProductId:String(p.id),status:"posted"},{$set:{status:"voided",voidedAt:new Date().toISOString(),voidReason:"تم تحديث التعريف من قائمة الزجاج",supersededByCatalog:true}},{session});
+    await db.collection("appSettings").updateOne({_id:"perfume-defaults",bottleProductId:String(p.id)},{$set:{fillMl:size}},{session});
+    return {handled:true,result:p.id};
   }
   if(type==="perfume-management.void"||type==="perfume-stock-operation.void"){
     const d=await document();await undo(d);return {handled:true,result:d.id};
