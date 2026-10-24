@@ -63,7 +63,7 @@ test("new decant invoices use the default sales warehouse and edits preserve the
 
 test("management separates tasks and keeps forms before their scrollable registers", async () => {
   const [css, ui] = await Promise.all([source("app/perfume-ui-fixes.css"), source("app/perfume-divisions.tsx")]);
-  assert.match(ui, /"convert","stock","bottles","history"/);
+  assert.match(ui, /"convert","stock","bottles"/);
   assert.match(ui, /className="erp-fieldset popover-host pm-editor"/);
   assert.match(ui, /className="erp-fieldset pm-register"/);
   assert.ok(ui.indexOf('className="erp-fieldset popover-host pm-editor"') < ui.indexOf('className="erp-fieldset pm-register"'));

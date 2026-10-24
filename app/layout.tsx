@@ -9,6 +9,7 @@ import "./printing.css";
 import "./perfume-ui-fixes.css";
 import "./compact-navigation.css";
 import "./perfume-layout-safety.css";
+import "./perfume-context.css";
 
 export async function generateMetadata(): Promise<Metadata> {
  const locale=normalizeLocale((await cookies()).get(LOCALE_COOKIE)?.value);

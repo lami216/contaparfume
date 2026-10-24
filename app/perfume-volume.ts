@@ -2,6 +2,12 @@ import type { PerfumeLot } from "./perfume-logic";
 
 export type PerfumeDefaults = { fillMl: number; bottleProductId: string };
 export const DEFAULT_PERFUME_SETTINGS: PerfumeDefaults = { fillMl: 10, bottleProductId: "" };
+/** A default bottle always proposes its own capacity; invoice fills stay editable. */
+export function resolvePerfumeDefaults(saved: Partial<PerfumeDefaults> | null | undefined, products: Array<{id?:unknown;perfumeForm?:unknown;isArchived?:unknown;decantSizeMl?:unknown}>): PerfumeDefaults {
+  const bottle=products.find(p=>p.id===saved?.bottleProductId&&p.perfumeForm==="bottle"&&!p.isArchived);
+  const size=Number(bottle?.decantSizeMl);
+  return bottle&&Number.isFinite(size)&&size>0?{fillMl:size,bottleProductId:String(bottle.id)}:{...DEFAULT_PERFUME_SETTINGS};
+}
 export const roundMl = (value: number) => Math.round(value * 1000) / 1000;
 /** Integer thousandths avoid accumulated floating-point stock drift. */
 export function volumeMl(value: unknown, zero = false): number {

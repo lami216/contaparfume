@@ -53,7 +53,7 @@ test("management uses the ERP visual system, explicit submit actions and accessi
   assert.match(management, /className="erp-fieldset pm-navigation"/);
   assert.match(management, /className="erp-fieldset popover-host pm-editor"/);
   assert.match(management, /className="erp-fieldset pm-register"/);
-  assert.match(management, /className="erp-fieldset pm-history"/);
+  assert.match(management, /<PerfumeActivityPanel/);assert.doesNotMatch(management, /setTab\("history"\)/);
   assert.match(management, /className="invoice-toolbar-modes pm-tabs"/);
   assert.match(management, /className="selection-option" aria-pressed=\{kind===k\}/);
   assert.match(management, /className="search compact-search"/);

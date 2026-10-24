@@ -23,6 +23,10 @@ export const managementPostType: Record<ManagementKind, string> = {
   consumption: "perfume-lot-consume.post", "yield-correction": "perfume-lot-correct.post",
   bottle: "perfume-bottle.create", "bottle-stock": "perfume-bottle-stock.post",
 };
+/** Editing replaces the old effect: preview against its original lot, not the already-adjusted balance. */
+export function managementPreviewLot(document:import("./domain").DocumentRecord|undefined,productId:string,lotId:string,warehouseId:string,current:import("./perfume-logic").PerfumeLot|undefined){
+  return document?.decantProductId===productId&&document.perfumeLotId===lotId&&document.warehouseId===warehouseId&&document.perfumeLotBefore?document.perfumeLotBefore:current;
+}
 
 /** A restored quantity alone does not prove that a sale/count/transfer was voided. */
 export function documentUsesPerfumeLot(document: { perfumeLotId?: unknown; perfumeStockOperationType?: unknown; lines?: unknown }, productId: string, lotId: string) {

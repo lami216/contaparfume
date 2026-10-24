@@ -1,6 +1,12 @@
 import type { Locale } from "./locale";
 
 const exactFrench: Record<string, string> = {
+  "الدفعة مغلقة بالفعل؛ لا توجد حركة جديدة لاعتمادها": "Ce lot est déjà clôturé ; aucun nouveau mouvement à enregistrer.",
+  "تغير تعريف الزجاجة بعد هذا السجل؛ عدّلها من قائمة الزجاج.": "La définition a changé depuis ce document. Modifiez le flacon dans son catalogue.",
+  "لا يمكن أرشفة زجاجة لها مخزون. صحح الرصيد أولًا.": "Régularisez le stock du flacon avant de l’archiver.",
+  "استخدم فاتورة التقسيمات للعطر المقسم والزجاج؛ لا يمكن ترحيلها من الفاتورة العامة": "Utilisez la facture des décants pour le liquide et les flacons, pas la facture générale.",
+  "سوِّ رصيد السائل أو الزجاج من التقسيمات مع تحديد سبب الفرق قبل أرشفة الصنف": "Régularisez le liquide ou les flacons dans les décants, avec le motif de l’écart, avant l’archivage.",
+
   "لا يمكن إلغاء التحويل لأن له حركات لاحقة غير ملغاة، أو اختلافًا غير موثق في رصيد الدفعة.": "La conversion a des opérations liées non annulées ou un écart de stock non justifié. Annulez les opérations liées avant de réessayer.",
   "سوِّ الزجاج من جرد زجاج التقسيمات لتحديد الكسر أو التلف أو تصحيح خطأ الإدخال": "Utilisez l’inventaire des flacons de décant pour distinguer casse, détérioration et correction de saisie.",
   "اختر سبب فرق الزجاج: كسر أو تلف أو تصحيح خطأ إدخال": "Choisissez le motif : casse, détérioration ou correction de saisie.",

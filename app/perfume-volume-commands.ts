@@ -1,7 +1,7 @@
 import type { SqliteDatabase as Db, SqliteSession as Session, DbDocument as Row } from "../lib/sqlite.ts";
 import type { PerfumeLot } from "./perfume-logic.ts";
 import { perfumeLotEquals } from "./perfume-stock-reconciliation.ts";
-import { DEFAULT_PERFUME_SETTINGS, reconcileVolumeLot, roundMl, volumeMl } from "./perfume-volume.ts";
+import { resolvePerfumeDefaults, reconcileVolumeLot, roundMl, volumeMl } from "./perfume-volume.ts";
 
 type Delegate = (db: Db, session: Session, body: Row) => Promise<unknown>;
 const fail = (message: string) => Object.assign(new Error(message), { status: 409 });
@@ -42,9 +42,11 @@ export async function undoVolumeOperation(db: Db, session: Session, original: Ro
 export async function handleVolumeCommand(db: Db, session: Session, body: Row, legacy: Delegate): Promise<{handled: boolean; result?: unknown}> {
   const type = String(body.type ?? "");
   if (type === "perfume-defaults.update") {
-    const fillMl = volumeMl(body.fillMl), bottleProductId = String(body.bottleProductId ?? "");
+    const bottleProductId = String(body.bottleProductId ?? "");
     const bottle = await db.collection("products").findOne({ id: bottleProductId, perfumeForm: "bottle", isArchived: { $ne: true } }, { session });
-    if (!bottle || Number(bottle.decantSizeMl) < fillMl) throw fail("اختر عبوة نشطة تتسع لحجم التعبئة الافتراضي");
+    if (!bottle) throw fail("اختر عبوة نشطة تتسع لحجم التعبئة الافتراضي");
+    const fillMl=volumeMl(bottle.decantSizeMl);
+    if(body.fillMl!==undefined&&volumeMl(body.fillMl)>fillMl)throw fail("اختر عبوة نشطة تتسع لحجم التعبئة الافتراضي");
     await db.collection("appSettings").updateOne({ _id: "perfume-defaults" }, { $set: { fillMl, bottleProductId, updatedAt: new Date().toISOString() } }, { session, upsert: true });
     return { handled: true, result: "perfume-defaults" };
   }
@@ -83,7 +85,8 @@ export async function handleVolumeCommand(db: Db, session: Session, body: Row, l
     const before = await db.collection("products").findOne({ parentProductId: String(body.sourceProductId), perfumeForm: "decant", isArchived: { $ne: true } }, { session });
     if (before && before.perfumeStockUnit !== "ml" && lotsOf(before).length) throw fail("هيئ التقسيمات القديمة بالمل من تسوية المخزون أولًا");
     const defaults = await db.collection("appSettings").findOne({ _id: "perfume-defaults" }, { session });
-    const basis = volumeMl(body.priceBasisMl ?? defaults?.fillMl ?? DEFAULT_PERFUME_SETTINGS.fillMl);
+    const defaultBottle=defaults?.bottleProductId?await db.collection("products").findOne({id:defaults.bottleProductId},{session}):null;
+    const basis = volumeMl(body.priceBasisMl ?? resolvePerfumeDefaults(defaults,defaultBottle?[defaultBottle]:[]).fillMl);
     const result = await legacy(db, session, { ...body, volumeMl: undefined, divisionsCount: units, quantity: units });
     const document = await db.collection("documents").findOne({ id: String(result) }, { session });
     const incoming = document?.lines.find((line: Row) => Number(line.quantity) > 0);
@@ -119,6 +122,7 @@ export async function handleVolumeCommand(db: Db, session: Session, body: Row, l
   const before = structuredClone(lots[index]), wh = String(warehouse._id), returning = type === "perfume-recombine.post";
   const actual = body.actualQuantity ?? before.stocks[wh] ?? 0;
   const count = reconcileVolumeLot(before, wh, actual);
+  if(!count.delta&&count.lot.remainingQuantity===0&&before.settledAt)throw fail("الدفعة مغلقة بالفعل؛ لا توجد حركة جديدة لاعتمادها");
   const reason = String(body.reason ?? "").trim();
   if (count.delta && !reason) throw fail("سبب فرق الجرد مطلوب");
   if (!returning && !count.delta && count.lot.remainingQuantity !== 0) throw fail("لا يوجد فرق في الجرد");

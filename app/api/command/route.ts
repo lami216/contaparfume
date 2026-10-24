@@ -17,6 +17,15 @@ const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 
 export async function execute(db: Db, session: ClientSession, body: Input) {
   const type = text(body.type);
+  if(["sale.post","sale.update","purchase.post","purchase.update"].includes(type)){
+    const productIds=(Array.isArray(body.lines)?body.lines:[]).map(raw=>text((raw as Input).productId));
+    const forbidden=type.startsWith("sale")?["decant","bottle"]:["decant","bottle","partial"];
+    if(await db.collection("products").findOne({id:{$in:productIds},perfumeForm:{$in:forbidden}},{session}))throw new CommandError("استخدم فاتورة التقسيمات للعطر المقسم والزجاج؛ لا يمكن ترحيلها من الفاتورة العامة",409);
+  }
+  if(["product.delete","product.stock-zero"].includes(type)){
+    const p=await db.collection("products").findOne({id:text(body.id),perfumeForm:{$in:["decant","bottle"]}},{session});
+    if(p&&(Object.values((p.stocks??{}) as Input).some(value=>Number(value)!==0)||(Array.isArray(p.perfumeLots)&&p.perfumeLots.some(lot=>Number((lot as Input).remainingQuantity)!==0))))throw new CommandError("سوِّ رصيد السائل أو الزجاج من التقسيمات مع تحديد سبب الفرق قبل أرشفة الصنف",409);
+  }
   const management = await handlePerfumeManagementCommand(db, session, body, executeBaseCommand, executeCoreCommand);
   if (management.handled) return management.result;
   if (type === "sale.void") {

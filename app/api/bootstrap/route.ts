@@ -11,7 +11,7 @@ import { getInvoiceBranding } from "../../../lib/invoice-branding";
 import { getCurrencySettings } from "../../../lib/currency-settings";
 import { classifyStockMovementType, collapseLegacyStockEditMovements } from "../../stock-movement";
 import { canReadOperationalDocument, isEffectiveFinancialMovement, resolveCurrentPartyName } from "../../../lib/document-read-model";
-import { DEFAULT_PERFUME_SETTINGS, presentVolumeMovement } from "../../perfume-volume";
+import { resolvePerfumeDefaults, presentVolumeMovement } from "../../perfume-volume";
 
 export async function GET(request: Request) {const licenseDenied=await requireValidLicense();if(licenseDenied)return licenseDenied;
   const principal=await getPrincipalFromRequest(request);if(!principal)return Response.json({error:"غير مصرح"},{status:401});
@@ -29,7 +29,7 @@ export async function GET(request: Request) {const licenseDenied=await requireVa
       peekNextDocumentSequence(db, "sale"), peekNextDocumentSequence(db, "purchase"), peekNextDocumentSequence(db, "expense"), peekNextDocumentSequence(db, "decant-sale"), peekNextDocumentSequence(db, "decant-purchase"), getInvoiceBranding(db), getCurrencySettings(db),
     ]);
     const savedPerfumeDefaults = await db.collection("appSettings").findOne({_id:"perfume-defaults"});
-    const perfumeDefaults = {fillMl:Number(savedPerfumeDefaults?.fillMl ?? DEFAULT_PERFUME_SETTINGS.fillMl),bottleProductId:String(savedPerfumeDefaults?.bottleProductId ?? "")};
+    const perfumeDefaults = resolvePerfumeDefaults(savedPerfumeDefaults,products);
     const clean = (rows: Array<Record<string, unknown>>) => rows.map(({ _id, ...row }) => ({ id: row.id ?? String(_id), ...row }));
     const postedCostDocuments=documents.filter(document=>document.status==="posted"&&["purchase","decant-purchase","adjustment"].includes(String(document.kind)));
     const cleanProducts = clean(await productsWithCurrentCosts(db, products, postedCostDocuments)).map(product => ({ ...product, wholesalePrice: (product as Record<string, unknown>).wholesalePrice ?? null, expiryDate: (product as Record<string, unknown>).expiryDate ?? null, note: (product as Record<string, unknown>).note ?? null, categoryId: (product as Record<string, unknown>).categoryId ?? null }));
