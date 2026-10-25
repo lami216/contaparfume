@@ -1649,10 +1649,16 @@ input, select, .combobox-trigger { border-color: #9faab8; }
 .expense-form, .expense-history { min-width: 0; min-height: 0; overflow: hidden; }
 .expense-form { grid-column:1;grid-row:1; }
 .expense-form-body { display:block; }
-.expense-category-field { grid-column:1/-1; max-width:388px; min-width:0; }
+.expense-category-field { min-width:0; }
+.expense-payment-row { display:grid; grid-column:1/-1; grid-template-columns:128px minmax(0,1fr) 112px; gap:6px; align-items:end; }
+.expense-payment-row .expense-edit-actions { display:contents; }
+.expense-payment-row .expense-edit-actions > .blocked-action { grid-column:3; grid-row:1; }
+.expense-payment-row .expense-cancel { grid-column:2; grid-row:2; min-width:0; }
+.expense-payment-row .expense-delete { grid-column:3; grid-row:2; min-width:0; }
+.expense-payment-row select { text-overflow:ellipsis; }
 .expense-category-row { display:flex; align-items:center; gap:6px; }
 .expense-category-row select { flex:1; min-width:0; }
-.expense-category-row .expense-category-add { padding:0; width:34px; min-width:34px; height:34px; }
+.expense-category-row .expense-category-add { padding:0; width:28px; min-width:28px; height:34px; }
 .expense-category-add svg { width:16px; height:16px; }
 .expense-category-create { display:flex; align-items:end; gap:6px; padding-top:6px; }
 .expense-category-create label { flex:1; min-width:0; }
