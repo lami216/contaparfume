@@ -1,6 +1,10 @@
 import type { Locale } from "./locale";
 
 const exactFrench: Record<string, string> = {
+  "اسم فئة المصروف مطلوب ولا يتجاوز 80 حرفًا": "Le nom de la catégorie est requis (80 caractères maximum).",
+  "فئة المصروف موجودة بالفعل": "Cette catégorie de dépense existe déjà.",
+  "فئة المصروف غير صالحة": "Catégorie de dépense invalide.",
+  "فئة المصروف غير موجودة": "Catégorie de dépense introuvable.",
   "المتبقي لا يمكن أن يتجاوز حجم العطر الأصلي": "Le restant ne peut pas dépasser le volume du parfum d’origine.",
   "لا توجد تكلفة شراء معتمدة للعطر لحساب قيمة المتبقي": "Aucun coût d’achat validé ne permet de calculer la valeur restante.",
   "الدفعة مغلقة بالفعل؛ لا توجد حركة جديدة لاعتمادها": "Ce lot est déjà clôturé ; aucun nouveau mouvement à enregistrer.",

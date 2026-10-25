@@ -1,4 +1,12 @@
 export const arMessages = {
+  "فئة المصروف": "فئة المصروف",
+  "إضافة فئة مصروف": "إضافة فئة مصروف",
+  "اسم فئة المصروف": "اسم فئة المصروف",
+  "تمت إضافة فئة المصروف": "تمت إضافة فئة المصروف",
+  "كل فئات المصاريف": "كل فئات المصاريف",
+  "تسجيل استهلاك": "تسجيل استهلاك",
+  "تسوية المتبقي": "تسوية المتبقي",
+  "pm.pendingDecantNotice": "ما زال لهذا العطر رصيد تقسيمات غير مباع. إذا خرجت منه عينات أو كمية دون بيع، سجّلها كاستهلاك. وإذا انتهى فعليًا وبقي رصيد في البرنامج، سوِّ المتبقي إلى صفر قبل تحويل عطر جديد.",
   "سبب الاستهلاك": "سبب الاستهلاك",
   "سجل الاستهلاك": "سجل الاستهلاك",
   "سجل التسويات": "سجل التسويات",
@@ -1334,6 +1342,14 @@ export type MessageKey = keyof typeof arMessages;
 export type TranslationParams = Record<string, string | number>;
 
 export const frMessages: Record<MessageKey, string> = {
+  "فئة المصروف": "Catégorie de dépense",
+  "إضافة فئة مصروف": "Ajouter une catégorie de dépense",
+  "اسم فئة المصروف": "Nom de la catégorie de dépense",
+  "تمت إضافة فئة المصروف": "Catégorie de dépense ajoutée",
+  "كل فئات المصاريف": "Toutes les catégories de dépenses",
+  "تسجيل استهلاك": "Enregistrer une consommation",
+  "تسوية المتبقي": "Régulariser le restant",
+  "pm.pendingDecantNotice": "Ce parfum possède encore un stock de décant non vendu. Enregistrez les échantillons ou sorties en consommation. Si le flacon est réellement vide, régularisez le restant à zéro avant de convertir un nouveau flacon.",
   "سبب الاستهلاك": "Motif de la consommation",
   "سجل الاستهلاك": "Consommations",
   "سجل التسويات": "Régularisations",

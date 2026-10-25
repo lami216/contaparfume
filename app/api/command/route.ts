@@ -9,6 +9,7 @@ import { handlePerfumeManagementCommand } from "../../perfume-management-command
 import { execute as executeBaseCommand } from "./base-route.ts";
 import { execute as executeCoreCommand } from "./core-route.ts";
 import { restoreLegacySaleAllocations } from "../../perfume-split-reversal.ts";
+import {createExpenseCategory} from "../../../lib/expense-categories.ts";
 
 type Input = Record<string, unknown>;
 class CommandError extends Error { status: number; constructor(message: string, status = 400) { super(message); this.status = status; } }
@@ -17,6 +18,7 @@ const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 
 export async function execute(db: Db, session: ClientSession, body: Input) {
   const type = text(body.type);
+  if(type==="expense-category.create")return createExpenseCategory(db,session,body);
   if(["sale.post","sale.update","purchase.post","purchase.update"].includes(type)){
     const productIds=(Array.isArray(body.lines)?body.lines:[]).map(raw=>text((raw as Input).productId));
     const forbidden=type.startsWith("sale")?["decant","bottle"]:["decant","bottle","partial"];
@@ -84,6 +86,7 @@ export async function POST(request: Request) {
       "opening-stock-correction.update":"warehouses.adjust.edit","opening-stock-correction.void":"warehouses.adjust.delete","opening-stock-initial.void":"warehouses.adjust.delete",
       "party-cash.post":text(body.partyType)==="supplier"?"suppliers.pay":"customers.collect","party-cash.update":"customers.collect.edit","party-cash.void":"customers.collect.delete","legacy-party-document.void":"customers.collect.delete",
       "expense.post":"expenses.create","expense.update":"expenses.edit","expense.void":"expenses.delete",
+      "expense-category.create":"expenses.create",
       "payment-account.create":"banks.create","payment-account.update":"banks.edit","payment-account.delete":"banks.delete","payment-account.restore":"banks.edit",
       "account-adjustment.post":"banks.deposit_withdraw","account-adjustment.update":"banks.deposit_withdraw.edit","account-adjustment.void":"banks.deposit_withdraw.delete",
       "account-transfer.post":"banks.transfer","account-transfer.update":"banks.transfer.edit","account-transfer.void":"banks.transfer.delete",

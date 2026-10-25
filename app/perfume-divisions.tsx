@@ -125,6 +125,7 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
     if(!valid)setError(tr("pm.invalid"));return valid;
   }
   async function save(){
+    if(kind==="split"&&pendingSourceLots.length){setError(tr("pm.pendingDecantNotice"));return;}
     if(!validate())return;
     const payload:Record<string,unknown>={...values,warehouseId,type:editing?"perfume-management.update":managementPostType[kind],...(editing?{documentId:editing.id,expectedRevision:editing.revision??0}:{})};
     if(!["split","opening"].includes(kind)||legacyEdit)delete payload.volumeMl;
@@ -182,6 +183,7 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
         <fieldset disabled={busy||!canManage} className="pm-fields">
           {kind!=="bottle"&&selectWarehouse}
           {(kind==="split"||kind==="opening")&&selectSource}
+          {kind==="split"&&pendingSourceLots.length>0&&<div role="status" className="pm-hint pm-source-blocked pm-wide"><strong>{tr("pm.pendingDecantNotice")}</strong>{pendingSourceLots.map(l=>{const batch=batches.find(b=>b.product.id===l.productId&&b.lot.id===l.lotId),pendingWarehouse=batch?Object.entries(batch.lot.stocks).find(([,q])=>Number(q)>0)?.[0]??warehouseId:warehouseId;return <div key={l.lotId||l.productId} className="pm-source-actions"><span>{l.name} · {quantity(l.quantity)} {tr("مل")}</span><button type="button" className="soft" onClick={()=>showContext({productId:l.productId,lotId:l.lotId,conversionId:l.documentId,name:l.name})}>{tr("تفاصيل الدفعة")}</button>{batch&&<><button type="button" className="soft" onClick={()=>void choose("consumption",{decantProductId:l.productId,lotId:l.lotId,warehouseId:pendingWarehouse})}>{tr("تسجيل استهلاك")}</button><button type="button" className="soft" onClick={()=>void choose("yield-correction",{decantProductId:l.productId,lotId:l.lotId,warehouseId:pendingWarehouse})}>{tr("تسوية المتبقي")}</button></>}</div>})}</div>}
           {kind==="split"&&field(legacyEdit?"divisionsCount":"volumeMl",tr(legacyEdit?"عدد التقسيمات":"كمية العطر المبدئية بالمل"),{integer:legacyEdit})}
           {["split","opening","recombine"].includes(kind)&&!(kind==="recombine"&&ml&&text("actualQuantity")==="0")&&field("salePrice",tr(kind==="recombine"?"سعر بيع العطر الناقص":"سعر البيع للتقسيمة"))}
           {["recombine","consumption","yield-correction"].includes(kind)&&selectBatch}
@@ -194,7 +196,7 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
           {(["consumption","yield-correction","bottle-stock"].includes(kind)||kind==="recombine"&&ml)&&field("reason",tr(kind==="bottle-stock"?"البيان":kind==="consumption"?"سبب الاستهلاك":"سبب التصحيح"),{type:"text"})}
           <label className="pm-wide">{tr("ملاحظة")}<textarea rows={1} maxLength={1000} value={text("note")} onChange={e=>set("note",e.target.value)}/></label>
         </fieldset>
-        {kind==="split"&&pendingSourceLots.length>0&&<p role="status" className="pm-hint pm-source-blocked">{tr("للعطر رصيد تقسيمات سابق؛ صفّه قبل فتح دفعة جديدة.")} {pendingSourceLots.map(l=><button type="button" className="soft" key={l.lotId||l.productId} onClick={()=>showContext({productId:l.productId,lotId:l.lotId,conversionId:l.documentId,name:l.name})}>{quantity(l.quantity)} {tr("مل")} · {tr("تفاصيل الدفعة")}</button>)}</p>}
+
         {kind==="split"&&<div className="pm-summary"><span>{tr("pm.sourceValue")}: <b>{money(sourceCost)}</b></span><span>{tr(legacyEdit?"تكلفة السائل للتقسيمة":"تكلفة المل")}: <b>{money(liquidCost)}</b></span><small>{tr("لا تشمل الزجاجة")} · {tr("سعر البيع للتقسيمة")} {defaults.fillMl} {tr("مل")}</small></div>}
         {selectedBatch&&<div className="pm-summary"><span>{tr("رصيد البرنامج")}: <b>{quantity(lotStock)} {ml?tr("مل"):tr("تقسيمة")}</b></span><span>{tr("pm.remainingValue")}: <b>{money(bookValue)}</b></span>{ml&&["yield-correction","recombine"].includes(kind)&&text("actualQuantity")!==""&&<span>{tr("فرق الجرد")}: <b>{roundMl(n("actualQuantity")-lotStock)>0?"+":""}{quantity(roundMl(n("actualQuantity")-lotStock))} {tr("مل")}</b></span>}{kind==="recombine"&&<small>{tr("pm.recombineHelp")}</small>}</div>}
         {kind==="bottle-stock"&&selectedBottle&&<div className="pm-summary"><span>{tr("رصيد البرنامج")}: <b>{quantity(bottleBefore)}</b></span><span>{tr("pm.addedCost")}: <b>{bottleCost>0?money(bottleCost):"—"}</b></span>{isBottleStockReason(text("bottleStockReason"))&&<span>{tr("pm.bottleRecognizedLoss")}: <b>{money(bottleLoss)}</b></span>}</div>}

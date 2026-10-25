@@ -24,4 +24,7 @@
 .perfume-management-page .pm-stock-register .pm-stock-description { min-width:155px; max-width:250px; white-space:normal; }
 .perfume-management-page .pm-blocking-documents,.perfume-management-page .pm-source-blocked { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
 .summary-breakdown-table thead th { background:#2763a5; color:#fff; }
+.perfume-management-page .pm-source-blocked { padding:9px; border:1px solid #d8a23b; border-radius:9px; background:#fff8e8; color:#65460c; line-height:1.6; }
+.perfume-management-page .pm-source-blocked strong { display:block; width:100%; font-weight:600; }
+.perfume-management-page .pm-source-actions { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
 @media(max-width:1000px) { .decant-invoices-hub .decant-invoice-mode-help { flex-basis:100%; } }
