@@ -1,6 +1,21 @@
 import type { Locale } from "./locale";
 
 const exactFrench: Record<string, string> = {
+  "حركة الدفع الأصلية لا تطابق مبلغ الفاتورة": "Le mouvement de paiement initial ne correspond pas au montant de la facture.",
+  "إلغاء فاتورة تقسيمات": "Annulation d’une facture de décants",
+  "إلغاء فاتورة شراء زجاج": "Annulation d’une facture d’achat de flacons",
+  "توزيع تكلفة البيع الأصلي غير صالح": "La répartition du coût de la vente initiale est invalide.",
+  "رصيد دفعة البيع الأصلية غير كافٍ": "Le stock du lot de la vente initiale est insuffisant.",
+  "كمية توزيع البيع الأصلي غير مطابقة": "La quantité répartie ne correspond pas à la vente initiale.",
+  "وحدة توزيع التحويل غير صالحة": "L’unité de répartition du transfert est invalide.",
+  "وحدة توزيع التحويل لا تطابق وحدة الدفعة الحالية": "L’unité du transfert ne correspond pas à celle du lot actuel.",
+  "لا يمكن إثبات حجم التقسيمة القديمة لعكس التحويل بأمان": "Le volume de l’ancien décant ne peut pas être établi pour annuler ce transfert.",
+  "كمية توزيع التحويل": "Quantité répartie du transfert",
+  "لا يمكن إلغاء البيع القديم لأن تقييم الدفعة أو تكلفتها تغير بعده؛ ألغِ تصحيح الناتج المرتبط أولًا:": "La valorisation du lot a changé depuis cette vente. Annulez d’abord la correction de rendement liée :",
+  "ألغِ الحركات القديمة المرتبطة قبل تهيئة المل، ثم أعد تسجيلها بالمل؛ صور هذه الحركات محفوظة بوحدة التقسيمة القديمة:": "Avant de passer aux millilitres, annulez les anciennes opérations liées puis recréez-les en ml. Leurs instantanés utilisent encore l’ancienne unité :",
+  "لا يحتوي التحويل القديم دليلًا متطابقًا لوحدة الكمية؛ لم يتم تغيير المخزون": "L’unité de cet ancien transfert ne peut pas être établie de façon cohérente. Le stock reste inchangé.",
+  "وحدات توزيع التحويل غير متطابقة؛ لم يتم تغيير المخزون": "Les unités de répartition du transfert sont incohérentes. Le stock reste inchangé.",
+  "كمية التحويل لا تطابق توزيع دفعاته؛ لم يتم تغيير المخزون": "La quantité du transfert ne correspond pas à ses lots. Le stock reste inchangé.",
   "اسم فئة المصروف مطلوب ولا يتجاوز 80 حرفًا": "Le nom de la catégorie est requis (80 caractères maximum).",
   "فئة المصروف موجودة بالفعل": "Cette catégorie de dépense existe déjà.",
   "فئة المصروف غير صالحة": "Catégorie de dépense invalide.",
@@ -58,6 +73,7 @@ export function translateApiError(locale: Locale, message: string): string {
   if (locale === "ar") return message;
   const exact = exactFrench[message];
   if (exact) return exact;
+  for (const prefix of ["لا يمكن إلغاء البيع القديم لأن تقييم الدفعة أو تكلفتها تغير بعده؛ ألغِ تصحيح الناتج المرتبط أولًا:","ألغِ الحركات القديمة المرتبطة قبل تهيئة المل، ثم أعد تسجيلها بالمل؛ صور هذه الحركات محفوظة بوحدة التقسيمة القديمة:"]) if (message.startsWith(prefix)) return exactFrench[prefix] + message.slice(prefix.length);
   const insufficientBalance = message.match(/^الرصيد غير كافٍ في (.+)$/);
   if (insufficientBalance) return `Solde insuffisant sur ${insufficientBalance[1]}`;
   const insufficientStock = message.match(/^المخزون غير كافٍ للمنتج (.+)$/);

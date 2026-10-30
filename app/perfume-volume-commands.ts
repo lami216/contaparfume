@@ -58,6 +58,11 @@ export async function handleVolumeCommand(db: Db, session: Session, body: Row, l
     if (!product || product.perfumeStockUnit === "ml") throw fail("الدفعة غير موجودة أو مهيأة بالمل بالفعل");
     const factor = volumeMl(body.legacyPortionMl), before = structuredClone(product), lots = lotsOf(product);
     if (!lots.length || lots.some(lot => lot.quantityUnit === "ml")) throw fail("وحدات الدفعات غير متوافقة مع التهيئة");
+    // These legacy operations reverse exact piece-unit before/after snapshots.
+    // Converting only the current lot would lock their cancellation. Keep the
+    // historical snapshots intact and require their explicit reversal first.
+    const unsupported = (await db.collection("documents").find({ status: "posted", decantProductId: product.id, perfumeStockOperationType: { $in: ["opening", "consumption", "yield-correction"] } }, { session }).toArray()).filter(document => document.quantityUnit !== "ml");
+    if (unsupported.length) throw perfumeOperationBlocked("ألغِ الحركات القديمة المرتبطة قبل تهيئة المل، ثم أعد تسجيلها بالمل؛ صور هذه الحركات محفوظة بوحدة التقسيمة القديمة:", unsupported);
     const stocks: Record<string, number> = {};
     for (const lot of lots) {
       const oldStocks = Object.values(lot.stocks).reduce((sum,q) => sum + Number(q), 0);

@@ -4,6 +4,8 @@ import { normalizePartyNet, partyNet } from "./party-balance.ts";
 import type { PerfumeAllocation, PerfumeLot } from "./perfume-logic.ts";
 import { lineLiquidMl, roundMl, volumeMl } from "./perfume-volume.ts";
 import { currentProductCost } from "../lib/product-cost.ts";
+import { findActiveFinancialMovement, postFinancialMovement, reverseFinancialMovement as reverseStoredFinancialMovement } from "../lib/transaction-lifecycle.ts";
+import { resolvePartyType } from "./domain.ts";
 
 type Input = Record<string, unknown>;
 type ProductDoc = Record<string, unknown>;
@@ -72,26 +74,17 @@ async function paymentAccount(db: Db, session: ClientSession, value: unknown, ac
 }
 
 async function financialMovement(db: Db, session: ClientSession, document: Record<string, unknown>, direction: "in" | "out", amount: number, type: string) {
-  if (!amount) return;
-  const account = await paymentAccount(db, session, document.paymentMethod);
-  const delta = direction === "in" ? amount : -amount;
-  const result = await db.collection("paymentAccounts").updateOne({ id: account.id }, { $inc: { balance: delta } }, { session });
-  if (!result.matchedCount) throw new PerfumeInvoiceCommandError(`الرصيد غير كافٍ في ${account.name}`);
-  await db.collection("financialMovements").insertOne({
-    id: id("fin"), paymentMethod: account.id, paymentCode: account.code, direction, amount,
-    documentId: document.id, documentNumber: document.number, partyId: document.partyId ?? null,
-    partyName: document.partyName ?? null, type, occurredAt: document.occurredAt,
-  }, { session });
+  await postFinancialMovement(db, session, document, direction, amount, type);
 }
 
 async function reverseFinancialMovement(db: Db, session: ClientSession, document: Record<string, unknown>, kind: "decant-sale" | "decant-purchase") {
   const amount = Number(document.cashAmount ?? document.paidTotal ?? 0);
   if (!amount) return;
-  const movement = await db.collection("financialMovements").findOne({ documentId: document.id, type: kind }, { session });
+  const movement = await findActiveFinancialMovement(db, session, { documentId: document.id, type: kind });
   if (!movement) throw new PerfumeInvoiceCommandError("تعذر العثور على حركة الدفع الأصلية للفاتورة", 409);
-  const account = await paymentAccount(db, session, movement.paymentMethod, false);
-  await db.collection("paymentAccounts").updateOne({ id: account.id }, { $inc: { balance: kind === "decant-sale" ? -amount : amount } }, { session });
-  await db.collection("financialMovements").deleteOne({ _id: movement._id }, { session });
+  if (Number(movement.amount) !== amount || movement.direction !== (kind === "decant-sale" ? "in" : "out"))
+    throw new PerfumeInvoiceCommandError("حركة الدفع الأصلية لا تطابق مبلغ الفاتورة", 409);
+  await reverseStoredFinancialMovement(db, session, movement, kind === "decant-sale" ? "إلغاء فاتورة تقسيمات" : "إلغاء فاتورة شراء زجاج");
 }
 
 async function applyPartyNetDelta(db: Db, session: ClientSession, partyId: unknown, delta: number) {
@@ -100,7 +93,7 @@ async function applyPartyNetDelta(db: Db, session: ClientSession, partyId: unkno
   if (!party) throw new PerfumeInvoiceCommandError("الطرف غير موجود", 404);
   const before = partyNet(party as { receivable?: unknown; payable?: unknown });
   const after = before + delta;
-  await db.collection("parties").updateOne({ _id: party._id }, { $set: { ...normalizePartyNet(after), lastMovementAt: new Date() } }, { session });
+  await db.collection("parties").updateOne({ _id: party._id }, { $set: { ...normalizePartyNet(after), lastMovementAt: new Date(), ...(party.isArchived === true && after !== 0 ? { isArchived: false, archivedAt: null, updatedAt: new Date() } : {}) } }, { session });
   return { before, delta, after };
 }
 
@@ -130,14 +123,27 @@ async function changeStock(db: Db, session: ClientSession, product: ProductDoc, 
   if (after < 0) throw new PerfumeInvoiceCommandError(`المخزون غير كافٍ للمنتج ${product.name}`);
   const stockPath = `stocks.${warehouseId}`;
   const stockMatch = before === 0 ? { $or: [{ [stockPath]: 0 }, { [stockPath]: { $exists: false } }] } : { [stockPath]: before };
-  const result = await db.collection("products").updateOne({ id: productId, ...stockMatch }, { $set: { [stockPath]: after } }, { session });
+  const reactivate = product.isArchived === true && after !== 0;
+  const result = await db.collection("products").updateOne({ id: productId, ...stockMatch }, { $set: { [stockPath]: after, ...(reactivate ? { isArchived: false, archivedAt: null, updatedAt: new Date() } : {}) } }, { session });
   if (!result.matchedCount) throw new PerfumeInvoiceCommandError("تغير المخزون أثناء العملية، أعد المحاولة", 409);
   const stocks = (product.stocks ??= {}) as Record<string, number>; stocks[warehouseId] = after;
+  if (reactivate) product.isArchived = false;
+  if (warehouse.isArchived === true && after !== 0) {
+    await warehouses(db).updateOne({ _id: warehouseId, isArchived: true }, { $set: { isArchived: false, archivedAt: null, updatedAt: new Date() } }, { session });
+    warehouse.isArchived = false;
+  }
+  const revision = Number(document.revision ?? 0), movementId = id("mov");
+  const originals = type.includes("-void") ? await db.collection("stockMovements").find({ documentId: document.id, productId, warehouseId, type: type.replace("-void", ""), documentRevision: revision, quantityDelta: -delta, reversalMovementId: { $exists: false } }, { session }).toArray() : [];
+  // Only a unique exact same-revision source can be linked; legacy/ambiguous rows
+  // remain replayable by their operation family rather than inventing a source.
+  const original = originals.length === 1 ? originals[0] : null;
   await db.collection("stockMovements").insertOne({
-    id: id("mov"), documentId: document.id, documentNumber: document.number,
+    id: movementId, documentId: document.id, documentNumber: document.number,
     warehouseId, warehouseName: warehouse.name, productId, productName: product.name,
     type, quantityDelta: delta, balanceBefore: before, balanceAfter: after, quantityUnit: product.perfumeStockUnit === "ml" ? "ml" : "piece", occurredAt: document.occurredAt,
+    documentRevision: revision, ...(original ? { reversalOfMovementId: original.id } : {}),
   }, { session });
+  if (original) await db.collection("stockMovements").updateOne({ _id: original._id }, { $set: { reversalMovementId: movementId } }, { session });
 }
 
 function perfumeLots(product: ProductDoc) {
@@ -186,6 +192,32 @@ async function restoreLiquidAllocations(db: Db, session: ClientSession, product:
   await savePerfumeLots(db, session, product, lots);
 }
 
+/** Reposting an unchanged stock line consumes its own restored allocations, not
+ * whichever lot happens to be first after unrelated later stock operations. */
+async function consumeHistoricalLiquidAllocations(db: Db, session: ClientSession, product: ProductDoc, warehouseId: string, quantity: number, historical: InvoiceLine) {
+  const lots = perfumeLots(product), byId = new Map(lots.map(lot => [lot.id, lot]));
+  const allocations: PerfumeAllocation[] = [];
+  let totalQuantity = 0, totalCost = 0;
+  for (const saved of historical.perfumeAllocations ?? []) {
+    const lot = byId.get(saved.lotId), factor = product.perfumeStockUnit === "ml" && saved.quantityUnit !== "ml" ? Number(product.legacyDecantUnitMl ?? 1) : 1;
+    const amount = roundMl(Number(saved.quantity) * factor), cost = Number(saved.unitCost) / factor;
+    if (!lot || String(saved.warehouseId) !== warehouseId || !Number.isFinite(factor) || factor <= 0 || !Number.isFinite(amount) || amount <= 0 || !Number.isFinite(cost) || cost < 0)
+      throw new PerfumeInvoiceCommandError("توزيع تكلفة البيع الأصلي غير صالح", 409);
+    const currentCost = Number(lot.liquidUnitCost ?? lot.landedUnitCost);
+    if ((product.perfumeStockUnit === "ml" && lot.quantityUnit !== "ml") || lot.recombinedAt || lot.settledAt || !Number.isFinite(currentCost) || Math.abs(currentCost - cost) > 1e-6)
+      throw new PerfumeInvoiceCommandError("تغيرت تكلفة الدفعة بعد البيع؛ ألغِ التصحيح الأحدث أولًا", 409);
+    const available = Number(lot.stocks?.[warehouseId] ?? 0);
+    if (available + 1e-9 < amount) throw new PerfumeInvoiceCommandError("رصيد دفعة البيع الأصلية غير كافٍ", 409);
+    lot.stocks = { ...(lot.stocks ?? {}), [warehouseId]: roundMl(available - amount) };
+    lot.remainingQuantity = roundMl(Number(lot.remainingQuantity) - amount);
+    allocations.push({ ...saved, quantity: amount, unitCost: cost, warehouseId, ...(product.perfumeStockUnit === "ml" ? { quantityUnit: "ml" } : {}) });
+    totalQuantity = roundMl(totalQuantity + amount); totalCost += amount * cost;
+  }
+  if (Math.abs(totalQuantity - quantity) > 1e-6) throw new PerfumeInvoiceCommandError("كمية توزيع البيع الأصلي غير مطابقة", 409);
+  await savePerfumeLots(db, session, product, lots);
+  return { allocations, totalCost };
+}
+
 function parseLines(body: Input) {
   if (!Array.isArray(body.lines) || !body.lines.length) throw new PerfumeInvoiceCommandError("يجب إضافة منتج واحد على الأقل");
   const seen = new Set<string>();
@@ -201,6 +233,7 @@ function parseLines(body: Input) {
 }
 
 async function refs(db: Db, session: ClientSession, body: Input, partyType: "customer" | "supplier", existing?: Record<string, unknown>) {
+  if (body.partyId != null && typeof body.partyId !== "string") throw new PerfumeInvoiceCommandError(partyType === "customer" ? "يجب اختيار عميل صالح" : "يجب اختيار مورد صالح");
   const partyId = text(body.partyId);
   const [warehouse, party] = await Promise.all([
     existing
@@ -209,7 +242,9 @@ async function refs(db: Db, session: ClientSession, body: Input, partyType: "cus
     partyId ? db.collection("parties").findOne({ id: partyId }, { session }) : null,
   ]);
   if (!warehouse) throw new PerfumeInvoiceCommandError("عيّن مخزن البيع الافتراضي من إدارة المخازن أولًا.", 409);
-  if (party && party.partyType !== partyType) throw new PerfumeInvoiceCommandError(partyType === "customer" ? "يجب اختيار عميل صالح" : "يجب اختيار مورد صالح");
+  const historicalParty = existing && String(existing.partyId ?? "") === partyId;
+  if (partyId && (!party || resolvePartyType(party) !== partyType || (party.isArchived === true && !historicalParty)))
+    throw new PerfumeInvoiceCommandError(partyType === "customer" ? "يجب اختيار عميل صالح" : "يجب اختيار مورد صالح");
   return { warehouse, warehouseId: String(warehouse._id), party, partyId };
 }
 
@@ -253,6 +288,7 @@ async function postSale(db: Db, session: ClientSession, body: Input, existing?: 
   if (products.size !== ids.length) throw new PerfumeInvoiceCommandError("أحد المنتجات غير موجود", 404);
   const doc = {
     ...(existing ? { id: String(existing.id), number: String(existing.number), sequence: existing.sequence, kind: "decant-sale", status: "posted", occurredAt: String(existing.occurredAt) } : await numberedDocument(db, session, "decant-sale", "DCS")),
+    revision: existing ? Number(existing.revision ?? 0) + 1 : 0,
     businessDate: existing?.businessDate ?? new Date().toISOString().slice(0, 10),
     partyId: partyId || null, partyName: party?.name ?? "بيع تقسيمات مباشر", warehouseId, warehouseName: warehouse.name,
     destinationWarehouseId: null, destinationWarehouseName: null, parentDocumentId: null, paymentMethod,
@@ -261,6 +297,7 @@ async function postSale(db: Db, session: ClientSession, body: Input, existing?: 
   for (const line of input) {
     const product = products.get(line.productId)!;
     const form = String(product.perfumeForm ?? "");
+    const historical = ((existing?.lines ?? []) as InvoiceLine[]).find(prior => prior.productId === line.productId && prior.quantity === line.quantity && String(prior.bottleProductId ?? "") === String(line.bottleProductId ?? "") && (form !== "decant" || product.perfumeStockUnit !== "ml" || Math.abs(lineLiquidMl(prior, product) - roundMl(line.quantity * Number(line.fillMl))) < 1e-6));
     if (form !== "decant" && form !== "bottle") throw new PerfumeInvoiceCommandError("فاتورة التقسيمات تقبل التقسيمات وزجاج التقسيمات فقط", 409);
     const lineTotal = Math.round(line.quantity * line.unitPrice);
     if (form === "decant") {
@@ -270,8 +307,9 @@ async function postSale(db: Db, session: ClientSession, body: Input, existing?: 
       const ml = product.perfumeStockUnit === "ml", fillMl = ml ? volumeMl(line.fillMl) : undefined;
       if (ml && (Number(bottle.decantSizeMl) < fillMl! || !Number.isFinite(Number(bottle.decantSizeMl)))) throw new PerfumeInvoiceCommandError("حجم التعبئة أكبر من سعة العبوة",409);
       const liquidQuantity = ml ? roundMl(line.quantity * fillMl!) : line.quantity;
-      const liquid = await consumeLiquidLots(db, session, product, warehouseId, liquidQuantity);
-      const bottleCost = await authoritativeCost(db, session, bottle);
+      const liquid = historical?.perfumeAllocations?.length ? await consumeHistoricalLiquidAllocations(db, session, product, warehouseId, liquidQuantity, historical) : await consumeLiquidLots(db, session, product, warehouseId, liquidQuantity);
+      const savedBottleCost = historical?.bottleUnitCost;
+      const bottleCost = savedBottleCost != null && Number.isFinite(Number(savedBottleCost)) && Number(savedBottleCost) >= 0 ? Number(savedBottleCost) : await authoritativeCost(db, session, bottle);
       if (bottleCost == null || bottleCost < 0) throw new PerfumeInvoiceCommandError(`لا توجد تكلفة شراء معتمدة للزجاجة ${bottle.name}`, 409);
       const totalCost = liquid.totalCost + line.quantity * bottleCost;
       doc.lines.push({
@@ -285,7 +323,8 @@ async function postSale(db: Db, session: ClientSession, body: Input, existing?: 
       await changeStock(db, session, bottle, warehouse, -line.quantity, doc, "decant-sale-bottle");
     } else {
       if (line.bottleProductId) throw new PerfumeInvoiceCommandError("بيع الزجاجة الفارغة لا يحتاج اختيار زجاجة أخرى");
-      const cost = await authoritativeCost(db, session, product);
+      const savedCost = historical?.costAtSale;
+      const cost = savedCost != null && Number.isFinite(Number(savedCost)) && Number(savedCost) >= 0 ? Number(savedCost) : await authoritativeCost(db, session, product);
       if (cost == null || cost < 0) throw new PerfumeInvoiceCommandError(`لا توجد تكلفة شراء معتمدة للزجاجة ${product.name}`, 409);
       doc.lines.push({ id: id("line"), productId: line.productId, description: String(product.name), quantity: line.quantity, unitPrice: line.unitPrice, lineTotal, costAtSale: cost, grossProfit: lineTotal - line.quantity * cost });
       await changeStock(db, session, product, warehouse, -line.quantity, doc, "decant-sale-empty-bottle");
@@ -314,6 +353,7 @@ async function postPurchase(db: Db, session: ClientSession, body: Input, existin
   if (products.size !== input.length) throw new PerfumeInvoiceCommandError("فاتورة شراء زجاج التقسيمات تقبل زجاج التقسيمات فقط", 409);
   const doc = {
     ...(existing ? { id: String(existing.id), number: String(existing.number), sequence: existing.sequence, kind: "decant-purchase", status: "posted", occurredAt: String(existing.occurredAt) } : await numberedDocument(db, session, "decant-purchase", "DCP")),
+    revision: existing ? Number(existing.revision ?? 0) + 1 : 0,
     partyId: partyId || null,
     partyName: party?.name ?? "شراء زجاج مباشر", warehouseId, warehouseName: warehouse.name,
     destinationWarehouseId: null, destinationWarehouseName: null, parentDocumentId: null, paymentMethod,
@@ -333,10 +373,11 @@ async function postPurchase(db: Db, session: ClientSession, body: Input, existin
   for (const line of input) {
     const product = products.get(line.productId)!;
     await changeStock(db, session, product, warehouse, line.quantity, doc, "decant-purchase");
-    await db.collection("products").updateOne({ id: line.productId }, { $set: { lastPurchaseCost: line.unitPrice, lastPurchaseAt: doc.occurredAt } }, { session });
-    product.lastPurchaseCost = line.unitPrice;
   }
   await persistInvoice(db, session, doc, existing);
+  // Persist the amended invoice first: its original business date must not
+  // replace a newer posted purchase as the product's authoritative latest cost.
+  for (const line of input) await recomputeBottleCost(db, session, line.productId);
   if (cashAmount) await financialMovement(db, session, doc, "out", cashAmount, "decant-purchase");
   return String(doc.id);
 }
@@ -389,14 +430,48 @@ async function editInvoice(db: Db, session: ClientSession, body: Input, kind: "d
   const expectedRevision = Number(body.expectedRevision ?? 0);
   if (!Number.isInteger(expectedRevision) || expectedRevision !== Number(existing.revision ?? 0))
     throw new PerfumeInvoiceCommandError("تغيرت الفاتورة منذ فتحها؛ أعد تحميلها قبل التعديل", 409);
+  const oldPartyId = text(existing.partyId), oldPayment = text(existing.paymentMethod);
+  const oldProductIds = [...new Set(((existing.lines ?? []) as InvoiceLine[]).flatMap(line => [line.productId, line.bottleProductId].filter((value): value is string => Boolean(value))))];
+  const [oldParty, oldWarehouse, oldAccount, archivedProducts] = await Promise.all([
+    oldPartyId ? db.collection("parties").findOne({ id: oldPartyId }, { session }) : null,
+    warehouses(db).findOne({ _id: String(existing.warehouseId) }, { session }),
+    oldPayment && oldPayment !== "note" ? db.collection("paymentAccounts").findOne({ $or: [{ id: oldPayment }, { code: oldPayment }] }, { session }) : null,
+    db.collection("products").find({ id: { $in: oldProductIds }, isArchived: true }, { session }).toArray(),
+  ]);
   // The exact opposite of posting runs first inside the SAME SQLite transaction.
   // Any error in the replacement (stock, lots, finance, parties) rolls both stages back.
+  let result: string;
   if (kind === "decant-sale") {
     await voidSale(db, session, { documentId });
-    return postSale(db, session, body, existing);
+    result = await postSale(db, session, body, existing);
+  } else {
+    await voidPurchase(db, session, { documentId });
+    result = await postPurchase(db, session, body, existing);
   }
-  await voidPurchase(db, session, { documentId });
-  return postPurchase(db, session, body, existing);
+  // Reversal may temporarily reopen historical records. A header-only edit is
+  // not an explicit restore request when the FINAL debt or stock is still zero.
+  // Any amount/quantity genuinely returned by the edit must remain visible.
+  if (oldParty?.isArchived === true) {
+    const current = await db.collection("parties").findOne({ id: oldPartyId }, { session });
+    if (current && partyNet(current as { receivable?: unknown; payable?: unknown }) === 0 && Number(current.receivable ?? 0) === 0 && Number(current.payable ?? 0) === 0)
+      await db.collection("parties").updateOne({ _id: current._id }, { $set: { isArchived: true, archivedAt: oldParty.archivedAt ?? new Date(), updatedAt: new Date() } }, { session });
+  }
+  if (oldAccount?.isArchived === true) {
+    const current = await db.collection("paymentAccounts").findOne({ _id: oldAccount._id }, { session });
+    if (current && Number(current.balance) === 0)
+      await db.collection("paymentAccounts").updateOne({ _id: current._id }, { $set: { isArchived: true, isActive: oldAccount.isActive === true, archivedAt: oldAccount.archivedAt ?? new Date(), updatedAt: new Date() } }, { session });
+  }
+  for (const original of archivedProducts) {
+    const current = await db.collection("products").findOne({ id: original.id }, { session });
+    if (current && Object.values((current.stocks ?? {}) as Record<string, unknown>).every(quantity => Number(quantity) === 0))
+      await db.collection("products").updateOne({ _id: current._id }, { $set: { isArchived: true, archivedAt: original.archivedAt ?? new Date(), updatedAt: new Date() } }, { session });
+  }
+  if (oldWarehouse?.isArchived === true) {
+    const occupied = await db.collection("products").findOne({ [`stocks.${String(oldWarehouse._id)}`]: { $exists: true, $ne: 0 } }, { session });
+    if (!occupied)
+      await warehouses(db).updateOne({ _id: oldWarehouse._id }, { $set: { isArchived: true, isSalesDefault: false, archivedAt: oldWarehouse.archivedAt ?? new Date(), updatedAt: new Date() } }, { session });
+  }
+  return result;
 }
 
 export async function handlePerfumeInvoiceCommand(db: Db, session: ClientSession, body: Input): Promise<string | null> {

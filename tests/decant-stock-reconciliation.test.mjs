@@ -109,7 +109,7 @@ test("decant warehouse transfer moves the exact perfume lots without changing bo
   assert.equal(moved.lots[0].stocks.wh2, 3);
   assert.equal(moved.lots[0].remainingQuantity, 8);
   assert.equal(perfumeLotBookValue(moved.lots[0]), 800);
-  assert.deepEqual(moved.allocations, [{ lotId: "lot-1", quantity: 3, unitCost: 100 }]);
+  assert.deepEqual(moved.allocations, [{ lotId: "lot-1", quantity: 3, unitCost: 100, quantityUnit: "piece" }]);
 
   const restored = reversePerfumeLotTransfer(moved.lots, "wh1", "wh2", moved.allocations);
   assert.equal(restored[0].stocks.wh1, 8);

@@ -3,7 +3,7 @@ import type { SqliteSession as ClientSession, SqliteDatabase as Db } from "../..
 import { getDatabase } from "../../../lib/sqlite.ts";
 import { log } from "../../../lib/log.ts";
 import { getPrincipalFromRequest, hasCapability, requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
-import { PerfumeInvoiceCommandError } from "../../perfume-invoice-commands.ts";
+import { serializeBusinessError } from "../../../lib/business-error.ts";
 import { resolvePartyType } from "../../domain.ts";
 import { handlePerfumeManagementCommand } from "../../perfume-management-commands.ts";
 import { execute as executeBaseCommand } from "./base-route.ts";
@@ -163,14 +163,8 @@ export async function POST(request: Request) {
     log("info", "api.command.completed", { commandType: type, entityId: result });
     return Response.json(response);
   } catch (error) {
-    const status = error instanceof CommandError || error instanceof PerfumeInvoiceCommandError
-      ? error.status
-      : typeof (error as { status?: unknown })?.status === "number"
-        ? Number((error as { status: number }).status)
-        : 500;
-    const message = status !== 500 && error instanceof Error ? error.message : "تعذر تنفيذ العملية";
+    const response = serializeBusinessError(error);
     log("error", "api.command.failed", { commandType: type, error });
-    const conflict=error as {code?:string;dependencies?:unknown};
-    return Response.json({ error: message,...(conflict.code==="PERFUME_OPERATION_BLOCKED"?{code:conflict.code,dependencies:conflict.dependencies}: {}) }, { status });
+    return Response.json(response.body, { status: response.status });
   }
 }

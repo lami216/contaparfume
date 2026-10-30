@@ -3,6 +3,7 @@ import type { PerfumeLot } from "./perfume-logic.ts";
 import { documentUsesPerfumeLot } from "./perfume-management.ts";
 import { roundMl } from "./perfume-volume.ts";
 import { perfumeLotEquals } from "./perfume-stock-reconciliation.ts";
+import { perfumeOperationBlocked } from "./perfume-operation-guards.ts";
 
 const conflict = () => Object.assign(new Error("لا يمكن إلغاء التحويل لأن له حركات لاحقة غير ملغاة، أو اختلافًا غير موثق في رصيد الدفعة."), { status: 409 });
 const values = (stocks: Record<string, number>) => Object.values(stocks).reduce((sum, value) => sum + Number(value), 0);
@@ -31,6 +32,15 @@ export async function restoreLegacySaleAllocations(db: Db, session: Session, ori
       const scale = lot.quantityUnit === "ml" && allocation.quantityUnit !== "ml" ? Number(lot.legacyQuantityScaleMl ?? product.legacyDecantUnitMl) : 1;
       const amount = Number(allocation.quantity) * scale, wh = String(allocation.warehouseId);
       if (!Number.isFinite(amount) || amount <= 0 || !wh || wh !== original.warehouseId) throw conflict();
+      // Restoring the historical quantity at a later yield-correction cost would
+      // manufacture inventory value. A unit conversion changes both operands;
+      // a genuine revaluation must be reversed before this older sale can be.
+      const originalUnitCost = Number(allocation.unitCost) / scale, currentUnitCost = Number(lot.liquidUnitCost ?? lot.landedUnitCost);
+      if (!equal(originalUnitCost, currentUnitCost)) {
+        const documents = await db.collection("documents").find({}, { session }).toArray(), anchor = documents.findIndex(document => document.id === original.id);
+        const corrections = documents.filter((document,index) => index > anchor && document.status === "posted" && document.perfumeStockOperationType === "yield-correction" && documentUsesPerfumeLot(document, productId, lot.id));
+        throw perfumeOperationBlocked("لا يمكن إلغاء البيع القديم لأن تقييم الدفعة أو تكلفتها تغير بعده؛ ألغِ تصحيح الناتج المرتبط أولًا:", corrections);
+      }
       lot.remainingQuantity = roundMl(Number(lot.remainingQuantity) + amount);
       lot.stocks = { ...lot.stocks, [wh]: roundMl(Number(lot.stocks[wh] ?? 0) + amount) };
       if (lot.remainingQuantity > lot.originalQuantity + Number(lot.quantityAdjustmentMl ?? 0) + 1e-8) throw conflict();
