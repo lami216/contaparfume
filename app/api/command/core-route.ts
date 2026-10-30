@@ -1,4 +1,5 @@
 import {expenseCategorySnapshot} from "../../../lib/expense-categories.ts";
+import { assertPerfumeCategoryCanBeDeleted, ensurePerfumeSystemCategories, perfumeSystemCategoryKind, resolvePerfumeProductCategory } from "../../../lib/perfume-system-categories.ts";
 import { requireValidLicense } from "../../../lib/license.ts";
 import type { SqliteSession as ClientSession, SqliteDatabase as Db } from "../../../lib/sqlite.ts";
 import { getDatabase } from "../../../lib/sqlite.ts";
@@ -655,8 +656,11 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
   }
   if (type === "product-category.create" || type === "product-category.update") {
     const categoryId = text(body.id), name = text(body.name);
+    if (type === "product-category.create" && (perfumeSystemCategoryKind(categoryId) || body.systemKind !== undefined)) throw new CommandError("فئات التقسيمات تلقائية؛ يمكنك تغيير اسم الفئة الموجودة فقط", 409);
+    if (perfumeSystemCategoryKind(categoryId)) await ensurePerfumeSystemCategories(db, session);
     if (!name) throw new CommandError("اسم الفئة مطلوب");
     if (name.length > 80) throw new CommandError("اسم الفئة طويل جدًا");
+    if (type === "product-category.update" && perfumeSystemCategoryKind(categoryId) && (await db.collection("productCategories").findOne({ id: categoryId }, { session }))?.name === name) return categoryId;
     const duplicate = await db.collection("productCategories").findOne({ name: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" }, ...(type === "product-category.update" ? { id: { $ne: categoryId } } : {}) }, { session });
     if (duplicate) throw new CommandError("هذه الفئة موجودة بالفعل", 409);
     if (type === "product-category.update") {
@@ -670,16 +674,19 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
   }
   if (type === "product-category.delete") {
     const categoryId = text(body.id), category = await db.collection("productCategories").findOne({ id: categoryId }, { session });
+    assertPerfumeCategoryCanBeDeleted(categoryId);
     if (!category) throw new CommandError("الفئة غير موجودة", 404);
     await db.collection("products").updateMany({ categoryId }, { $set: { categoryId: null } }, { session });
     await db.collection("productCategories").deleteOne({ id: categoryId }, { session });
+    await ensurePerfumeSystemCategories(db, session);
     return categoryId;
   }
   if (type === "product.create" || type === "product.update") {
     const name = text(body.name), barcode = text(body.barcode);
     if (!name) throw new CommandError("اسم المنتج مطلوب");
-    const productId = text(body.id), categoryId = text(body.categoryId);
-    if (categoryId && !await db.collection("productCategories").findOne({ id: categoryId }, { session })) throw new CommandError("الفئة غير موجودة", 404);
+    const productId = text(body.id), categoryProduct = type === "product.update" ? await db.collection("products").findOne({ id: productId }, { session }) ?? null : null;
+    if (type === "product.update" && !categoryProduct) throw new CommandError("المنتج غير موجود", 404);
+    const categoryId = await resolvePerfumeProductCategory(db, session, categoryProduct, body.categoryId);
     if (barcode && await db.collection("products").findOne({ barcode, ...(type === "product.update" ? { id: { $ne: productId } } : {}) }, { session })) throw new CommandError("هذا الباركود مستخدم لمنتج آخر", 409);
     const note = text(body.note);
     if (note.length > 1000) throw new CommandError("ملاحظة المنتج طويلة جدًا");

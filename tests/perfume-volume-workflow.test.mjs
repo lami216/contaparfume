@@ -81,6 +81,7 @@ test('fractional ml, capacity checks and aggregate shortages are atomic',async()
   await assert.rejects(f.sale([{quantity:1,fillMl:10,bottleProductId:'b5',unitPrice:1000}]),/سعة/);
   await assert.rejects(f.sale([{quantity:15,fillMl:5,bottleProductId:'b5',unitPrice:600},{quantity:3,fillMl:10,bottleProductId:'b10',unitPrice:1100}]),/غير كاف/);
   assert.equal((await f.get()).stocks[f.wh],100);assert.equal((await f.db.collection('products').findOne({id:'b5'})).stocks[f.wh],20);
+  await f.db.collection('products').updateOne({id:'b5'},{$set:{decantSizeMl:2.5}});
   const sale=await f.sale([{quantity:3,fillMl:2.5,bottleProductId:'b5',unitPrice:400}]);assert.equal((await f.get()).stocks[f.wh],92.5);
   await f.run({type:'decant-sale.void',documentId:sale});assert.equal((await f.get()).stocks[f.wh],100);
   await assert.rejects(f.sale([{quantity:1,fillMl:0.0001,bottleProductId:'b5',unitPrice:100}]),/الحجم/);

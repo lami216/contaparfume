@@ -1,6 +1,36 @@
 import type { Locale } from "./locale";
 
 const exactFrench: Record<string, string> = {
+  "ملاحظة بيع المتبقي طويلة جدًا؛ الحد الأقصى 2000 حرف": "La note du reliquat dépasse 2000 caractères.",
+  "عطر بيع المتبقي الأصلي غير موجود": "Le parfum de la vente du reliquat est introuvable.",
+  "عدّل بيع المتبقي من منطقة التحويل وبيع المتبقي": "Modifiez cette vente dans la zone de conversion et de vente du reliquat.",
+  "هذه فاتورة تقسيمات عادية؛ افتحها من فاتورة التقسيمات": "Ouvrez cette facture ordinaire dans les ventes de décants.",
+  "اختر دفعة العطر المتبقي ومخزنها": "Choisissez le lot de reliquat et son dépôt.",
+  "أدخل إجمالي سعر بيع المتبقي": "Saisissez le prix total du reliquat.",
+  "إجمالي سعر بيع المتبقي غير صالح": "Le prix total du reliquat est invalide.",
+  "الدفعة مغلقة أو أُرجع باقيها سابقًا؛ ألغِ العملية المرتبطة أولًا": "Ce lot est clôturé ou son reliquat a été retourné. Annulez d’abord l’opération liée.",
+  "كمية بيع المتبقي أكبر من رصيد الدفعة في المخزن": "La quantité vendue dépasse le stock de ce lot dans le dépôt.",
+  "لا توجد تكلفة معتمدة للمل في هذه الدفعة": "Ce lot ne dispose pas de coût validé par ml.",
+  "اختر دفعة عطر مقسم لبيع المتبقي": "Choisissez un lot de parfum décanté pour vendre son reliquat.",
+  "حدد حجم التقسيمة القديمة وحوّل رصيدها إلى المل قبل بيع المتبقي": "Définissez le volume de l’ancienne portion et convertissez son stock en ml avant de vendre le reliquat.",
+  "بيانات دفعات العطر أو وحداتها غير متطابقة؛ راجعها قبل البيع": "Les lots ou leurs unités sont incohérents. Vérifiez-les avant la vente.",
+  "رصيد الدفعة لا يطابق مجموع مخازنها؛ لم يتم تغيير المخزون": "Le solde du lot ne correspond pas à ses dépôts. Le stock reste inchangé.",
+  "رصيد العطر لا يطابق مجموع دفعاته؛ لم يتم تغيير المخزون": "Le solde du parfum ne correspond pas à ses lots. Le stock reste inchangé.",
+  "دفعة العطر المتبقي غير موجودة": "Lot du reliquat introuvable.",
+  "بيانات بيع المتبقي الأصلية غير متطابقة؛ لم يتم تغيير المخزون": "Les données de la vente initiale du reliquat sont incohérentes. Le stock reste inchangé.",
+  "ألغِ أو عدّل تسوية أو استهلاك الدفعة الأحدث قبل تعديل بيع المتبقي أو إلغائه:": "Annulez ou modifiez d’abord l’ajustement ou la consommation ultérieure de ce lot :",
+  "إلغاء بيع المتبقي يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:": "Cette annulation rouvrirait un ancien lot alors qu’un nouveau lot contient du stock. Traitez d’abord le nouveau lot :",
+  "حجم التعبئة المحفوظ لا يطابق كمية سائل الفاتورة الأصلية": "Le volume conservé ne correspond pas à la quantité de liquide de la facture initiale.",
+  "زجاجة التقسيمة غير صالحة": "Flacon de décantation invalide.",
+  "كمية زجاج التقسيمات غير صالحة": "Quantité de flacons invalide.",
+  "توجد أسطر تعبئة قديمة متشابهة؛ احتفظ بحجم كل سطر محفوظ عند تعديل الفاتورة": "Plusieurs anciennes lignes ont le même flacon. Conservez leur volume enregistré lors de la modification.",
+  "حجم التعبئة المحفوظ لا يمكن تغييره؛ غيّر الزجاجة أو الكمية لاستخدام سعة الزجاجة المسجلة": "Le volume historique est conservé. Changez le flacon ou la quantité pour utiliser la capacité actuelle.",
+  "حدد سعة زجاجة التقسيمة المسجلة بالمل أولًا": "Définissez d’abord la capacité du flacon en ml.",
+  "حجم التعبئة يجب أن يطابق سعة الزجاجة المسجلة": "Le volume rempli doit correspondre à la capacité enregistrée du flacon.",
+  "هذه فئة تلقائية للتقسيمات؛ يمكنك تغيير اسمها ولا يمكن حذفها": "Cette catégorie automatique peut être renommée, mais pas supprimée.",
+  "فئة هذا المنتج تلقائية بحسب نوعه؛ لا يمكن نقله إلى فئة أخرى": "La catégorie de ce produit est automatique et ne peut pas être remplacée.",
+  "هذه الفئة مخصصة تلقائيًا للتقسيمات أو زجاجها؛ اختر فئة عادية للمنتج": "Cette catégorie est réservée aux décants ou aux flacons. Choisissez une catégorie ordinaire.",
+  "استخدم بيع المتبقي من منطقة التحويل لبيع السائل دون زجاجة": "Utilisez Vente du reliquat dans la zone de conversion pour vendre le liquide sans flacon.",
   "حركة الدفع الأصلية لا تطابق مبلغ الفاتورة": "Le mouvement de paiement initial ne correspond pas au montant de la facture.",
   "إلغاء فاتورة تقسيمات": "Annulation d’une facture de décants",
   "إلغاء فاتورة شراء زجاج": "Annulation d’une facture d’achat de flacons",
@@ -73,7 +103,7 @@ export function translateApiError(locale: Locale, message: string): string {
   if (locale === "ar") return message;
   const exact = exactFrench[message];
   if (exact) return exact;
-  for (const prefix of ["لا يمكن إلغاء البيع القديم لأن تقييم الدفعة أو تكلفتها تغير بعده؛ ألغِ تصحيح الناتج المرتبط أولًا:","ألغِ الحركات القديمة المرتبطة قبل تهيئة المل، ثم أعد تسجيلها بالمل؛ صور هذه الحركات محفوظة بوحدة التقسيمة القديمة:"]) if (message.startsWith(prefix)) return exactFrench[prefix] + message.slice(prefix.length);
+  for (const prefix of ["ألغِ أو عدّل تسوية أو استهلاك الدفعة الأحدث قبل تعديل بيع المتبقي أو إلغائه:","إلغاء بيع المتبقي يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:","لا يمكن إلغاء البيع القديم لأن تقييم الدفعة أو تكلفتها تغير بعده؛ ألغِ تصحيح الناتج المرتبط أولًا:","ألغِ الحركات القديمة المرتبطة قبل تهيئة المل، ثم أعد تسجيلها بالمل؛ صور هذه الحركات محفوظة بوحدة التقسيمة القديمة:"]) if (message.startsWith(prefix)) return exactFrench[prefix] + message.slice(prefix.length);
   const insufficientBalance = message.match(/^الرصيد غير كافٍ في (.+)$/);
   if (insufficientBalance) return `Solde insuffisant sur ${insufficientBalance[1]}`;
   const insufficientStock = message.match(/^المخزون غير كافٍ للمنتج (.+)$/);

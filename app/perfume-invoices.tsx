@@ -25,7 +25,7 @@ import DecantFillPicker from "./decant-fill-picker";
 import { DEFAULT_PERFUME_SETTINGS, lineLiquidMl, roundMl, suggestedDecantPrice } from "./perfume-volume";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
-type Props = { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void; requestPrint: (id: string) => void; editRequest?: string | null; clearEditRequest?: () => void };
+type Props = { data: BootstrapData; run: RunCommand; openDoc: (id: string) => void; requestPrint: (id: string) => void; editRequest?: string | null; clearEditRequest?: () => void; onRemainderEdit?: (id:string)=>void };
 type DraftLine = { key: string; productId: string; quantity: string; unitPrice: string; bottleProductId: string; fillMl?: string; priceIsManual?:boolean };
 
 const lineKey = () => crypto.randomUUID();
@@ -92,7 +92,7 @@ function InvoiceBarcodeScanner({ products, onPick, onError }: {
   </button>;
 }
 
-function PaymentModeButtons({ note, onDirect, onNote, purchase = false }: { note: boolean; onDirect: () => void; onNote: () => void; purchase?: boolean }) {
+export function PaymentModeButtons({ note, onDirect, onNote, purchase = false }: { note: boolean; onDirect: () => void; onNote: () => void; purchase?: boolean }) {
   return <div className="invoice-meta-row" aria-label={tr("نوع الفاتورة")}>
     <button type="button" className="meta-option selection-option" aria-pressed={!note} onClick={onDirect}>
       <Banknote/><span><small>{tr("طريقة التحصيل")}</small><b>{tr("دفع مباشر")}</b></span>
@@ -134,7 +134,7 @@ function QuickInvoiceParty({ kind, run, anchor, onDone, close }: {
   </form>, document.body);
 }
 
-function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run, canCreate }: {
+export function InvoicePartyPicker({ partyId, onChange, parties, isCustomer, note, run, canCreate }: {
   partyId: string; onChange: (value: string) => void; parties: PartyOption[];
   isCustomer: boolean; note: boolean; run: RunCommand; canCreate: boolean;
 }) {
@@ -235,7 +235,7 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, canMana
           <SortableTableHeader column="total" label={tr("المبلغ")} sort={sort} toggle={toggle}/></tr></thead>
         <tbody>{sortedRows.map(document => <tr key={document.id} onClick={() => canManage ? onEdit(document) : openDoc(document.id)}>
           <td dir="ltr">{displayDocumentNumber(document)}</td>
-          <td>{statusParty(document)}</td>
+          <td>{statusParty(document)}{document.perfumeSaleMode==="remainder"&&<small>{tr("بيع المتبقي")}</small>}</td>
           <td className="num-cell"><span className="financial-amount money-neutral">{money(document.total)}</span></td>
         </tr>)}{!sortedRows.length && <tr><td colSpan={3}>{allTime ? emptyLabel : tr("لا توجد فواتير في هذه الفترة")}</td></tr>}</tbody>
       </table>
@@ -243,18 +243,18 @@ function InvoiceHistory({ title, emptyLabel, documents, openDoc, onEdit, canMana
   </InvoicePanel>;
 }
 
-export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editRequest, clearEditRequest }: Props) {
+export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editRequest, clearEditRequest, onRemainderEdit }: Props) {
   const confirmAction = useAppConfirm();
   const defaults=data.perfumeDefaults??DEFAULT_PERFUME_SETTINGS;
   const defaultWarehouse = preferredWarehouse(data.warehouses) ?? null;
   const [editingDocumentId, setEditingDocumentId] = useDecantSessionDraft<string | null>("sale-editing", null);
-  const editingDocument = editingDocumentId ? data.documents.find(document => document.id === editingDocumentId && document.kind === "decant-sale" && document.status === "posted") ?? null : null;
+  const editingDocument = editingDocumentId ? data.documents.find(document => document.id === editingDocumentId && document.kind === "decant-sale" && document.perfumeSaleMode!=="remainder" && document.status === "posted") ?? null : null;
   const warehouseId = editingDocument?.warehouseId ?? defaultWarehouse?.id ?? "";
-  const accounts = activePaymentAccounts(data.paymentAccounts);
-  const customers = data.parties.filter(party => party.partyType === "customer" && party.isArchived !== true);
-  const decants = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "decant"), [data.products]);
-  const bottles = useMemo(() => activeProducts(data.products).filter(product => product.perfumeForm === "bottle"), [data.products]);
-  const saleProducts = useMemo(() => [...decants, ...bottles], [decants, bottles]);
+  const accounts = data.paymentAccounts.filter(account=>activePaymentAccounts([account]).length>0||editingDocument?.paymentMethod===account.id||editingDocument?.paymentMethod===account.code);
+  const customers = data.parties.filter(party => party.partyType === "customer" && (!party.isArchived||party.id===editingDocument?.partyId));
+  const decants = data.products.filter(product => product.perfumeForm === "decant"&&(!product.isArchived||editingDocument?.lines.some(line=>line.productId===product.id)));
+  const bottles = data.products.filter(product => product.perfumeForm === "bottle"&&(!product.isArchived||editingDocument?.lines.some(line=>line.productId===product.id||line.bottleProductId===product.id)));
+  const saleProducts = [...decants,...bottles];
   const recent = useMemo(() => data.documents.filter(document => document.kind === "decant-sale"), [data.documents]);
   const [paymentMethod, setPaymentMethod] = useDecantSessionDraft("sale-payment", "");
   const [partyId, setPartyId] = useDecantSessionDraft("sale-party", "");
@@ -262,13 +262,13 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
   const [printAfterSave, setPrintAfterSave] = useState(false);
-  const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(line.unitPrice), 0);
+  const total = lines.reduce((sum, line) => sum + n(line.quantity) * n(priceTextForLine(line)), 0);
   const restoredStock = (productId: string) => (editingDocument?.lines ?? []).reduce((total, line) => {
     const product=data.products.find(item=>item.id===productId);
     const liquid=product?.perfumeStockUnit==="ml"?lineLiquidMl(line,product):line.quantity;
     return total+(line.productId===productId?liquid:0)+(line.bottleProductId===productId?Number(line.bottleQuantity??line.quantity):0);
   },0);
-  const pickerItems: DecantInvoiceSearchItem[] = saleProducts.map(product => ({
+  const pickerItems: DecantInvoiceSearchItem[] = saleProducts.filter(product=>!product.isArchived).map(product => ({
     id: product.id,
     name: product.name,
     sku: product.sku ?? "",
@@ -284,9 +284,10 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
   const loadDocument = async (document: DocumentRecord) => {
     if ((editingDocumentId || lines.length || partyId || paymentMethod) &&
       !await confirmAction({ message: tr("لديك تغييرات غير محفوظة. هل تريد تجاهلها وفتح الفاتورة الأخرى؟") })) return;
+    if(document.perfumeSaleMode==="remainder"){reset();onRemainderEdit?.(document.id);return;}
     setEditingDocumentId(document.id);
     setPartyId(document.partyId ?? "");
-    setPaymentMethod(document.paymentMethod ?? "");
+    setPaymentMethod(data.paymentAccounts.find(account=>account.id===document.paymentMethod||account.code===document.paymentMethod)?.id??document.paymentMethod??"");
     setLines(document.lines.map(line => ({
       key: line.id || lineKey(), productId: line.productId ?? "", quantity: String(line.quantity),
       unitPrice: String(line.unitPrice), bottleProductId: line.bottleProductId ?? "", fillMl:String(line.fillMl??data.products.find(p=>p.id===line.productId)?.legacyDecantUnitMl??defaults.fillMl),priceIsManual:true,
@@ -295,14 +296,14 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
   };
   const add = (productId: string) => {
     const product = saleProducts.find(item => item.id === productId);
-    if (!product) return;
+    if (!product||product.isArchived) return;
     if(product.perfumeForm==="decant"&&product.perfumeStockUnit!=="ml"){setLocalError(tr("هيئ الدفعة بالمل من تسوية المخزون"));return;}
-    const fillMl=product.perfumeForm==="decant"?String(defaults.fillMl):undefined;
-    const bottle=defaults.bottleProductId?bottles.find(p=>p.id===defaults.bottleProductId):bottles.find(p=>Number(p.decantSizeMl)>=defaults.fillMl&&stockInWarehouse(p,warehouseId)>0);
+    const bottle=(defaults.bottleProductId?bottles.find(p=>!p.isArchived&&p.id===defaults.bottleProductId&&Number(p.decantSizeMl)>0):undefined)??bottles.find(p=>!p.isArchived&&Number(p.decantSizeMl)>0&&stockInWarehouse(p,warehouseId)>0);
+    const fillMl=product.perfumeForm==="decant"&&bottle?String(bottle.decantSizeMl):undefined;
     const bottleProductId=product.perfumeForm==="decant"?bottle?.id??"":"";
     setLines(current=>{
-      const existing=current.find(line=>line.productId===product.id&&line.bottleProductId===bottleProductId&&line.fillMl===fillMl);
-      return existing?current.map(line=>line.key===existing.key?{...line,quantity:String(n(line.quantity)+1)}:line):[...current,{key:lineKey(),productId:product.id,quantity:"1",unitPrice:String(fillMl?suggestedDecantPrice(product,Number(fillMl)):product.piecePrice??0),bottleProductId,fillMl}];
+      const existing=current.find(line=>line.productId===product.id&&line.bottleProductId===bottleProductId);
+      return existing?current.map(line=>line.key===existing.key?{...line,quantity:String(n(line.quantity)+1)}:line):[...current,{key:lineKey(),productId:product.id,quantity:"1",unitPrice:String(fillMl?suggestedDecantPrice(product,Number(fillMl)):product.piecePrice??0),bottleProductId,fillMl,priceIsManual:false}];
     });
     
     setLocalError("");
@@ -316,13 +317,25 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
     // Explicit edit request is consumed once; later draft updates are independent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editRequest]);
-  const patch = (key: string, value: Partial<DraftLine>) => setLines(current => current.map(line => line.key === key ? { ...line, ...value } : line));
+  function fillForLine(line:DraftLine){
+    const prior=editingDocument?.lines.find(saved=>saved.id===line.key&&saved.productId===line.productId&&saved.quantity===n(line.quantity)&&String(saved.bottleProductId??"")===line.bottleProductId);
+    if(prior){const product=data.products.find(p=>p.id===line.productId);return Number(prior.fillMl??(product?lineLiquidMl(prior,product)/prior.quantity:0));}
+    return Number(bottles.find(bottle=>bottle.id===line.bottleProductId)?.decantSizeMl??0);
+  }
+  function priceTextForLine(line:DraftLine){
+    const product=saleProducts.find(p=>p.id===line.productId);if(product?.perfumeForm!=="decant")return line.unitPrice;
+    const historical=editingDocument?.lines.some(saved=>saved.id===line.key&&saved.productId===line.productId&&saved.quantity===n(line.quantity)&&String(saved.bottleProductId??"")===line.bottleProductId);
+    const recordedFill=Number(line.fillMl)||fillForLine(line),manual=line.priceIsManual??n(line.unitPrice)!==suggestedDecantPrice(product,recordedFill);
+    return historical||manual||fillForLine(line)<=0?line.unitPrice:String(suggestedDecantPrice(product,fillForLine(line)));
+  }
+  const patch = (key: string, value: Partial<DraftLine>) => setLines(current => current.map(line => {
+    if(line.key!==key)return line;const next={...line,...value},product=saleProducts.find(p=>p.id===line.productId);
+    if(product?.perfumeForm!=="decant"||(!Object.hasOwn(value,"quantity")&&!Object.hasOwn(value,"bottleProductId")))return next;
+    const oldFill=fillForLine(line),nextFill=fillForLine(next),manual=line.priceIsManual??n(line.unitPrice)!==suggestedDecantPrice(product,Number(line.fillMl)||oldFill);
+    return {...next,fillMl:String(nextFill),priceIsManual:manual,...(!manual&&nextFill>0?{unitPrice:String(suggestedDecantPrice(product,nextFill))}:{})};
+  }));
   const remove = (key: string) => setLines(current => current.filter(line => line.key !== key));
-  const patchFill=(line:DraftLine,value:{fillMl?:string;bottleProductId?:string})=>{
-    const product=saleProducts.find(p=>p.id===line.productId)!;
-    const oldFill=Number(line.fillMl)||defaults.fillMl,manual=line.priceIsManual??n(line.unitPrice)!==suggestedDecantPrice(product,oldFill);
-    patch(line.key,{...value,priceIsManual:manual,...(value.fillMl&&!manual?{unitPrice:String(suggestedDecantPrice(product,Number(value.fillMl)))}:{})});
-  };
+  const patchFill=(line:DraftLine,value:{bottleProductId:string})=>patch(line.key,value);
 
   const submit = async () => {
     setLocalError("");
@@ -332,14 +345,14 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
     if (paymentMethod !== "note" && !paymentMethod) { setLocalError(tr("اختر وسيلة الدفع")); return; }
     for (const line of lines) {
       const product = saleProducts.find(item => item.id === line.productId);
-      if (!product || !Number.isInteger(n(line.quantity)) || n(line.quantity) <= 0 || n(line.unitPrice) <= 0) { setLocalError(tr("راجع الكمية والسعر في الفاتورة")); return; }
+      if (!product || !Number.isInteger(n(line.quantity)) || n(line.quantity) <= 0 || n(priceTextForLine(line)) <= 0) { setLocalError(tr("راجع الكمية والسعر في الفاتورة")); return; }
       if (product.perfumeForm === "decant" && !line.bottleProductId) { setLocalError(tr("اختر زجاجة لكل عطر تقسيمات")); return; }
-      const requested=lines.filter(item=>item.productId===product.id).reduce((sum,item)=>sum+n(item.quantity)*(product.perfumeStockUnit==="ml"?Number(item.fillMl??defaults.fillMl):1),0);
+      const requested=lines.filter(item=>item.productId===product.id).reduce((sum,item)=>sum+n(item.quantity)*(product.perfumeStockUnit==="ml"?fillForLine(item):1),0);
       if (stockInWarehouse(product, warehouseId) + restoredStock(product.id) < roundMl(requested)) { setLocalError(tr("الكمية المطلوبة أكبر من المتوفر")); return; }
       if (product.perfumeForm === "decant") {
         const bottle = bottles.find(item => item.id === line.bottleProductId);
-        const fill=Number(line.fillMl??defaults.fillMl);
-        if(!Number.isFinite(fill)||fill<=0||!bottle||fill>Number(bottle.decantSizeMl)){setLocalError(tr("راجع حجم التعبئة وسعة العبوة"));return;}
+        const fill=fillForLine(line);
+        if(!Number.isFinite(fill)||fill<=0||!bottle){setLocalError(tr("راجع حجم التعبئة وسعة العبوة"));return;}
         const needed=lines.reduce((sum,item)=>sum+(item.bottleProductId===bottle.id||item.productId===bottle.id?n(item.quantity):0),0);
         if (stockInWarehouse(bottle, warehouseId) + restoredStock(bottle.id) < needed) { setLocalError(tr("مخزون زجاج التقسيمات غير كافٍ")); return; }
       }
@@ -353,7 +366,7 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
         paymentMethod,
         partyId: partyId || null,
         cashAmount: paymentMethod === "note" ? 0 : total,
-        lines: lines.map(line => ({ productId: line.productId, quantity: n(line.quantity), unitPrice: n(line.unitPrice), bottleProductId: line.bottleProductId || null, fillMl: saleProducts.find(p=>p.id===line.productId)?.perfumeForm==="decant"?Number(line.fillMl??defaults.fillMl):undefined })),
+        lines: lines.map(line => ({ productId: line.productId, quantity: n(line.quantity), unitPrice: n(priceTextForLine(line)), bottleProductId: line.bottleProductId || null, fillMl: saleProducts.find(p=>p.id===line.productId)?.perfumeForm==="decant"?fillForLine(line):undefined })),
       }, tr("تم اعتماد فاتورة التقسيمات"));
       reset();
       if (printAfterSave && typeof savedId === "string" && savedId) requestPrint(savedId);
@@ -382,16 +395,16 @@ export function DecantSaleInvoice({ data, run, openDoc, requestPrint, editReques
           <div className="erp-table-wrap invoice-preview-list">
             <table className="erp-table invoice-table" aria-label={tr("فاتورة التقسيمات")}>
               <colgroup><col style={{width:"30%"}}/><col style={{width:"16%"}}/><col style={{width:"10%"}}/><col style={{width:"16%"}}/><col style={{width:"20%"}}/><col style={{width:"8%"}}/></colgroup>
-              <thead><tr><th>{tr("الاسم")}</th><th>{tr("التعبئة")}</th><th>{tr("العدد")}</th><th>{tr("السعر")}</th><th>{tr("المجموع")}</th><th>{tr("حذف")}</th></tr></thead>
+              <thead><tr><th>{tr("الاسم")}</th><th>{tr("الزجاجة")}</th><th>{tr("العدد")}</th><th>{tr("السعر")}</th><th>{tr("المجموع")}</th><th>{tr("حذف")}</th></tr></thead>
               <tbody>{lines.length === 0 ? <tr className="invoice-empty-row"><td colSpan={6}>{tr("الفاتورة فارغة")}</td></tr> : lines.map(line => {
-                const product = saleProducts.find(item => item.id === line.productId)!;
-                const isDecant = product.perfumeForm === "decant";
+                const product = saleProducts.find(item => item.id === line.productId);
+                const isDecant = product?.perfumeForm === "decant";
                 return <tr key={line.key}>
-                  <td className="name-cell decant-compact-name" title={product.name}><ProductName name={product.name}/></td>
-                  <td>{isDecant?<DecantFillPicker fillMl={line.fillMl??String(defaults.fillMl)} bottleProductId={line.bottleProductId} bottles={bottles.map(bottle=>({...bottle,stocks:{...bottle.stocks,[warehouseId]:stockInWarehouse(bottle,warehouseId)+restoredStock(bottle.id)}}))} warehouseId={warehouseId} count={n(line.quantity)} onChange={value=>patchFill(line,value)}/>:"—"}</td>
+                  <td className="name-cell decant-compact-name" title={product?.name}><ProductName name={product?.name??tr("المنتج غير متاح؛ احذف السطر وأعد اختياره")}/></td>
+                  <td>{isDecant?<DecantFillPicker fillMl={String(fillForLine(line)||"")} bottleProductId={line.bottleProductId} bottles={bottles.map(bottle=>({...bottle,stocks:{...bottle.stocks,[warehouseId]:stockInWarehouse(bottle,warehouseId)+restoredStock(bottle.id)}}))} warehouseId={warehouseId} count={n(line.quantity)} onChange={value=>patchFill(line,value)}/>:"—"}</td>
                   <td className="num-cell"><input className="num" dir="ltr" type="number" min="1" step="1" value={line.quantity} onChange={event => patch(line.key, { quantity: event.target.value })}/></td>
-                  <td className="num-cell"><input className="num" dir="ltr" type="number" min="0" value={line.unitPrice} onChange={event => patch(line.key, { unitPrice: event.target.value, priceIsManual:true })}/></td>
-                  <td className="num-cell"><span className="financial-amount money-neutral">{money(n(line.quantity) * n(line.unitPrice))}</span></td>
+                  <td className="num-cell"><input className="num" dir="ltr" type="number" min="0" value={priceTextForLine(line)} onChange={event => patch(line.key, { unitPrice: event.target.value, priceIsManual:true })}/></td>
+                  <td className="num-cell"><span className="financial-amount money-neutral">{money(n(line.quantity) * n(priceTextForLine(line)))}</span></td>
                   <td className="action-cell"><button type="button" className="row-delete" aria-label={tr("حذف")} onClick={() => remove(line.key)}><X/></button></td>
                 </tr>;
               })}</tbody>

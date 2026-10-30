@@ -52,6 +52,7 @@ export function activeWarehouses<T extends Pick<Warehouse, "isArchived">>(wareho
 export interface ProductCategory {
   id: string;
   name: string;
+  systemKind?: "perfume-decants" | "perfume-bottles";
   createdAt?: string;
 }
 export interface ExpenseCategory {id:string;name:string;createdAt?:string}
@@ -128,6 +129,9 @@ export interface DocumentLine {
   balanceAfter?: number;
 }
 export interface DocumentRecord {
+  perfumeSaleMode?: "remainder";
+  perfumeSaleSource?: "perfume-remainder";
+  remainderQuantityMl?: number;
   quantityUnit?: "ml" | "piece";
   actualQuantity?: number;
   inventoryGain?: number;

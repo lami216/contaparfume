@@ -10,11 +10,18 @@ import { execute as executeBaseCommand } from "./base-route.ts";
 import { execute as executeCoreCommand } from "./core-route.ts";
 import { restoreLegacySaleAllocations } from "../../perfume-split-reversal.ts";
 import {createExpenseCategory} from "../../../lib/expense-categories.ts";
+import { assertPerfumeCategoryCanBeDeleted, ensurePerfumeSystemCategories, perfumeSystemCategoryKind } from "../../../lib/perfume-system-categories.ts";
 
 type Input = Record<string, unknown>;
 class CommandError extends Error { status: number; constructor(message: string, status = 400) { super(message); this.status = status; } }
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
+
+async function executePerfumeCommand(db: Db, session: ClientSession, body: Input) {
+  const result = await executeBaseCommand(db, session, body);
+  await ensurePerfumeSystemCategories(db, session);
+  return result;
+}
 
 export async function execute(db: Db, session: ClientSession, body: Input) {
   const type = text(body.type);
@@ -28,8 +35,8 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     const p=await db.collection("products").findOne({id:text(body.id),perfumeForm:{$in:["decant","bottle"]}},{session});
     if(p&&(Object.values((p.stocks??{}) as Input).some(value=>Number(value)!==0)||(Array.isArray(p.perfumeLots)&&p.perfumeLots.some(lot=>Number((lot as Input).remainingQuantity)!==0))))throw new CommandError("سوِّ رصيد السائل أو الزجاج من التقسيمات مع تحديد سبب الفرق قبل أرشفة الصنف",409);
   }
-  const management = await handlePerfumeManagementCommand(db, session, body, executeBaseCommand, executeCoreCommand);
-  if (management.handled) return management.result;
+  const management = await handlePerfumeManagementCommand(db, session, body, executePerfumeCommand, executeCoreCommand);
+  if (management.handled) { await ensurePerfumeSystemCategories(db, session); return management.result; }
   if (type === "sale.void") {
     const original = await db.collection("documents").findOne({ id: text(body.documentId), kind: "sale", status: "posted" }, { session });
     const result = await executeCoreCommand(db, session, body);
@@ -38,8 +45,11 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
   }
   if (type === "product-category.create" || type === "product-category.update") {
     const categoryId = text(body.id), name = text(body.name);
+    if (type === "product-category.create" && (perfumeSystemCategoryKind(categoryId) || body.systemKind !== undefined)) throw new CommandError("فئات التقسيمات تلقائية؛ يمكنك تغيير اسم الفئة الموجودة فقط", 409);
+    if (perfumeSystemCategoryKind(categoryId)) await ensurePerfumeSystemCategories(db, session);
     if (!name) throw new CommandError("اسم الفئة مطلوب");
     if (name.length > 80) throw new CommandError("اسم الفئة طويل جدًا");
+    if (type === "product-category.update" && perfumeSystemCategoryKind(categoryId) && (await db.collection("productCategories").findOne({ id: categoryId }, { session }))?.name === name) return categoryId;
     const categories = await db.collection("productCategories").find({}, { session, projection: { id: 1, name: 1 } }).toArray();
     const normalized = name.toLocaleLowerCase();
     const duplicate = categories.some(category => String(category.name ?? "").trim().toLocaleLowerCase() === normalized && (type !== "product-category.update" || String(category.id) !== categoryId));
@@ -56,14 +66,16 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
   }
   if (type === "product-category.delete") {
     const categoryId = text(body.id);
+    assertPerfumeCategoryCanBeDeleted(categoryId);
     const category = categoryId ? await db.collection("productCategories").findOne({ id: categoryId }, { session }) : null;
     if (!category) throw new CommandError("الفئة غير موجودة", 404);
     await db.collection("products").updateMany({ categoryId }, { $set: { categoryId: null } }, { session });
     await db.collection("productCategories").deleteOne({ id: categoryId }, { session });
+    await ensurePerfumeSystemCategories(db, session);
     return categoryId;
   }
-  const perfumeCommands = new Set(["perfume-volume.migrate","perfume-defaults.update","product.delete","product.stock-zero","product.restore","perfume-bottle.create","decant-sale.post","decant-sale.update","decant-sale.void","decant-purchase.post","decant-purchase.update","decant-purchase.void","perfume-split.post","perfume-recombine.post","perfume-opening.post","perfume-lot-consume.post","perfume-lot-correct.post","perfume-stock-operation.void"]);
-  return perfumeCommands.has(type) ? executeBaseCommand(db, session, body) : executeCoreCommand(db, session, body);
+  const perfumeCommands = new Set(["perfume-volume.migrate","perfume-defaults.update","product.delete","product.stock-zero","product.restore","perfume-bottle.create","decant-sale.post","decant-sale.update","decant-sale.void","decant-purchase.post","decant-purchase.update","decant-purchase.void","perfume-remainder-sale.post","perfume-remainder-sale.update","perfume-split.post","perfume-recombine.post","perfume-opening.post","perfume-lot-consume.post","perfume-lot-correct.post","perfume-stock-operation.void"]);
+  return perfumeCommands.has(type) ? executePerfumeCommand(db, session, body) : executeCoreCommand(db, session, body);
 }
 
 export async function POST(request: Request) {
@@ -79,6 +91,7 @@ export async function POST(request: Request) {
       "warehouse.create":"warehouses.create","warehouse.update":"warehouses.edit","warehouse.default":"warehouses.edit","warehouse.delete":"warehouses.delete",
       "sale.post":"pos.create","sale.update":"pos.edit","sale.void":"pos.delete","purchase.post":"purchases.create","purchase.update":"purchases.edit","purchase.void":"purchases.delete",
       "perfume-volume.migrate":"perfume.divisions.manage","perfume-defaults.update":"perfume.divisions.manage",
+      "perfume-remainder-sale.post":"perfume.divisions.manage","perfume-remainder-sale.update":"perfume.divisions.manage",
       "perfume-management.update":"perfume.divisions.manage","perfume-management.void":"perfume.divisions.manage","perfume-bottle-stock.post":"perfume.divisions.manage","perfume-bottle.update":"perfume.divisions.manage","perfume-bottle.archive":"perfume.divisions.manage","perfume-bottle.restore":"perfume.divisions.manage",
       "perfume-bottle.create":"perfume.divisions.manage","decant-sale.post":"perfume.divisions.manage","decant-sale.update":"perfume.divisions.manage","decant-sale.void":"perfume.divisions.manage","decant-purchase.post":"perfume.divisions.manage","decant-purchase.update":"perfume.divisions.manage","decant-purchase.void":"perfume.divisions.manage","perfume-split.post":"perfume.divisions.manage","perfume-recombine.post":"perfume.divisions.manage","perfume-opening.post":"perfume.divisions.manage","perfume-lot-consume.post":"perfume.divisions.manage","perfume-lot-correct.post":"perfume.divisions.manage","perfume-stock-operation.void":"perfume.divisions.manage",
       "transfer.post":"warehouses.transfer","transfer.update":"warehouses.transfer.edit","transfer.void":"warehouses.transfer.delete",

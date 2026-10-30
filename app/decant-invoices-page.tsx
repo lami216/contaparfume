@@ -19,13 +19,15 @@ const tabs = [
 ] as const;
 export default function DecantInvoicesPage({ data, run, openDoc, onSource, requestPrint, editRequest, clearEditRequest }: Props) {
   const [mode, setMode] = useState<DecantInvoiceMode>("sale");
+  const [localEditRequest,setLocalEditRequest]=useState<string|null>(null);
+  const activeEditRequest=editRequest??localEditRequest;
   const managementRef = useRef<PerfumeManagementNavigation>(null);
-  const requestedDocument = editRequest ? data.documents.find(item => item.id === editRequest && (item.status === "posted" || managementKind(item))) : null;
+  const requestedDocument = activeEditRequest ? data.documents.find(item => item.id === activeEditRequest && (item.status === "posted" || managementKind(item))) : null;
   const kind = requestedDocument ? managementKind(requestedDocument) : null;
-  const requestedMode: DecantInvoiceMode | null = requestedDocument?.kind === "decant-sale" ? "sale"
+  const requestedMode: DecantInvoiceMode | null = requestedDocument?.perfumeSaleMode==="remainder"?"convert":requestedDocument?.kind === "decant-sale" ? "sale"
     : requestedDocument?.kind === "decant-purchase" ? "purchase" : kind ? managementTabForKind(kind) : null;
   const activeMode = requestedMode ?? mode, management = isManagement(activeMode);
-  const finishEditRequest = () => { if (requestedMode) setMode(requestedMode); clearEditRequest?.(); };
+  const finishEditRequest = () => { if (requestedMode) setMode(requestedMode); setLocalEditRequest(null);clearEditRequest?.(); };
   const changeMode = async (next: DecantInvoiceMode) => {
     if (next === activeMode) return;
     if (management && managementRef.current) {
@@ -46,10 +48,10 @@ export default function DecantInvoicesPage({ data, run, openDoc, onSource, reque
     </section>
     <div className={`decant-invoices-hub-body${management ? " management" : ""}`} role="tabpanel">
       {activeMode === "sale"
-        ? <DecantSaleInvoice data={data} run={run} openDoc={openDoc} requestPrint={requestPrint} editRequest={editRequest} clearEditRequest={finishEditRequest}/>
+        ? <DecantSaleInvoice data={data} run={run} openDoc={openDoc} requestPrint={requestPrint} editRequest={activeEditRequest} clearEditRequest={finishEditRequest} onRemainderEdit={setLocalEditRequest}/>
         : activeMode === "purchase"
-          ? <DecantBottlePurchaseInvoice data={data} run={run} openDoc={openDoc} requestPrint={requestPrint} editRequest={editRequest} clearEditRequest={finishEditRequest}/>
-          : <PerfumeDivisions section={activeMode} navigationRef={managementRef} onSectionChange={setMode} data={data} run={run} openDoc={openDoc} onSource={onSource} editRequest={editRequest} clearEditRequest={finishEditRequest}/>
+          ? <DecantBottlePurchaseInvoice data={data} run={run} openDoc={openDoc} requestPrint={requestPrint} editRequest={activeEditRequest} clearEditRequest={finishEditRequest}/>
+          : <PerfumeDivisions section={activeMode} navigationRef={managementRef} onSectionChange={setMode} data={data} run={run} openDoc={openDoc} onSource={onSource} editRequest={activeEditRequest} clearEditRequest={finishEditRequest}/>
       }
     </div>
   </div>;

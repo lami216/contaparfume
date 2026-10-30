@@ -40,7 +40,8 @@ test("decant invoices follow the same all-paid-or-note settlement rule", async (
   const matches = commands.match(/الدفع الجزئي داخل الفاتورة غير مدعوم/g) ?? [];
   assert.equal(matches.length, 2);
   assert.match(commands, /paymentMethod === "note" \? doc\.total : 0/);
-  assert.match(commands, /partyDelta = dueTotal/);
+  assert.match(commands, /dueTotal \? await applyPartyNetDelta\(db, session, partyId, dueTotal\)/);
+  assert.equal((commands.match(/return finishSaleInvoice\(db, session, body, doc, party, partyId, existing\)/g) ?? []).length, 2);
   assert.match(commands, /partyDelta = -dueTotal/);
 });
 

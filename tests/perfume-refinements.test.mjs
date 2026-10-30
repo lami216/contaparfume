@@ -86,6 +86,7 @@ test('legacy manual millilitre openings retain their recorded value on edit',asy
 });
 test('specialized sale and bottle purchase both use the sole active warehouse without requiring the default flag',async t=>{
  const f=await fixture(t),id=await f.opening(),d=await f.doc(id);
+ await f.db.collection('products').updateOne({id:'glass'},{$set:{decantSizeMl:5}});
  const sale=await f.run({type:'decant-sale.post',paymentMethod:'cash',lines:[{productId:d.decantProductId,quantity:1,fillMl:5,bottleProductId:'glass',unitPrice:100}]});
  assert.equal((await f.doc(sale)).warehouseId,'w');assert.equal((await f.product(d.decantProductId)).stocks.w,35);
  const purchase=await f.run({type:'decant-purchase.post',paymentMethod:'cash',lines:[{productId:'glass',quantity:2,unitPrice:5}]});assert.equal((await f.doc(purchase)).warehouseId,'w');

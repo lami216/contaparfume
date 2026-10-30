@@ -12,11 +12,13 @@ import { getCurrencySettings } from "../../../lib/currency-settings";
 import { classifyStockMovementType, collapseLegacyStockEditMovements } from "../../stock-movement";
 import { canReadOperationalDocument, isEffectiveFinancialMovement, resolveCurrentPartyName } from "../../../lib/document-read-model";
 import { resolvePerfumeDefaults, presentVolumeMovement } from "../../perfume-volume";
+import { ensurePerfumeSystemCategories, perfumeSystemCategoryKind } from "../../../lib/perfume-system-categories.ts";
 
 export async function GET(request: Request) {const licenseDenied=await requireValidLicense();if(licenseDenied)return licenseDenied;
   const principal=await getPrincipalFromRequest(request);if(!principal)return Response.json({error:"غير مصرح"},{status:401});
   try {
     const db = await getDatabase();
+    await db.transaction(session => ensurePerfumeSystemCategories(db, session));
 
     const [parties, warehouses, products, categories, documents, movements, financialMovements, paymentAccounts, accountTransfers, productCounter, nextSale, nextPurchase, nextExpense, nextDecantSale, nextDecantPurchase, branding, currency] = await Promise.all([
       db.collection("parties").find().sort({ name: 1 }).toArray(), db.collection("warehouses").find().sort({ isSalesDefault: -1, name: 1 }).toArray(),
@@ -33,7 +35,7 @@ export async function GET(request: Request) {const licenseDenied=await requireVa
     const clean = (rows: Array<Record<string, unknown>>) => rows.map(({ _id, ...row }) => ({ id: row.id ?? String(_id), ...row }));
     const postedCostDocuments=documents.filter(document=>document.status==="posted"&&["purchase","decant-purchase","adjustment"].includes(String(document.kind)));
     const cleanProducts = clean(await productsWithCurrentCosts(db, products, postedCostDocuments)).map(product => ({ ...product, wholesalePrice: (product as Record<string, unknown>).wholesalePrice ?? null, expiryDate: (product as Record<string, unknown>).expiryDate ?? null, note: (product as Record<string, unknown>).note ?? null, categoryId: (product as Record<string, unknown>).categoryId ?? null }));
-    const cleanCategories = clean(categories).map(category => { const item = category as Record<string, unknown>; return { id: String(item.id ?? ""), name: String(item.name ?? "") }; }).filter(category => category.id && category.name);
+    const cleanCategories = clean(categories).map(category => { const item = category as Record<string, unknown>, systemKind = perfumeSystemCategoryKind(item.id); return { id: String(item.id ?? ""), name: String(item.name ?? ""), ...(systemKind ? { systemKind } : {}) }; }).filter(category => category.id && category.name);
     const documentHints = new Map(documents.map(document => [String(document.id ?? document._id ?? ""), document]));
     const productHints=new Map(products.map(product=>[String(product.id),product]));
     const cleanMovements = collapseLegacyStockEditMovements(clean(movements as Array<Record<string, unknown>>).map((input:Record<string,unknown>)=>{

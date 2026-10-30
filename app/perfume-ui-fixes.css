@@ -1488,6 +1488,14 @@
 .decant-invoices-hub .decant-fill-trigger { display:inline-flex; align-items:center; justify-content:center; gap:4px; width:100%; min-width:0; padding:3px 5px; white-space:nowrap; }
 .decant-invoices-hub .decant-fill-trigger svg { width:12px; height:12px; flex-shrink:0; }
 .decant-invoices-hub .decant-fill-trigger.missing { border-color:var(--danger); }
+.decant-invoices-hub .decant-fill-trigger span { min-width:0;overflow:hidden;text-overflow:ellipsis; }
+.products-page .product-category-filter { flex:0 1 190px;min-width:130px; }
+.products-page .product-category-filter select { width:100%;min-height:34px;height:34px;font-size:12px; }
+.products-page .product-category-filter .sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0; }
+.pm-remainder-payment { display:grid;gap:8px; }
+.pm-remainder-payment .pos-payment-row { min-width:0; }
+.pm-remainder-payment label { min-width:0; }
+.pm-remainder-payment select { width:100%; }
 .decant-invoices-hub .decant-compact-name > span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .decant-fill-popover { display:grid; gap:8px; }
 .decant-fill-popover label { display:grid; gap:4px; min-width:0; }

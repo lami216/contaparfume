@@ -62,6 +62,7 @@ test('new general invoice and archive paths cannot bypass liquid allocation or c
 });
 test('default capacity follows bottle selection and metadata changes without rewriting historical fills or costs',async t=>{
  const f=await fixture(t),s=await f.split();await f.run({type:'perfume-defaults.update',bottleProductId:'bottle'});assert.deepEqual(resolvePerfumeDefaults({bottleProductId:'bottle',fillMl:5},[await f.product('bottle')]),{bottleProductId:'bottle',fillMl:10});
+ await f.run({type:'perfume-bottle.update',id:'bottle',name:'Smaller',sizeMl:5,cost:5});
  const sale=await f.run({type:'decant-sale.post',paymentMethod:'cash',lines:[{productId:s.decantProductId,quantity:1,fillMl:5,bottleProductId:'bottle',unitPrice:100}]});const original=await f.doc(sale),r=await f.report();
  await f.run({type:'perfume-bottle.update',id:'bottle',name:'Larger',sizeMl:12,cost:7});assert.deepEqual(await f.doc(sale),original);assert.equal((await f.db.collection('appSettings').findOne({_id:'perfume-defaults'})).fillMl,12);assert.deepEqual(await f.report(),r);
  const boot=await bootstrap(new Request('http://localhost/api/bootstrap'));assert.equal((await boot.json()).perfumeDefaults.fillMl,12);
@@ -90,7 +91,7 @@ test('general history presents migrated quantities in ml and neutralizes technic
  assert.equal((await f.get('resource=stockMovements&scope=perfume')).rows.find(r=>r.id==='old-movement').quantityDelta,40);
 });
 test('complete composed lifecycle preserves report values through revisions and reversals in context order',async t=>{
- const f=await fixture(t),baseline=await f.report(),s=await f.split();const sale=await f.run({type:'decant-sale.post',paymentMethod:'cash',lines:[{productId:s.decantProductId,quantity:2,fillMl:5,bottleProductId:'bottle',unitPrice:100}]});
+ const f=await fixture(t),baseline=await f.report(),s=await f.split();await f.db.collection('products').updateOne({id:'bottle'},{$set:{decantSizeMl:5}});const sale=await f.run({type:'decant-sale.post',paymentMethod:'cash',lines:[{productId:s.decantProductId,quantity:2,fillMl:5,bottleProductId:'bottle',unitPrice:100}]});
  const count=await f.run({type:'perfume-lot-correct.post',decantProductId:s.decantProductId,lotId:s.perfumeLotId,warehouseId:'w',actualQuantity:88,reason:'Measured'});let r=await f.report();assert.equal(r.salesProfit,90);assert.equal(r.inventoryLoss,20);assert.equal(r.netOperatingResult,70);
  const revised=await f.run({type:'perfume-management.update',documentId:count,expectedRevision:0,decantProductId:s.decantProductId,lotId:s.perfumeLotId,warehouseId:'w',actualQuantity:91,reason:'Recount'});r=await f.report();assert.equal(r.inventoryLoss,0);assert.equal(r.inventoryGain,10);assert.equal(r.netOperatingResult,100);
  await f.run({type:'perfume-management.void',documentId:revised});await f.run({type:'decant-sale.void',documentId:sale});await f.run({type:'perfume-management.void',documentId:s.id});r=await f.report();for(const key of ['sales','salesProfit','inventoryLoss','inventoryGain','currentInventoryValue','currentAccountsBalance','netOperatingResult'])assert.equal(r[key],baseline[key],key);

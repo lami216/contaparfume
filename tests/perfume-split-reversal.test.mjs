@@ -11,7 +11,7 @@ async function setup(t,{legacy=false}={}) {
   await db.collection('paymentAccounts').insertOne({id:'cash',code:'cash',name:'Cash',openingBalance:10000,balance:10000,isActive:true});
   await db.collection('products').insertMany([
     {id:'full',sku:'1',name:'Perfume',perfumeForm:'full',stocks:{w:3},openingCost:1000,lastPurchaseCost:1000,pieceCost:1000,piecePrice:1500},
-    {id:'bottle',sku:'2',name:'Bottle',perfumeForm:'bottle',stocks:{w:20},openingCost:5,lastPurchaseCost:5,pieceCost:5,decantSizeMl:10},
+    {id:'bottle',sku:'2',name:'Bottle',perfumeForm:'bottle',stocks:{w:20},openingCost:5,lastPurchaseCost:5,pieceCost:5,decantSizeMl:5},
   ]);
   const run=body=>db.transaction(session=>execute(db,session,body));
   const split=await run({type:'perfume-split.post',sourceProductId:'full',warehouseId:'w',salePrice:150,...(legacy?{divisionsCount:9}:{volumeMl:100,priceBasisMl:10})});

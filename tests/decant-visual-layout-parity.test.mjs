@@ -33,7 +33,7 @@ test("specialized sales and purchases use identical regular workspace, table and
   assert.match(standard, /transaction-workspace pos-workspace/);
   assert.match(standard, /transaction-workspace purchase-workspace/);
   assert.match(sale, /<DecantFillPicker/);
-  assert.match(sale, /<th>\{tr\("التعبئة"\)\}<\/th>/);
+  assert.match(sale, /<th>\{tr\("الزجاجة"\)\}<\/th>/);
   assert.doesNotMatch(sale, /className="decant-line-bottle"/);
   assert.doesNotMatch(sale, /<th>\{tr\("زجاجة التقسيمة"\)\}<\/th>/);
   assert.doesNotMatch(purchase, /<th>\{tr\("الحجم"\)\}<\/th>/);
