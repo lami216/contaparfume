@@ -52,8 +52,10 @@ export function activeWarehouses<T extends Pick<Warehouse, "isArchived">>(wareho
 export interface ProductCategory {
   id: string;
   name: string;
+  systemKind?: "perfume-decants" | "perfume-bottles";
   createdAt?: string;
 }
+export interface ExpenseCategory {id:string;name:string;createdAt?:string}
 export interface Product {
   id: string;
   name: string;
@@ -127,6 +129,9 @@ export interface DocumentLine {
   balanceAfter?: number;
 }
 export interface DocumentRecord {
+  perfumeSaleMode?: "remainder";
+  perfumeSaleSource?: "perfume-remainder";
+  remainderQuantityMl?: number;
   quantityUnit?: "ml" | "piece";
   actualQuantity?: number;
   inventoryGain?: number;
@@ -150,6 +155,8 @@ export interface DocumentRecord {
   toAccountId?: string | null;
   status: string;
   title: string | null;
+  expenseCategoryId?: string | null;
+  expenseCategoryName?: string | null;
   note?: string | null;
   /** Opening-stock audit metadata for initial balances and later corrections. */
   openingCorrection?: boolean;
@@ -162,6 +169,8 @@ export interface DocumentRecord {
   perfumeManagementType?: import("./perfume-management").ManagementKind;
   perfumeConversionType?: string;
   managementInput?: Record<string, unknown>;
+  openingBottleCost?: number;
+  openingOriginalVolumeMl?: number;
   managementProductId?: string;
   bottleStockReason?: import("./perfume-management").BottleStockReason;
   sourceProductId?: string;
@@ -232,6 +241,7 @@ export interface BootstrapData {
   warehouses: Warehouse[];
   products: Product[];
   categories: ProductCategory[];
+  expenseCategories?: ExpenseCategory[];
   documents: DocumentRecord[];
   movements: Movement[];
   financialMovements: FinancialMovement[];

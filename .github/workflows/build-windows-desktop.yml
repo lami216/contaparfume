@@ -43,7 +43,8 @@ jobs:
       - name: Verify Windows artifacts
         shell: pwsh
         run: |
-          $artifacts = @("dist/AlKarna-Perfume-Setup-x64.exe")
+          $packageVersion = (Get-Content -LiteralPath "package.json" -Raw | ConvertFrom-Json).version
+          $artifacts = @("dist/AlKarna-Perfume-$packageVersion-Setup-x64.exe")
           foreach ($artifact in $artifacts) {
             if (-not (Test-Path $artifact -PathType Leaf)) { throw "Missing Windows artifact: $artifact" }
             $file = Get-Item $artifact
@@ -56,8 +57,8 @@ jobs:
         with:
           name: AlKarna-Perfume-Windows-x64-${{ github.run_number }}
           path: |
-            dist/AlKarna-Perfume-Setup-x64.exe
-            dist/AlKarna-Perfume-Setup-x64.exe.sha256
+            dist/AlKarna-Perfume-*-Setup-x64.exe
+            dist/AlKarna-Perfume-*-Setup-x64.exe.sha256
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

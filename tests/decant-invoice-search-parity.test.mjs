@@ -31,7 +31,7 @@ test("the search change preserves dedicated stock flows and the existing managem
     source("app/perfume-divisions.tsx"),
     source("app/perfume-invoice-commands.ts"),
   ]);
-  assert.match(management, /<PerfumeProductPicker items=\{sources\.map/);
+  assert.match(management, /<PerfumeProductPicker items=\{sourceChoices\.map/);
   assert.match(invoices, /type: editingDocument \? "decant-sale.update" : "decant-sale.post"/);
   assert.match(invoices, /type: editingDocument \? "decant-purchase.update" : "decant-purchase.post"/);
   assert.match(invoices, /type: "decant-sale.void"/);

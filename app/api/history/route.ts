@@ -4,7 +4,10 @@ import { getPrincipalFromRequest, hasCapability, type Capability } from "../../.
 import { canReadDocument, canReadDocumentKind, resolveCurrentPartyName } from "../../../lib/document-read-model.ts";
 import { resolvePartyType } from "../../domain.ts";
 import { validateRequiredDateRange } from "../../date-range-validation.ts";
-import { collapseLegacyStockEditMovements } from "../../stock-movement.ts";
+import { classifyStockMovementType, collapseLegacyStockEditMovements } from "../../stock-movement.ts";
+import { presentVolumeMovement } from "../../perfume-volume.ts";
+import { isPerfumeBusinessDocument, isPerfumeCatalogDocument, relatedPerfumeDocuments, currentPerfumeOperations } from "../../perfume-activity.ts";
+import {managementKind} from "../../perfume-management.ts";
 
 const bounded = (value:string|null, fallback:number, max:number) => {
   const parsed=Number(value);return Number.isInteger(parsed)&&parsed>0?Math.min(parsed,max):fallback;
@@ -37,6 +40,7 @@ export async function GET(request:Request){
    query.occurredAt={...(from?{$gte:`${start}T00:00:00.000Z`}:{}),...(to?{$lte:`${end}T23:59:59.999Z`}:{})};
  }
  const db=await getDatabase(),collection=db.collection(resource);
+ const perfumeOnly=url.searchParams.get("scope")==="perfume",productId=url.searchParams.get("productId")??"",lotId=url.searchParams.get("lotId")??"",status=url.searchParams.get("status");
  if(resource==="documents"){
    const [parties,candidates]=await Promise.all([
      db.collection("parties").find().toArray(),
@@ -46,15 +50,34 @@ export async function GET(request:Request){
    const supplierPartyIds=new Set(parties.filter(party=>resolvePartyType(party)==="supplier").map(party=>String(party.id??party._id??"")));
    const currentPartyNames=new Map(parties.map(party=>[String(party.id??party._id??""),String(party.name??"")] as const));
    const access={...coarseAccess,customerPartyIds,supplierPartyIds};
-   const authorized=candidates.filter(document=>reportDocumentLookup||canReadDocument(document,access)).map(document=>resolveCurrentPartyName(document,currentPartyNames));
-   const visible=search?authorized.filter(document=>[document.number,document.sequence,document.legacyBillCode,document.partyName,document.title,document.kind,document.status].map(value=>String(value??"")).join(" ").toLocaleLowerCase().includes(search)):authorized;
+   let authorized=candidates.filter(document=>reportDocumentLookup||canReadDocument(document,access)).map(document=>resolveCurrentPartyName(document,currentPartyNames));
+   if(!id&&url.searchParams.get("includeCatalog")!=="true")authorized=authorized.filter(d=>!isPerfumeCatalogDocument(d));
+   // Product-aware scope includes warehouse transfers and sales of returned partials.
+   if(perfumeOnly){const products=await db.collection("products").find().toArray();authorized=candidates.filter(d=>(reportDocumentLookup||canReadDocument(d,access))&&isPerfumeBusinessDocument(d,products)).map(d=>resolveCurrentPartyName(d,currentPartyNames));}
+   if(productId)authorized=relatedPerfumeDocuments(authorized,{productId,lotId:lotId||undefined,conversionId:url.searchParams.get("conversionId")??undefined});
+   if(url.searchParams.get("latest")==="true")authorized=currentPerfumeOperations(authorized,true);
+   if(status&&status!=="all")authorized=authorized.filter(d=>d.status===status);
+   const operation=url.searchParams.get("managementKind");
+   if(operation){if(!["opening","consumption","yield-correction"].includes(operation))return Response.json({error:"نوع حركة المخزون غير صالح"},{status:400});authorized=authorized.filter(d=>managementKind(d)===operation)}
+   const visible=search?authorized.filter(document=>[document.number,document.sequence,document.legacyBillCode,document.partyName,document.title,document.note,document.warehouseName,(document.perfumeLotBefore as {sourceProductName?:unknown}|undefined)?.sourceProductName,(document.perfumeLotAfter as {sourceProductName?:unknown}|undefined)?.sourceProductName,...(Array.isArray(document.lines)?document.lines:[]).map((l:Record<string,unknown>)=>l.description),document.kind,document.status].map(value=>String(value??"")).join(" ").toLocaleLowerCase().includes(search)):authorized;
    const total=visible.length,rows=visible.slice((page-1)*pageSize,page*pageSize);
    return Response.json({resource,page,pageSize,total,totalPages:Math.ceil(total/pageSize),rows:rows.map(({_id,...row})=>({id:row.id??String(_id),...row}))});
  }
  if(resource==="stockMovements"){
-   const candidates=await collection.find(query).sort({occurredAt:-1,id:-1}).toArray(),presented=collapseLegacyStockEditMovements(candidates.map(({_id,...row})=>({id:row.id??String(_id),...row})));
+   const [candidates,products,documents]=await Promise.all([collection.find(query).sort({occurredAt:-1,id:-1}).toArray(),db.collection("products").find().toArray(),db.collection("documents").find().toArray()]);
+   const productMap=new Map(products.map(p=>[p.id,p])),documentMap=new Map(documents.map(d=>[d.id,d]));
+   const presented=collapseLegacyStockEditMovements(candidates.filter(row=>!perfumeOnly||["decant","bottle","partial"].includes(String(productMap.get(row.productId)?.perfumeForm))||isPerfumeBusinessDocument(documentMap.get(row.documentId)??{},products)).map(({_id,...row})=>{
+     const product=productMap.get(row.productId),normalized:Record<string,unknown>=presentVolumeMovement({id:row.id??String(_id),...row},product);
+     return {...normalized,quantityUnit:normalized.quantityUnit??(product?.perfumeForm==="decant"?"portion":"piece"),type:classifyStockMovementType(row.type,documentMap.get(row.documentId))};
+   }));
    const total=presented.length,rows=presented.slice((page-1)*pageSize,page*pageSize);
    return Response.json({resource,page,pageSize,total,totalPages:Math.ceil(total/pageSize),rows});
+ }
+ if(perfumeOnly){
+   const [candidates,documents,products]=await Promise.all([collection.find(query).sort({occurredAt:-1,id:-1}).toArray(),db.collection("documents").find().toArray(),db.collection("products").find().toArray()]);
+   const ids=new Set(documents.filter(d=>isPerfumeBusinessDocument(d,products)).map(d=>d.id));
+   const visible=candidates.filter(row=>ids.has(row.documentId)),total=visible.length,rows=visible.slice((page-1)*pageSize,page*pageSize);
+   return Response.json({resource,page,pageSize,total,totalPages:Math.ceil(total/pageSize),rows:rows.map(({_id,...row})=>({id:row.id??String(_id),...row}))});
  }
  const total=await collection.countDocuments(query),rows=await collection.find(query).sort({occurredAt:-1,id:-1}).skip((page-1)*pageSize).limit(pageSize).toArray();
  return Response.json({resource,page,pageSize,total,totalPages:Math.ceil(total/pageSize),rows:rows.map(({_id,...row})=>({id:row.id??String(_id),...row}))});

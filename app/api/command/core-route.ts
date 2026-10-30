@@ -1,3 +1,5 @@
+import {expenseCategorySnapshot} from "../../../lib/expense-categories.ts";
+import { assertPerfumeCategoryCanBeDeleted, ensurePerfumeSystemCategories, perfumeSystemCategoryKind, resolvePerfumeProductCategory } from "../../../lib/perfume-system-categories.ts";
 import { requireValidLicense } from "../../../lib/license.ts";
 import type { SqliteSession as ClientSession, SqliteDatabase as Db } from "../../../lib/sqlite.ts";
 import { getDatabase } from "../../../lib/sqlite.ts";
@@ -11,11 +13,11 @@ import { currentProductCost, resolveProductCost } from "../../../lib/product-cos
 import { executeLifecycleCommand, findActiveFinancialMovement, LifecycleCommandError, propagatePartyName, reverseFinancialMovement } from "../../../lib/transaction-lifecycle.ts";
 import { transferPerfumeLotStock } from "../../perfume-stock-reconciliation.ts";
 import { roundMl } from "../../perfume-volume.ts";
-import type { PerfumeLot } from "../../perfume-logic.ts";
+import type { PerfumeAllocation, PerfumeLot } from "../../perfume-logic.ts";
 import { nextOpeningCorrectionSequence, selectLatestOpeningCorrection } from "../../opening-correction-order.ts";
 
 type Input = Record<string, unknown>;
-type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; costAtSale?: number | null; grossProfit?: number | null };
+type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; costAtSale?: number | null; grossProfit?: number | null; perfumeAllocations?: PerfumeAllocation[] };
 type WarehouseDoc = { _id: string; name: string; isSalesDefault?: boolean; [key: string]: unknown };
 const warehouses = (db: Db) => db.collection<WarehouseDoc>("warehouses");
 class CommandError extends Error {
@@ -654,8 +656,11 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
   }
   if (type === "product-category.create" || type === "product-category.update") {
     const categoryId = text(body.id), name = text(body.name);
+    if (type === "product-category.create" && (perfumeSystemCategoryKind(categoryId) || body.systemKind !== undefined)) throw new CommandError("فئات التقسيمات تلقائية؛ يمكنك تغيير اسم الفئة الموجودة فقط", 409);
+    if (perfumeSystemCategoryKind(categoryId)) await ensurePerfumeSystemCategories(db, session);
     if (!name) throw new CommandError("اسم الفئة مطلوب");
     if (name.length > 80) throw new CommandError("اسم الفئة طويل جدًا");
+    if (type === "product-category.update" && perfumeSystemCategoryKind(categoryId) && (await db.collection("productCategories").findOne({ id: categoryId }, { session }))?.name === name) return categoryId;
     const duplicate = await db.collection("productCategories").findOne({ name: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" }, ...(type === "product-category.update" ? { id: { $ne: categoryId } } : {}) }, { session });
     if (duplicate) throw new CommandError("هذه الفئة موجودة بالفعل", 409);
     if (type === "product-category.update") {
@@ -669,16 +674,19 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
   }
   if (type === "product-category.delete") {
     const categoryId = text(body.id), category = await db.collection("productCategories").findOne({ id: categoryId }, { session });
+    assertPerfumeCategoryCanBeDeleted(categoryId);
     if (!category) throw new CommandError("الفئة غير موجودة", 404);
     await db.collection("products").updateMany({ categoryId }, { $set: { categoryId: null } }, { session });
     await db.collection("productCategories").deleteOne({ id: categoryId }, { session });
+    await ensurePerfumeSystemCategories(db, session);
     return categoryId;
   }
   if (type === "product.create" || type === "product.update") {
     const name = text(body.name), barcode = text(body.barcode);
     if (!name) throw new CommandError("اسم المنتج مطلوب");
-    const productId = text(body.id), categoryId = text(body.categoryId);
-    if (categoryId && !await db.collection("productCategories").findOne({ id: categoryId }, { session })) throw new CommandError("الفئة غير موجودة", 404);
+    const productId = text(body.id), categoryProduct = type === "product.update" ? await db.collection("products").findOne({ id: productId }, { session }) ?? null : null;
+    if (type === "product.update" && !categoryProduct) throw new CommandError("المنتج غير موجود", 404);
+    const categoryId = await resolvePerfumeProductCategory(db, session, categoryProduct, body.categoryId);
     if (barcode && await db.collection("products").findOne({ barcode, ...(type === "product.update" ? { id: { $ne: productId } } : {}) }, { session })) throw new CommandError("هذا الباركود مستخدم لمنتج آخر", 409);
     const note = text(body.note);
     if (note.length > 1000) throw new CommandError("ملاحظة المنتج طويلة جدًا");
@@ -805,7 +813,12 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     const warehouse = await warehouses(db).findOne({ _id: String(original.warehouseId) }, { session });
     if (!warehouse) throw new CommandError("مخزن الفاتورة غير موجود", 409);
     const oldLines = original.lines as Line[], found = await db.collection("products").find({ id: { $in: oldLines.map(line => line.productId) } }, { session }).toArray(), map = new Map(found.map(product => [String(product.id), product]));
-    for (const line of oldLines) try { await changeStock(db, session, map.get(line.productId)!, warehouse, isSale ? line.quantity : -line.quantity, { ...original, occurredAt: new Date().toISOString(), revision: Number(original.revision ?? 0) + 1 }, `${kind}-void`); } catch (error) { if (!isSale && error instanceof CommandError && /المخزون غير كاف/.test(error.message)) throw new CommandError("لا يمكن حذف الفاتورة لأن جزءًا من مخزونها تم التصرف فيه.", 409); throw error; }
+    for (const line of oldLines) try {
+      const product=map.get(line.productId)!;
+      const restoredQuantity=isSale&&product.perfumeStockUnit==="ml"&&line.perfumeAllocations?.length
+        ? roundMl(line.perfumeAllocations.reduce((sum,allocation)=>sum+allocation.quantity*(allocation.quantityUnit==="ml"?1:Number(product.legacyDecantUnitMl)),0)) : line.quantity;
+      await changeStock(db, session, product, warehouse, isSale ? restoredQuantity : -line.quantity, { ...original, occurredAt: new Date().toISOString(), revision: Number(original.revision ?? 0) + 1 }, `${kind}-void`);
+    } catch (error) { if (!isSale && error instanceof CommandError && /المخزون غير كاف/.test(error.message)) throw new CommandError("لا يمكن حذف الفاتورة لأن جزءًا من مخزونها تم التصرف فيه.", 409); throw error; }
     if (Number(original.dueTotal) > 0) await changePartyDebt(db, session, original.partyId, kind, -Number(original.dueTotal), true);
     await reverseInvoicePayment(db, session, original, kind);
     await db.collection("documents").updateOne({ id: documentId, status: "posted" }, { $set: { status: "voided", voidedAt: new Date(), updatedAt: new Date(), revision: Number(original.revision ?? 0) + 1 } }, { session });
@@ -910,19 +923,20 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     return doc.id;
   }
   if (["payment.post","settlement.post","offset.post"].includes(type)) throw new CommandError("هذا المسار المحاسبي القديم متاح للقراءة فقط؛ استخدم دورة الحركات الحالية.",409);
-  if (type === "expense.post") { const title = text(body.title), amount = positive(body.amount, "المبلغ"), date = text(body.occurredAt), parsedDate = new Date(`${date}T12:00:00Z`); if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsedDate.valueOf()) || parsedDate.toISOString().slice(0,10) !== date) throw new CommandError("العنوان والتاريخ غير صالحين"); const method = text(body.paymentMethod); await paymentAccount(db, session, method); const doc = { ...await numberedDocument(db, session, "expense", "EXP"), revision: 0, occurredAt: parsedDate.toISOString(), partyId: null, partyName: null, warehouseId: null, warehouseName: null, destinationWarehouseId: null, destinationWarehouseName: null, parentDocumentId: null, paymentMethod: method, title, total: amount, dueTotal: 0, paidTotal: amount, cashAmount: amount, lines: [{ id: id("line"), productId: null, description: title, quantity: 1, unitPrice: amount, lineTotal: amount }] }; await financialMovement(db, session, doc, "out", amount, "expense"); await db.collection("documents").insertOne(doc, { session }); return doc.id; }
+  if (type === "expense.post") { const title = text(body.title), amount = positive(body.amount, "المبلغ"), date = text(body.occurredAt), parsedDate = new Date(`${date}T12:00:00Z`); if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsedDate.valueOf()) || parsedDate.toISOString().slice(0,10) !== date) throw new CommandError("العنوان والتاريخ غير صالحين"); const method = text(body.paymentMethod); await paymentAccount(db, session, method); const doc = { ...await numberedDocument(db, session, "expense", "EXP"), revision: 0, occurredAt: parsedDate.toISOString(), partyId: null, partyName: null, warehouseId: null, warehouseName: null, destinationWarehouseId: null, destinationWarehouseName: null, parentDocumentId: null, paymentMethod: method, title, ...await expenseCategorySnapshot(db,session,body), total: amount, dueTotal: 0, paidTotal: amount, cashAmount: amount, lines: [{ id: id("line"), productId: null, description: title, quantity: 1, unitPrice: amount, lineTotal: amount }] }; await financialMovement(db, session, doc, "out", amount, "expense"); await db.collection("documents").insertOne(doc, { session }); return doc.id; }
   if (type === "expense.update") {
     const documentId=text(body.documentId),title=text(body.title),amount=positive(body.amount,"المبلغ"),date=text(body.occurredAt),method=text(body.paymentMethod),parsedDate=new Date(`${date}T12:00:00Z`);
     if(!title||!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(parsedDate.valueOf())||parsedDate.toISOString().slice(0,10)!==date)throw new CommandError("العنوان والتاريخ غير صالحين");
     const original=await db.collection("documents").findOne({id:documentId,kind:"expense",status:"posted"},{session});
     if(!original||original.legacyKey)throw new CommandError("المصروف غير موجود أو غير قابل للتعديل",404);
+    const category=await expenseCategorySnapshot(db,session,body,original);
     const historicalPayment=await paymentAccountForHistoricalEdit(db,session,method,original.paymentMethod);
     const movement=await findActiveFinancialMovement(db,session,{documentId,type:"expense"});
     if(!movement)throw new CommandError("تعذر العثور على حركة المصروف الأصلية",409);
     await reverseFinancialMovement(db,session,movement,"تعديل مصروف");
     await reactivateHistoricalPaymentAccount(db,session,historicalPayment.account,historicalPayment.sameOriginal);
     const occurredAt=parsedDate.toISOString(),lineId=(original.lines as Line[]|undefined)?.[0]?.id??id("line");
-    const revised={title,total:amount,dueTotal:0,paidTotal:amount,cashAmount:amount,paymentMethod:method,occurredAt,lines:[{id:lineId,productId:null,description:title,quantity:1,unitPrice:amount,lineTotal:amount}],updatedAt:new Date(),revision:Number(original.revision??0)+1};
+    const revised={title,...category,total:amount,dueTotal:0,paidTotal:amount,cashAmount:amount,paymentMethod:method,occurredAt,lines:[{id:lineId,productId:null,description:title,quantity:1,unitPrice:amount,lineTotal:amount}],updatedAt:new Date(),revision:Number(original.revision??0)+1};
     await financialMovement(db,session,{...original,...revised},"out",amount,"expense");
     await db.collection("documents").updateOne({id:documentId,kind:"expense",status:"posted"},{$set:revised},{session});
     return documentId;

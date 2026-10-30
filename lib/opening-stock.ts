@@ -1,3 +1,4 @@
+import { StockProvenance } from "./stock-provenance.ts";
 import type { SqliteDatabase as Db, SqliteSession as ClientSession, DbDocument as Document } from "./sqlite.ts";
 
 const finite = (value: unknown) => {
@@ -21,17 +22,6 @@ export type OpeningStockState = {
   hasStockHistory: boolean;
   legacySnapshot: boolean;
 };
-
-function take(allocation: Record<string, number>, warehouseId: string, quantity: number) {
-  const available = Math.max(0, Number(allocation[warehouseId] ?? 0));
-  const used = Math.min(Math.max(0, quantity), available);
-  allocation[warehouseId] = available - used;
-  return used;
-}
-function add(allocation: Record<string, number>, warehouseId: string, quantity: number) {
-  if (quantity <= 0) return;
-  allocation[warehouseId] = Math.max(0, Number(allocation[warehouseId] ?? 0)) + quantity;
-}
 
 /**
  * Rebuilds native opening-stock provenance from the complete stock movement history.
@@ -58,135 +48,107 @@ export async function deriveOpeningStockState(db: Db, session: ClientSession | u
     if (cost !== null) costByDocument.set(String(document.id), cost);
   }
 
-  const allocations: Record<string, number> = {};
-  const consumedBySale = new Map<string, Array<{ opening: number; other: number }>>();
-  const adjustmentCreated = new Map<string, Record<string, number>>();
-  const adjustmentConsumed = new Map<string, Record<string, number>>();
-  const processedTransferEvents = new Set<string>();
+  const provenance = new StockProvenance();
+  const processedTransferRows = new Set<number>();
+  const transferEffects = new Map<string, Map<string, number>>();
   let total = 0;
   let inferredCost: number | null = null;
   let firstWarehouseId: string | null = null;
+  const transferLike = (type: string) => ["transfer-out","transfer-in","transfer-edit","transfer-void"].includes(type);
+  const purchaseLike = (type: string) => /^(?:purchase|decant-purchase)(?:-|$)/.test(type);
+  const saleLike = (type: string) => /^(?:sale|decant-sale)(?:-|$)/.test(type);
+  const signedOperation = (type: string) => type === "adjustment" || type.startsWith("adjustment-") || [
+    "perfume-split-out","perfume-split-in","perfume-split-void-out","perfume-split-void-in",
+    "perfume-consumption-liquid","perfume-consumption-bottle","perfume-consumption-void-liquid","perfume-consumption-void-bottle",
+    "perfume-stock-operation-void","perfume-stock-operation-void-bottle","perfume-opening-in","perfume-yield-correction",
+    "perfume-reconciliation","perfume-reconciliation-void","perfume-recombine-out","perfume-recombine-in",
+    "perfume-recombine-void-out","perfume-recombine-void-in",
+  ].includes(type);
 
-  const transferLike = (type: string) => type === "transfer-out" || type === "transfer-in" || type === "transfer-edit" || type === "transfer-void";
-  const adjustmentLike = (type: string) => type === "adjustment" || type.startsWith("adjustment-");
-
-  for (const movement of movements) {
-    const warehouseId = String(movement.warehouseId ?? "");
-    const documentId = String(movement.documentId ?? "");
-    const type = String(movement.type ?? "");
-    const delta = finite(movement.quantityDelta) ?? 0;
+  for (let movementIndex = 0; movementIndex < movements.length; movementIndex++) {
+    const movement = movements[movementIndex];
+    const warehouseId = String(movement.warehouseId ?? ""), documentId = String(movement.documentId ?? "");
+    const type = String(movement.type ?? ""), delta = finite(movement.quantityDelta) ?? 0;
     if (!warehouseId || !delta) continue;
-
+    provenance.seedWarehouse(warehouseId, finite(movement.balanceBefore));
     if (type === "opening") {
-      // Native opening entries created by product create/update before this fix.
       if (delta > 0) {
-        add(allocations, warehouseId, delta);
-        total += delta;
-        firstWarehouseId ??= warehouseId;
-        inferredCost = costByDocument.get(documentId) ?? inferredCost;
-      } else {
-        const removed = take(allocations, warehouseId, -delta);
-        total -= removed;
-      }
+        provenance.add(warehouseId, delta, "opening", documentId); total += delta;
+        firstWarehouseId ??= warehouseId; inferredCost = costByDocument.get(documentId) ?? inferredCost;
+      } else total -= provenance.removeOpening(warehouseId, -delta);
       continue;
     }
     if (type === "opening-void" || type === "opening-correction" || type.startsWith("opening-correction-")) {
-      if (delta > 0) add(allocations, warehouseId, delta);
-      else take(allocations, warehouseId, -delta);
-      total += delta;
+      if (delta > 0) provenance.add(warehouseId, delta, "opening", documentId);
+      else provenance.removeOpening(warehouseId, -delta);
+      total += delta; continue;
+    }
+    if (type === "legacy-opening" || purchaseLike(type)) {
+      const key = type === "legacy-opening" ? "legacy:" + documentId : "purchase:" + documentId;
+      if (delta > 0) provenance.add(warehouseId, delta, "other", key);
+      else provenance.reverseInflow(warehouseId, -delta, key);
       continue;
     }
-    if (type === "legacy-opening" || type === "purchase" || type === "purchase-edit" || type === "purchase-void") continue;
-
     if (transferLike(type)) {
+      if (processedTransferRows.has(movementIndex)) continue;
       const revision = Number.isFinite(Number(movement.documentRevision)) ? Number(movement.documentRevision) : 0;
-      const eventKey = `${documentId}\u0000${revision}\u0000transfer`;
-      if (processedTransferEvents.has(eventKey)) continue;
-      processedTransferEvents.add(eventKey);
-      const group = movements.filter(candidate => {
-        const candidateType = String(candidate.type ?? "");
+      const eventType = type === "transfer-edit" || type === "transfer-void" ? type : "transfer";
+      const group: Document[] = []; let net = 0;
+      // Never look ahead across a balanced event, even when historical rows lack
+      // revision metadata. Business dates cannot establish mutation order.
+      for (let index = movementIndex; index < movements.length; index++) {
+        const candidate = movements[index], candidateType = String(candidate.type ?? "");
         const candidateRevision = Number.isFinite(Number(candidate.documentRevision)) ? Number(candidate.documentRevision) : 0;
-        return String(candidate.documentId ?? "") === documentId && candidateRevision === revision && transferLike(candidateType);
-      });
-      let movingOpening = 0;
+        const candidateEvent = candidateType === "transfer-edit" || candidateType === "transfer-void" ? candidateType : "transfer";
+        if (String(candidate.documentId ?? "") !== documentId || candidateRevision !== revision || !transferLike(candidateType) || candidateEvent !== eventType) break;
+        group.push(candidate); processedTransferRows.add(index); net += finite(candidate.quantityDelta) ?? 0;
+        if (group.length > 1 && Math.abs(net) < 1e-9) break;
+      }
+      const effects = new Map<string, number>();
       for (const item of group) {
-        const sourceWarehouseId = String(item.warehouseId ?? "");
-        const quantity = finite(item.quantityDelta) ?? 0;
-        if (sourceWarehouseId && quantity < 0) movingOpening += take(allocations, sourceWarehouseId, -quantity);
+        const wh = String(item.warehouseId ?? ""); provenance.seedWarehouse(wh, finite(item.balanceBefore));
+        effects.set(wh, (effects.get(wh) ?? 0) + (finite(item.quantityDelta) ?? 0));
       }
-      let remainingOpening = movingOpening;
-      for (const item of group) {
-        const destinationWarehouseId = String(item.warehouseId ?? "");
-        const quantity = finite(item.quantityDelta) ?? 0;
-        if (!destinationWarehouseId || quantity <= 0 || remainingOpening <= 0) continue;
-        const restored = Math.min(quantity, remainingOpening);
-        add(allocations, destinationWarehouseId, restored);
-        remainingOpening -= restored;
-      }
-      continue;
-    }
-
-    if ((type === "sale" || type === "sale-edit") && delta < 0) {
-      const used = take(allocations, warehouseId, -delta);
-      const segments = consumedBySale.get(documentId) ?? [];
-      segments.push({ opening: used, other: -delta - used });
-      consumedBySale.set(documentId, segments);
-      continue;
-    }
-    if ((type === "sale-edit" || type === "sale-void") && delta > 0) {
-      const segments = consumedBySale.get(documentId) ?? [];
-      let returning = delta;
-      // Undo the last units of this sale first: later purchase-origin units must
-      // not be relabelled as opening stock when a mixed sale is reduced.
-      while (returning > 0 && segments.length) {
-        const segment = segments[segments.length - 1];
-        const other = Math.min(returning, segment.other);
-        segment.other -= other;
-        returning -= other;
-        const opening = Math.min(returning, segment.opening);
-        segment.opening -= opening;
-        returning -= opening;
-        add(allocations, warehouseId, opening);
-        if (!segment.opening && !segment.other) segments.pop();
-      }
-      continue;
-    }
-
-    if (adjustmentLike(type)) {
-      const created = adjustmentCreated.get(documentId) ?? {};
-      const consumed = adjustmentConsumed.get(documentId) ?? {};
-      adjustmentCreated.set(documentId, created);
-      adjustmentConsumed.set(documentId, consumed);
-      if (delta > 0) {
-        const restorableOpening = Math.min(delta, Math.max(0, Number(consumed[warehouseId] ?? 0)));
-        if (restorableOpening > 0) {
-          add(allocations, warehouseId, restorableOpening);
-          consumed[warehouseId] = Math.max(0, Number(consumed[warehouseId] ?? 0) - restorableOpening);
+      const apply = (deltas: Map<string, number>) => {
+        const cargo: ReturnType<StockProvenance["withdraw"]> = [];
+        for (const [wh, quantity] of deltas) if (quantity < 0) cargo.push(...provenance.withdraw(wh, -quantity));
+        for (const [wh, initial] of deltas) {
+          let quantity = initial; if (quantity <= 0) continue;
+          for (const part of cargo) {
+            const moving = Math.min(quantity, part.quantity);
+            if (moving > 0) provenance.deposit(wh, [{ ...part, quantity: moving }]);
+            part.quantity -= moving; quantity -= moving;
+            if (quantity <= 1e-9) break;
+          }
+          if (quantity > 1e-9) provenance.add(wh, quantity, "other", "unattributed-transfer");
         }
-        const createdQuantity = delta - restorableOpening;
-        if (createdQuantity > 0) created[warehouseId] = Math.max(0, Number(created[warehouseId] ?? 0)) + createdQuantity;
-      } else {
-        let removing = -delta;
-        const createdAvailable = Math.max(0, Number(created[warehouseId] ?? 0));
-        const removeCreated = Math.min(removing, createdAvailable);
-        if (removeCreated > 0) {
-          created[warehouseId] = createdAvailable - removeCreated;
-          removing -= removeCreated;
-        }
-        if (removing > 0) {
-          const usedOpening = take(allocations, warehouseId, removing);
-          if (usedOpening > 0) consumed[warehouseId] = Math.max(0, Number(consumed[warehouseId] ?? 0)) + usedOpening;
-        }
-      }
+      };
+      const prior = transferEffects.get(documentId) ?? new Map<string, number>();
+      const next = new Map(prior);
+      for (const [wh, quantity] of effects) next.set(wh, (next.get(wh) ?? 0) + quantity);
+      const canReversePrior = [...prior].every(([wh, quantity]) => quantity <= 0 || provenance.quantity(wh) + 1e-9 >= quantity);
+      if (eventType === "transfer-edit" && prior.size && canReversePrior) {
+        // A net edit can swap opening-origin and purchase-origin stock while
+        // leaving its destination unchanged. Replay the recoverable old effect
+        // before the new one instead of pooling unrelated source warehouses.
+        apply(new Map([...prior].map(([wh, quantity]) => [wh, -quantity])));
+        apply(next);
+      } else apply(effects);
+      transferEffects.set(documentId, new Map([...next].filter(([, quantity]) => Math.abs(quantity) > 1e-9)));
       continue;
     }
-
-    // Any future stock outflow that is not explicitly provenance-aware consumes
-    // opening units first. Positive non-opening movements never create opening provenance.
-    if (delta < 0) take(allocations, warehouseId, -delta);
+    const operationKey = (saleLike(type) ? "sale:" : signedOperation(type) ? "operation:" : "unknown:") + documentId;
+    if (delta < 0) {
+      const parts = provenance.withdraw(warehouseId, -delta, signedOperation(type) ? operationKey : undefined);
+      provenance.remember(operationKey, String(movement.id ?? movement._id ?? ""), parts);
+    } else {
+      const explicit = typeof movement.reversalOfMovementId === "string" ? movement.reversalOfMovementId : undefined;
+      const canRestore = Boolean(documentId && (saleLike(type) || signedOperation(type) || explicit));
+      const remaining = canRestore ? provenance.restore(warehouseId, delta, operationKey, explicit) : delta;
+      if (remaining > 1e-9) provenance.add(warehouseId, remaining, "other", operationKey);
+    }
   }
-
-  for (const key of Object.keys(allocations)) if (allocations[key] <= 0) delete allocations[key];
+  const allocations = provenance.openingAllocations();
   const remaining = Object.values(allocations).reduce((sum, quantity) => sum + quantity, 0);
   // Prefer explicit metadata written by the fixed workflow, but retain the complete
   // movement replay as the quantity authority for pre-fix products.

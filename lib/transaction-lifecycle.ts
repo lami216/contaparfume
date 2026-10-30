@@ -2,7 +2,7 @@ import type { SqliteDatabase as Db, SqliteSession as ClientSession } from "./sql
 import { normalizePartyNet, partyCashDelta, partyNet } from "../app/party-balance.ts";
 import type { PerfumeLot } from "../app/perfume-logic.ts";
 import { roundMl } from "../app/perfume-volume.ts";
-import { reversePerfumeLotTransfer, transferPerfumeLotStock, type PerfumeLotTransferAllocation } from "../app/perfume-stock-reconciliation.ts";
+import { normalizePerfumeLotTransferAllocations, reversePerfumeLotTransfer, transferPerfumeLotStock, type PerfumeLotTransferAllocation } from "../app/perfume-stock-reconciliation.ts";
 
 export class LifecycleCommandError extends Error {
   status: number;
@@ -172,13 +172,32 @@ function transferAllocations(line: Stored) {
   return Array.isArray(line.perfumeTransferAllocations) ? structuredClone(line.perfumeTransferAllocations) as PerfumeLotTransferAllocation[] : [];
 }
 
-async function reverseDecantTransferLots(db: Db, session: ClientSession, product: Stored, line: Stored, fromWarehouseId: string, toWarehouseId: string) {
-  if (product.perfumeForm !== "decant") return;
+async function reverseDecantTransferLots(db: Db, session: ClientSession, product: Stored, line: Stored, fromWarehouseId: string, toWarehouseId: string, document: Stored) {
+  if (product.perfumeForm !== "decant") return Number(line.quantity ?? 0);
   const allocations = transferAllocations(line);
   if (!allocations.length) throw new LifecycleCommandError("لا يمكن تعديل أو إلغاء تحويل تقسيمات قديم لا يحتوي توزيع الدفعات. سوِّ مخزون التقسيمات أولًا.", 409);
   try {
-    const lots = reversePerfumeLotTransfer(productPerfumeLots(product), fromWarehouseId, toWarehouseId, allocations);
+    // Old allocation/line snapshots had no unit marker. The original revision's
+    // stock movements identify their unit; never infer it from today's cost or date.
+    if (allocations.some(allocation => allocation.quantityUnit === undefined)) {
+      const movements = await db.collection("stockMovements").find({ documentId: document.id, productId: product.id }, { session }).toArray();
+      const revision = Number(document.revision ?? 0);
+      const candidates = movements.filter(movement => Number(movement.documentRevision ?? 0) <= revision && String(movement.type).startsWith("transfer-"));
+      const stockRevision = Math.max(...candidates.map(movement => Number(movement.documentRevision ?? 0)));
+      // A metadata-only/no-op edit creates no stock rows. Its allocations retain
+      // the unit of the latest revision that actually changed the stock.
+      const evidence = candidates.filter(movement => Number(movement.documentRevision ?? 0) === stockRevision);
+      const units = new Set(evidence.map(movement => movement.quantityUnit === "ml" ? "ml" : movement.quantityUnit == null || movement.quantityUnit === "piece" ? "piece" : "invalid"));
+      if (!evidence.length || units.size !== 1 || units.has("invalid")) throw new Error("لا يحتوي التحويل القديم دليلًا متطابقًا لوحدة الكمية؛ لم يتم تغيير المخزون");
+      const unit = [...units][0] as "piece" | "ml";
+      for (const allocation of allocations) if (allocation.quantityUnit === undefined) allocation.quantityUnit = unit;
+    }
+    if (new Set(allocations.map(allocation => allocation.quantityUnit)).size !== 1) throw new Error("وحدات توزيع التحويل غير متطابقة؛ لم يتم تغيير المخزون");
+    if (Math.abs(allocations.reduce((sum, allocation) => sum + Number(allocation.quantity), 0) - Number(line.quantity)) > 1e-8) throw new Error("كمية التحويل لا تطابق توزيع دفعاته؛ لم يتم تغيير المخزون");
+    const normalized = normalizePerfumeLotTransferAllocations(productPerfumeLots(product), allocations);
+    const lots = reversePerfumeLotTransfer(productPerfumeLots(product), fromWarehouseId, toWarehouseId, normalized);
     await saveProductPerfumeLots(db, session, product, lots);
+    return roundMl(normalized.reduce((sum, allocation) => sum + allocation.quantity, 0));
   } catch (error) {
     throw new LifecycleCommandError(error instanceof Error ? error.message : "تعذر عكس دفعات تحويل التقسيمات بأمان", 409);
   }
@@ -356,15 +375,11 @@ async function updateTransfer(db: Db, session: ClientSession, body: Input) {
 
   // Remove the old transfer effect and add the requested effect mathematically.
   // The resulting movement is the edit's net stock change, not an artificial full reversal + replay.
-  for(const line of oldLines){const productId=String(line.productId),quantity=Number(line.quantity??0);addDelta(productId,String(oldFrom._id),quantity);addDelta(productId,String(oldTo._id),-quantity)}
+  for(const line of oldLines){const productId=String(line.productId),product=products.get(productId)!,quantity=await reverseDecantTransferLots(db,session,product,line,String(oldFrom._id),String(oldTo._id),original);addDelta(productId,String(oldFrom._id),quantity);addDelta(productId,String(oldTo._id),-quantity)}
   for(const line of input){addDelta(line.productId,fromId,-line.quantity);addDelta(line.productId,toId,line.quantity)}
 
   // Decant stock has a second authoritative layer: perfume lots. Reverse the exact old
-  // lot allocations first, then replay the requested transfer and persist its new allocations.
-  for (const line of oldLines) {
-    const product = products.get(String(line.productId))!;
-    await reverseDecantTransferLots(db, session, product, line, String(oldFrom._id), String(oldTo._id));
-  }
+  // lot allocations above, then replay the requested transfer and persist its new allocations.
   const newPerfumeAllocations = new Map<string, PerfumeLotTransferAllocation[]>();
   for (const line of input) {
     const product = products.get(line.productId)!;
@@ -400,12 +415,13 @@ async function voidTransfer(db: Db, session: ClientSession, body: Input) {
   ]);
   if (!from || !to) throw new LifecycleCommandError("تعذر تحديد مخازن التحويل الأصلية", 409);
   const lines = (original.lines ?? []) as Stored[], products = await loadProducts(db, session, lines.map(line => String(line.productId))), revision = Number(original.revision ?? 0) + 1, audit = stockAuditDocument(original, revision);
+  const quantities = new Map<string, number>();
   for (const line of lines) {
     const product = products.get(String(line.productId))!;
-    await reverseDecantTransferLots(db, session, product, line, String(from._id), String(to._id));
+    quantities.set(String(line.productId), await reverseDecantTransferLots(db, session, product, line, String(from._id), String(to._id), original));
   }
   for (const line of lines) {
-    const product = products.get(String(line.productId))!, quantity = Number(line.quantity ?? 0);
+    const product = products.get(String(line.productId))!, quantity = quantities.get(String(line.productId))!;
     await changeStock(db, session, product, from, quantity, audit, "transfer-void");
     try { await changeStock(db, session, product, to, -quantity, audit, "transfer-void"); }
     catch (error) { if (error instanceof LifecycleCommandError && /المخزون غير كاف/.test(error.message)) throw new LifecycleCommandError("لا يمكن إلغاء التحويل لأن جزءًا من المخزون المحول تم التصرف فيه.", 409); throw error; }

@@ -3,6 +3,7 @@ import test,{after,before,beforeEach} from "node:test";
 import {readFile} from "node:fs/promises";
 import {sqliteHarness} from "./sqlite-harness.mjs";
 import {execute} from "../app/api/command/route.ts";
+import {execute as legacyExecute} from "../app/api/command/base-route.ts";
 
 let harness,db;
 before(async()=>{harness=await sqliteHarness();db=harness.db});
@@ -14,7 +15,9 @@ beforeEach(async()=>{
     {_id:"b",name:"B",isSalesDefault:false},
   ]);
 });
-const command=body=>db.transaction(session=>execute(db,session,body));
+// Seed historical archive contracts with the pre-guard delegate; restoration still uses the public command.
+// New archive attempts are independently rejected in perfume-context-workflow.test.mjs.
+const command=body=>db.transaction(session=>(["product.delete","product.stock-zero"].includes(body.type)?legacyExecute:execute)(db,session,body));
 const lot=(id,stocks,remainingQuantity)=>({
   id,sourceProductId:"source",sourceProductName:"Source perfume",originalQuantity:10,remainingQuantity,
   liquidUnitCost:12,bottleCost:0,landedUnitCost:12,decantSizeMl:null,stocks,

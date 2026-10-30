@@ -1,6 +1,7 @@
 "use client";
 
 import { Search, X } from "lucide-react";
+import ProductName from "./product-name";
 import { useMemo, useState } from "react";
 
 export type PerfumePickerItem = {
@@ -85,7 +86,7 @@ export default function PerfumeProductPicker({ items, value, onChange, placehold
             onMouseDown={event => event.preventDefault()}
             onClick={() => choose(item.id)}
           >
-            <span><strong>{item.name}</strong>{item.group && <small>{item.group}</small>}</span>
+            <span><strong><ProductName name={item.name}/></strong>{item.group && <small>{item.group}</small>}</span>
             {item.meta && <bdi>{item.meta}</bdi>}
           </button>)}
     </div>}

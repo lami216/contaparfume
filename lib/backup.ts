@@ -3,18 +3,19 @@ import { ensureDatabaseSchema } from "./sqlite.ts";
 import { rebuildDocumentSequenceCounters } from "./document-sequences.ts";
 import { EJSON } from "bson";
 import { resolvePartyType } from "../app/domain.ts";
+import { backupBuildInfo, type BackupApplication, type BackupBuild } from "./build-info.ts";
 
 export const BACKUP_SCHEMA_VERSION = 1;
-export const BACKUP_COLLECTIONS = ["parties", "warehouses", "products", "productCategories", "documents", "stockMovements", "financialMovements", "paymentAccounts", "recurringExpenses", "accountTransfers", "counters", "auditEvents", "appSettings", "users", "importMappings"] as const;
+export const BACKUP_COLLECTIONS = ["parties", "warehouses", "products", "productCategories", "expenseCategories", "documents", "stockMovements", "financialMovements", "paymentAccounts", "recurringExpenses", "accountTransfers", "counters", "auditEvents", "appSettings", "users", "importMappings"] as const;
 // Backups are local, user-selected files. Do not impose an artificial size or record-count cap;
 // validation below still enforces the accounting and reference invariants before restore.
 type BackupCollection = typeof BACKUP_COLLECTIONS[number];
-export type ContaBackup = { format: "conta-backup"; schemaVersion: 1; createdAt: string; appVersion: string; encoding: "json-v2"|"mongodb-extended-json-v2"; collections: Record<BackupCollection, Document[]>; counts: Record<BackupCollection, number> };
+export type ContaBackup = { format: "conta-backup"; schemaVersion: 1; createdAt: string; appVersion: string; application?: BackupApplication; build?: BackupBuild; encoding: "json-v2"|"mongodb-extended-json-v2"; collections: Record<BackupCollection, Document[]>; counts: Record<BackupCollection, number> };
 
 export async function createNativeBackup(db: Db): Promise<ContaBackup> {
   const pairs = await Promise.all(BACKUP_COLLECTIONS.map(async name => [name, await db.collection(name).find().toArray()] as const));
   const collections = Object.fromEntries(pairs) as unknown as ContaBackup["collections"];
-  return { format: "conta-backup", schemaVersion: 1, createdAt: new Date().toISOString(), appVersion: process.env.npm_package_version ?? "0.1.0", encoding: "json-v2", collections, counts: Object.fromEntries(pairs.map(([name, rows]) => [name, rows.length])) as ContaBackup["counts"] };
+  return { format: "conta-backup", schemaVersion: 1, createdAt: new Date().toISOString(), ...backupBuildInfo(), encoding: "json-v2", collections, counts: Object.fromEntries(pairs.map(([name, rows]) => [name, rows.length])) as ContaBackup["counts"] };
 }
 export function stringifyBackup(value: ContaBackup) { return value.encoding==="mongodb-extended-json-v2" ? EJSON.stringify(value,{relaxed:false}) : JSON.stringify(value); }
 export function parseAndValidateBackup(input: string): ContaBackup {
@@ -29,6 +30,7 @@ export function parseAndValidateBackup(input: string): ContaBackup {
   // Import mappings were added after the first native-backup format shipped.
   // Old backups stay valid, while new restores replace stale mappings atomically.
   if (!Array.isArray(b.collections.importMappings)) b.collections.importMappings = [];
+  if (b.collections.expenseCategories === undefined) b.collections.expenseCategories = [];
   const keys = Object.keys(b.collections);
   if (keys.some(k => !BACKUP_COLLECTIONS.includes(k as BackupCollection))) throw new Error("تحتوي النسخة على collection غير مسموح");
   for (const name of BACKUP_COLLECTIONS) if (!Array.isArray(b.collections[name])) throw new Error(`collection مفقود: ${name}`);
@@ -38,6 +40,8 @@ const nonempty = (v: unknown) => typeof v === "string" && v.length > 0;
 function unique(rows: Document[], field: string, label: string, optional = false) { const seen = new Set<string>(); for (const row of rows) { const v = row[field]; if (optional && !nonempty(v)) continue; if (!nonempty(v) || seen.has(v)) throw new Error(`${label} مكرر أو غير صالح`); seen.add(v); } return seen; }
 export function validateInvariants(b: ContaBackup) {
   const products=unique(b.collections.products,"id","معرف المنتج"),categories=unique(b.collections.productCategories??[],"id","معرف الفئة"),warehouses=new Set(b.collections.warehouses.map(w=>String(w._id??w.id))),accounts=unique(b.collections.paymentAccounts,"id","معرف الحساب");
+  const expenseCategories=unique(b.collections.expenseCategories??[],"id","معرف فئة المصروف");
+  for(const category of b.collections.expenseCategories??[])if(typeof category.name!=="string"||!category.name.trim()||category.name.length>80)throw new Error("اسم فئة المصروف غير صالح");
   const accountKeys=new Set([...accounts,...b.collections.paymentAccounts.map(account=>String(account.code??"")).filter(Boolean)]);
   const parties=new Set(b.collections.parties.map(party=>String(party.id??party._id??"")).filter(Boolean));
   if(b.collections.warehouses.filter(w=>w.isSalesDefault===true).length!==1)throw new Error("يجب أن تحتوي النسخة على مخزن بيع افتراضي واحد");
@@ -45,6 +49,7 @@ export function validateInvariants(b: ContaBackup) {
   for(const p of b.collections.products){if(p.categoryId&&!categories.has(String(p.categoryId)))throw new Error("منتج يشير إلى فئة غير موجودة");for(const key of Object.keys((p.stocks??{}) as object))if(!warehouses.has(key))throw new Error("مخزون يشير إلى مخزن غير موجود")}
   const saleSequences=new Set<string>();
   for(const d of b.collections.documents){
+    if(d.kind==="expense"&&d.expenseCategoryId&&!expenseCategories.has(String(d.expenseCategoryId)))throw new Error("مصروف يشير إلى فئة غير موجودة");
     if(d.warehouseId&&!warehouses.has(String(d.warehouseId)))throw new Error("فاتورة تشير إلى مخزن غير موجود");
     if(d.destinationWarehouseId&&!warehouses.has(String(d.destinationWarehouseId)))throw new Error("فاتورة تشير إلى مخزن وجهة غير موجود");
     if(d.partyId&&!parties.has(String(d.partyId)))throw new Error("فاتورة تشير إلى طرف غير موجود");

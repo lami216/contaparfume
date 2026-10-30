@@ -40,7 +40,8 @@ test("decant invoices follow the same all-paid-or-note settlement rule", async (
   const matches = commands.match(/الدفع الجزئي داخل الفاتورة غير مدعوم/g) ?? [];
   assert.equal(matches.length, 2);
   assert.match(commands, /paymentMethod === "note" \? doc\.total : 0/);
-  assert.match(commands, /partyDelta = dueTotal/);
+  assert.match(commands, /dueTotal \? await applyPartyNetDelta\(db, session, partyId, dueTotal\)/);
+  assert.equal((commands.match(/return finishSaleInvoice\(db, session, body, doc, party, partyId, existing\)/g) ?? []).length, 2);
   assert.match(commands, /partyDelta = -dueTotal/);
 });
 
@@ -50,12 +51,13 @@ test("new decant invoices use the default sales warehouse and edits preserve the
     source("app/perfume-invoices.tsx"),
     source("app/perfume-invoice-commands.ts"),
   ]);
-  assert.match(invoices, /isSalesDefault && warehouse\.isArchived !== true/);
+  assert.match(invoices, /preferredWarehouse\(data\.warehouses\)/);
   assert.doesNotMatch(invoices, /setWarehouseId/);
   assert.match(invoices, /className="decant-fixed-warehouse"/); // The warehouse is visible but read-only; the command still uses the default.
   assert.doesNotMatch(invoices, /type: "decant-sale\.post",\s*warehouseId/s);
   assert.doesNotMatch(invoices, /type: "decant-purchase\.post",\s*warehouseId/s);
-  assert.match(commands, /findOne\(\{ isSalesDefault: true, isArchived: \{ \$ne: true \} \}/);
+  assert.match(commands, /find\(\{ isArchived: \{ \$ne: true \} \}/);
+  assert.match(commands, /choices\.length===1/);
   assert.doesNotMatch(commands, /text\(body\.warehouseId\)/);
   assert.match(commands, /warehouseId: String\(warehouse\._id\)/);
   assert.match(commands, /existing\s*\? warehouses\(db\)\.findOne\(\{ _id: String\(existing\.warehouseId\) \}/);
@@ -63,7 +65,8 @@ test("new decant invoices use the default sales warehouse and edits preserve the
 
 test("management separates tasks and keeps forms before their scrollable registers", async () => {
   const [css, ui] = await Promise.all([source("app/perfume-ui-fixes.css"), source("app/perfume-divisions.tsx")]);
-  assert.match(ui, /"convert","stock","bottles","history"/);
+  const hub = await source("app/decant-invoices-page.tsx");
+  for(const tab of ["convert","stock","bottles"])assert.ok(hub.includes(`id:"${tab}"`));
   assert.match(ui, /className="erp-fieldset popover-host pm-editor"/);
   assert.match(ui, /className="erp-fieldset pm-register"/);
   assert.ok(ui.indexOf('className="erp-fieldset popover-host pm-editor"') < ui.indexOf('className="erp-fieldset pm-register"'));

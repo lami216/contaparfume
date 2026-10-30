@@ -149,7 +149,26 @@ export type PerfumeLotTransferAllocation = {
   lotId: string;
   quantity: number;
   unitCost: number;
+  /** Missing on historical records; the lifecycle resolves it from stock evidence. */
+  quantityUnit?: "piece" | "ml";
 };
+
+/** Normalize both sides of a historical allocation without rewriting its snapshot. */
+export function normalizePerfumeLotTransferAllocations(lots: PerfumeLot[], allocations: PerfumeLotTransferAllocation[]) {
+  const byId = new Map(lots.map(lot => [lot.id, lot]));
+  return allocations.map(allocation => {
+    const lot = byId.get(allocation.lotId);
+    if (!lot) throw new Error("تعذر العثور على دفعة التقسيم الأصلية للتحويل");
+    const sourceUnit = allocation.quantityUnit ?? "piece";
+    if (sourceUnit !== "piece" && sourceUnit !== "ml") throw new Error("وحدة توزيع التحويل غير صالحة");
+    if (sourceUnit === "ml" && lot.quantityUnit !== "ml") throw new Error("وحدة توزيع التحويل لا تطابق وحدة الدفعة الحالية");
+    const factor = lot.quantityUnit === "ml" && sourceUnit !== "ml" ? Number(lot.legacyQuantityScaleMl) : 1;
+    if (!Number.isFinite(factor) || factor <= 0) throw new Error("لا يمكن إثبات حجم التقسيمة القديمة لعكس التحويل بأمان");
+    const historicalQuantity = sourceUnit === "ml" ? volumeMl(allocation.quantity) : nonNegativeInteger(allocation.quantity, "كمية توزيع التحويل");
+    if (historicalQuantity <= 0) throw new Error("توزيع التحويل غير صالح");
+    return { ...allocation, quantity: lotQuantity(lot, roundMl(historicalQuantity * factor), false), unitCost: finiteNonNegative(allocation.unitCost, "تكلفة التقسيمة وقت التحويل") / factor, quantityUnit: lot.quantityUnit === "ml" ? "ml" as const : "piece" as const };
+  });
+}
 
 export function transferPerfumeLotStock(lots: PerfumeLot[], fromWarehouseId: string, toWarehouseId: string, quantity: number) {
   if (!fromWarehouseId || !toWarehouseId || fromWarehouseId === toWarehouseId) throw new Error("اختر مخزنين مختلفين");
@@ -170,7 +189,7 @@ export function transferPerfumeLotStock(lots: PerfumeLot[], fromWarehouseId: str
     const moved = Math.min(available, remaining);
     const target = lotQuantity(lot, lot.stocks?.[toWarehouseId] ?? 0);
     lot.stocks = { ...(lot.stocks ?? {}), [fromWarehouseId]: roundMl(available - moved), [toWarehouseId]: roundMl(target + moved) };
-    allocations.push({ lotId: lot.id, quantity: moved, unitCost: finiteNonNegative(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0, "تكلفة التقسيمة") });
+    allocations.push({ lotId: lot.id, quantity: moved, unitCost: finiteNonNegative(lot.liquidUnitCost ?? lot.landedUnitCost ?? 0, "تكلفة التقسيمة"), quantityUnit: lot.quantityUnit === "ml" ? "ml" : "piece" });
     remaining = roundMl(remaining - moved);
   }
   if (remaining > 0) throw new Error("لا يمكن تحويل كمية تقسيمات أكبر من رصيد دفعات مخزن المصدر");
@@ -183,7 +202,7 @@ export function reversePerfumeLotTransfer(lots: PerfumeLot[], fromWarehouseId: s
   const updated = structuredClone(lots);
   for (const lot of updated) assertPerfumeLotStockBalance(lot);
   const byId = new Map(updated.map(lot => [lot.id, lot]));
-  for (const allocation of allocations) {
+  for (const allocation of normalizePerfumeLotTransferAllocations(updated, allocations)) {
     const lot = byId.get(allocation.lotId);
     if (!lot) throw new Error("تعذر العثور على دفعة التقسيم الأصلية للتحويل");
     const amount = lotQuantity(lot, allocation.quantity);

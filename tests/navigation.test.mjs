@@ -127,7 +127,7 @@ test("source navigation only mutates the destination after permission and dirty-
 test("new invoice and expense drafts participate in the unsaved-change guard", async () => {
   const source=normalizePresentationSource(await readFile(new URL("../app/conta-app.tsx",import.meta.url),"utf8"));
   assert.ok((source.match(/isEditing: \(\) => Boolean\(editingDocumentId\) \|\| dirty\(\)/g)??[]).length>=2);
-  assert.match(source,/dirty=\(\)=>editingExpenseId\?snapshot\(\)!==baseline\.current:Boolean\(title\.trim\(\)\|\|amount\|\|paymentMethod\)/);
+  assert.match(source,/dirty=\(\)=>editingExpenseId\?snapshot\(\)!==baseline\.current:Boolean\(title\.trim\(\)\|\|amount\|\|paymentMethod\|\|expenseCategoryId\)/);
   assert.match(source,/isEditing:\(\)=>Boolean\(editingExpenseId\)\|\|dirty\(\)/);
 });
 
