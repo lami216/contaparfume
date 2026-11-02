@@ -86,7 +86,7 @@ export default function ProductCategoryDialog({ categories, run, close, canCreat
   const removeCategory = async (category: ProductCategory) => {
     if (!canDelete || category.systemKind || busyId) return;
     const accepted = await confirmAction({
-      message: `${tr("common.delete")} — ${category.name}?`,
+      message: tr("category.deleteMoveToDefault", { name: category.name, defaultCategory: categories.find(item=>item.systemKind==="perfume-fragrances")?.name??tr("العطور") }),
       confirmLabel: tr("common.delete"),
       cancelLabel: tr("common.cancel"),
       tone: "danger",

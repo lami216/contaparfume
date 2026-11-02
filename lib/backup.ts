@@ -4,6 +4,7 @@ import { rebuildDocumentSequenceCounters } from "./document-sequences.ts";
 import { EJSON } from "bson";
 import { resolvePartyType } from "../app/domain.ts";
 import { backupBuildInfo, type BackupApplication, type BackupBuild } from "./build-info.ts";
+import { ensurePerfumeSystemCategories } from "./perfume-system-categories.ts";
 
 export const BACKUP_SCHEMA_VERSION = 1;
 export const BACKUP_COLLECTIONS = ["parties", "warehouses", "products", "productCategories", "expenseCategories", "documents", "stockMovements", "financialMovements", "paymentAccounts", "recurringExpenses", "accountTransfers", "counters", "auditEvents", "appSettings", "users", "importMappings"] as const;
@@ -77,6 +78,9 @@ export async function restoreNativeBackup(db: Db, backup: ContaBackup, session: 
     if (rows.length) await collection.insertMany(rows, { session, ordered: true });
   }
   await ensureLegacyCompatibility(db, session);
+  // Old backups may contain uncategorized products. Normalize only after the
+  // untouched backup has passed reference validation, inside the restore transaction.
+  await ensurePerfumeSystemCategories(db, session);
   await rebuildCounters(db, session);
   validateInvariants(await createNativeBackup(db));
 }

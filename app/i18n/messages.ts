@@ -1,6 +1,7 @@
 export const arMessages = {
   "المنتج غير متاح؛ احذف السطر وأعد اختياره": "المنتج غير متاح؛ احذف السطر وأعد اختياره",
   "لا توجد دفعات بمتبقي قابل للبيع": "لا توجد دفعات بمتبقي قابل للبيع",
+  "category.deleteMoveToDefault": "حذف فئة «{name}»؟ ستُنقل منتجاتها إلى فئة «{defaultCategory}».",
   "فئة تلقائية — يمكن تغيير اسمها فقط": "فئة تلقائية — يمكن تغيير اسمها فقط",
   "الفئة تلقائية حسب نوع المنتج": "الفئة تلقائية حسب نوع المنتج",
   "كل الفئات": "كل الفئات",
@@ -1356,6 +1357,7 @@ export type TranslationParams = Record<string, string | number>;
 export const frMessages: Record<MessageKey, string> = {
   "المنتج غير متاح؛ احذف السطر وأعد اختياره": "Produit indisponible ; supprimez la ligne puis sélectionnez-le à nouveau",
   "لا توجد دفعات بمتبقي قابل للبيع": "Aucun lot avec un reliquat disponible à vendre",
+  "category.deleteMoveToDefault": "Supprimer la catégorie « {name} » ? Ses produits seront transférés vers « {defaultCategory} ».",
   "فئة تلقائية — يمكن تغيير اسمها فقط": "Catégorie automatique — seul le nom est modifiable",
   "الفئة تلقائية حسب نوع المنتج": "Catégorie attribuée automatiquement selon le type de produit",
   "كل الفئات": "Toutes les catégories",

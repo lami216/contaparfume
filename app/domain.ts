@@ -52,7 +52,7 @@ export function activeWarehouses<T extends Pick<Warehouse, "isArchived">>(wareho
 export interface ProductCategory {
   id: string;
   name: string;
-  systemKind?: "perfume-decants" | "perfume-bottles";
+  systemKind?: "perfume-decants" | "perfume-bottles" | "perfume-fragrances";
   createdAt?: string;
 }
 export interface ExpenseCategory {id:string;name:string;createdAt?:string}

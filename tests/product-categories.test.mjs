@@ -21,7 +21,6 @@ test("products can create categories and assign them", async () => {
   assert.match(ui, /ProductCategoryDialog/);
   assert.match(ui, /tr\("إضافة فئة"\)/);
   assert.match(ui, /categories=\{data\.categories\}/);
-  assert.match(ui, /\[categoryId, setCategoryId\] = useState\(product\?\.categoryId \?\? ""\)/);
   assert.match(ui, /wholesalePrice, categoryId, openingStock/);
   assert.match(dialog, /product-category\.create/);
 });

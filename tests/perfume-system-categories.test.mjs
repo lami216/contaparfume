@@ -61,11 +61,11 @@ test('actual bottle, legacy split, millilitre split and opening commands assign 
  assert.equal((await f.product('volume-full')).categoryId,'custom');assert.equal((await f.product('opening-full')).categoryId,'full-category');
 });
 
-test('legacy return preserves its uncategorized partial outside the generated system category',async t=>{
+test('legacy return classifies its partial with the original ordinary category',async t=>{
  const f=await fixture(t);await f.run({type:'perfume-split.post',sourceProductId:'full',warehouseId:'w',divisionsCount:10,salePrice:200});
  const liquid=await f.db.collection('products').findOne({perfumeForm:'decant'});
  await f.run({type:'perfume-recombine.post',decantProductId:liquid.id,lotId:liquid.perfumeLots[0].id,warehouseId:'w',salePrice:1700});
- const partial=await f.db.collection('products').findOne({perfumeForm:'partial'});assert.equal(partial.categoryId,undefined);assert.equal(partial.parentProductId,'full');
+ const partial=await f.db.collection('products').findOne({perfumeForm:'partial'});assert.equal(partial.categoryId,'full-category');assert.equal(partial.parentProductId,'full');
 });
 
 test('millilitre return inherits the original perfume ordinary category instead of the decant system category',async t=>{
@@ -105,7 +105,7 @@ test('system category rename uses products.edit while deletion/spoofing is rejec
  }
  const ordinary=await f.run({type:'product-category.create',name:'New ordinary'});
  await f.run({type:'product.update',id:'full',name:'Source perfume',categoryId:ordinary});
- await f.run({type:'product-category.update',id:ordinary,name:'Renamed ordinary'});await f.run({type:'product-category.delete',id:ordinary});assert.equal((await f.product('full')).categoryId,null);
+ await f.run({type:'product-category.update',id:ordinary,name:'Renamed ordinary'});await f.run({type:'product-category.delete',id:ordinary});assert.equal((await f.product('full')).categoryId,'system:perfume:fragrances');
 });
 
 test('authenticated bootstrap exposes canonical system identity without trusting a forged ordinary category field',async t=>{

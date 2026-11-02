@@ -1,6 +1,8 @@
 import type { Locale } from "./locale";
 
 const exactFrench: Record<string, string> = {
+  "اختر فئة منتج صالحة": "Choisissez une catégorie de produit valide.",
+  "هذه فئة تلقائية؛ يمكنك تغيير اسمها ولا يمكن حذفها": "Cette catégorie automatique peut être renommée, mais pas supprimée.",
   "ملاحظة بيع المتبقي طويلة جدًا؛ الحد الأقصى 2000 حرف": "La note du reliquat dépasse 2000 caractères.",
   "عطر بيع المتبقي الأصلي غير موجود": "Le parfum de la vente du reliquat est introuvable.",
   "عدّل بيع المتبقي من منطقة التحويل وبيع المتبقي": "Modifiez cette vente dans la zone de conversion et de vente du reliquat.",
@@ -104,6 +106,8 @@ export function translateApiError(locale: Locale, message: string): string {
   const exact = exactFrench[message];
   if (exact) return exact;
   for (const prefix of ["ألغِ أو عدّل تسوية أو استهلاك الدفعة الأحدث قبل تعديل بيع المتبقي أو إلغائه:","إلغاء بيع المتبقي يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:","لا يمكن إلغاء البيع القديم لأن تقييم الدفعة أو تكلفتها تغير بعده؛ ألغِ تصحيح الناتج المرتبط أولًا:","ألغِ الحركات القديمة المرتبطة قبل تهيئة المل، ثم أعد تسجيلها بالمل؛ صور هذه الحركات محفوظة بوحدة التقسيمة القديمة:"]) if (message.startsWith(prefix)) return exactFrench[prefix] + message.slice(prefix.length);
+  const missingCategory = message.match(/^المنتج (.+) يشير إلى فئة غير موجودة؛ راجع التصنيف قبل المتابعة$/);
+  if (missingCategory) return `Le produit ${missingCategory[1]} référence une catégorie introuvable. Vérifiez son classement avant de continuer.`;
   const insufficientBalance = message.match(/^الرصيد غير كافٍ في (.+)$/);
   if (insufficientBalance) return `Solde insuffisant sur ${insufficientBalance[1]}`;
   const insufficientStock = message.match(/^المخزون غير كافٍ للمنتج (.+)$/);

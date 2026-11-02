@@ -31,5 +31,7 @@ test("product categories can be renamed and deleted without dangling product ref
 
   await command({ type: "product-category.delete", id: "cat-a" });
   assert.equal(await db.collection("productCategories").findOne({ id: "cat-a" }), null);
-  assert.equal((await db.collection("products").findOne({ id: "category-product" })).categoryId, null);
+  const fallback = await db.collection("appSettings").findOne({ _id: "perfume-fragrance-category" });
+  assert.equal((await db.collection("products").findOne({ id: "category-product" })).categoryId, fallback.categoryId);
+  assert.ok(await db.collection("productCategories").findOne({ id: fallback.categoryId }));
 });

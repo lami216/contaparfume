@@ -10,6 +10,7 @@ import type { CanonicalEntity, CanonicalImportPackage, ImportSourceAdapter } fro
 import type { AccountBalancePolicy } from "../migration/types.ts";
 import { normalizeImportText } from "../migration/matching.ts";
 import { allocateAvailableSequences } from "../lib/document-sequences.ts";
+import { ensurePerfumeSystemCategories } from "../lib/perfume-system-categories.ts";
 
 export const SQLITE_MAGIC = Buffer.from("SQLite format 3\0", "ascii");
 export const LEGACY_SUPPORTED_TABLES = ["itemsTB","storesTB","stores_itemsTB","customerTB","supplierTB","suppliersTB","BankTB","PayMethods","buyBillTB","items_BuyTB","purchBillTB","items_purchTB","safeTB","process_TypeTB","process_MainType","companyTB"];
@@ -109,7 +110,13 @@ async function executeLegacyImportPhaseWork(db:Db, bytes:Uint8Array, phase:Legac
 
 /** Public phase boundary: every write in a phase commits together or is rolled back together. */
 export async function executeLegacyImportPhase(db:Db, bytes:Uint8Array, phase:LegacyImportPhase, stockPolicy:"current"|"imported"="current",accountBalancePolicy:AccountBalancePolicy="keep-current") {
- return db.transaction(()=>executeLegacyImportPhaseWork(db,bytes,phase,stockPolicy,accountBalancePolicy));
+ return db.transaction(async session=>{
+  const result=await executeLegacyImportPhaseWork(db,bytes,phase,stockPolicy,accountBalancePolicy);
+  // Product inserts bypass normal product commands. Keep classification atomic
+  // with the phase, and also cover old resumable runs reaching finalization.
+  if(phase==="products"||phase==="finalize")await ensurePerfumeSystemCategories(db,session);
+  return result;
+ });
 }
 
 /** Compatibility helper for callers/tests; intentionally has no encompassing transaction. */

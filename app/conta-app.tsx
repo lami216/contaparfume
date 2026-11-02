@@ -1418,10 +1418,12 @@ function Products({ data, run, sourceRequest, clearSourceRequest, openProductMov
   const [viewing, setViewing] = useState<Product | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
-  const [categoryFilter,setCategoryFilter]=useState("__uncategorized__");
+  const defaultCategoryId=data.categories.find(category=>category.systemKind==="perfume-fragrances")?.id??"";
+  const [categoryFilter,setCategoryFilter]=useState(defaultCategoryId);
+  const selectedCategoryFilter=categoryFilter&&!data.categories.some(category=>category.id===categoryFilter)?defaultCategoryId:categoryFilter;
   const [sort, setSort] = useState<{ key: "price" | "cost" | "stock"; direction: "asc" | "desc" } | null>(null);
   const normalized = query.trim().toLocaleLowerCase();
-  const filteredProducts = useMemo(() => data.products.filter(product => showArchived ? product.isArchived === true : product.isArchived !== true).filter(product => categoryFilter==="__uncategorized__"?!product.categoryId:!categoryFilter||product.categoryId===categoryFilter).filter(product => !normalized || `${product.name} ${product.sku} ${product.barcode}`.toLocaleLowerCase().includes(normalized)), [data.products, normalized, showArchived,categoryFilter]);
+  const filteredProducts = useMemo(() => data.products.filter(product => showArchived ? product.isArchived === true : product.isArchived !== true).filter(product => !selectedCategoryFilter||product.categoryId===selectedCategoryFilter).filter(product => !normalized || `${product.name} ${product.sku} ${product.barcode}`.toLocaleLowerCase().includes(normalized)), [data.products, normalized, showArchived,selectedCategoryFilter]);
   const productSortColumns=useMemo(()=>[
     {key:"price",type:"money" as const,get:(product:Product)=>product.piecePrice},
     {key:"cost",type:"money" as const,get:(product:Product)=>product.lastPurchaseCost},
@@ -1452,7 +1454,7 @@ function Products({ data, run, sourceRequest, clearSourceRequest, openProductMov
   return <section className="workspace-page products-page">
     <div className="toolbar workspace-toolbar">
       <label className="search compact-search"><Search /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={tr("بحث سريع بالاسم أو الرمز أو الباركود")} /></label>
-      <label className="product-category-filter"><span className="sr-only">{tr("الفئة")}</span><select aria-label={tr("فلتر فئة المنتجات")} value={categoryFilter} onChange={event=>setCategoryFilter(event.target.value)}><option value="">{tr("كل الفئات")}</option><option value="__uncategorized__">{tr("بدون فئة")}</option>{data.categories.map(category=><option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+      <label className="product-category-filter"><span className="sr-only">{tr("الفئة")}</span><select aria-label={tr("فلتر فئة المنتجات")} value={selectedCategoryFilter} onChange={event=>setCategoryFilter(event.target.value)}><option value="">{tr("كل الفئات")}</option>{data.categories.map(category=><option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
       <button className="soft selection-option" aria-pressed={showArchived} onClick={() => setShowArchived(value => !value)}>{showArchived ? tr("إخفاء المنتجات المحذوفة") : tr("المنتجات المحذوفة")}</button>
       {(canCreate||canEdit||canDelete)&&<button className="soft" type="button" onClick={() => setCategoryDialogOpen(true)}><Plus /> {tr("إدارة الفئات")}</button>}
       {canCreate&&<button className="primary" onClick={() => openForm(null)}><Plus />  {tr("إضافة منتج")}</button>}
@@ -1512,10 +1514,12 @@ type ProductOpeningView = { total:number; remaining:number; consumed:number; all
 function ProductForm({ run, close, product, warehouses, categories, canAdjustOpening, openProductMovements }: { run: RunCommand; close: () => void; product: Product | null; warehouses: BootstrapData["warehouses"]; categories: BootstrapData["categories"]; canAdjustOpening:boolean; openProductMovements: (productId: string) => void }) {
   const confirmAction=useAppConfirm();
   const defaultWarehouseId=preferredWarehouse(warehouses)?.id??"";
+  const defaultCategory=categories.find(category=>category.systemKind==="perfume-fragrances"),defaultCategoryId=defaultCategory?.id??"";
+  const ordinaryCategories=categories.filter(category=>!category.systemKind||category.systemKind==="perfume-fragrances");
   const [name,setName]=useState(product?.name??""),[cost,setCost]=useState(String(product?.pieceCost??"")),[price,setPrice]=useState(String(product?.piecePrice??"")),[wholesalePrice,setWholesalePrice]=useState(String(product?.wholesalePrice??"")),
     [openingStock,setOpeningStock]=useState(product?String(product.openingStock??""):""),[openingCost,setOpeningCost]=useState(String(product?.openingCost??"")),[openingWarehouseId,setOpeningWarehouseId]=useState(product?.openingWarehouseId??defaultWarehouseId),
     [openingState,setOpeningState]=useState<ProductOpeningView|null>(null),[openingLoading,setOpeningLoading]=useState(Boolean(product)),[openingError,setOpeningError]=useState(""),
-    [barcode,setBarcode]=useState(product?.barcode??""),[categoryId, setCategoryId] = useState(product?.categoryId ?? ""),[expiryDate,setExpiryDate]=useState(product?.expiryDate??""),[note,setNote]=useState(product?.note??"");
+    [barcode,setBarcode]=useState(product?.barcode??""),[categoryId, setCategoryId] = useState(product?.categoryId || defaultCategoryId),[expiryDate,setExpiryDate]=useState(product?.expiryDate??""),[note,setNote]=useState(product?.note??"");
   const barcodeInput=useRef<HTMLInputElement>(null);
   const openingProductId=product?.id;
   useEffect(()=>{
@@ -1535,7 +1539,7 @@ function ProductForm({ run, close, product, warehouses, categories, canAdjustOpe
     <div className="product-form-halves">
       <FramedSection title={tr("المعلومات الأساسية")} className="product-form-group">
         <label>{tr("اسم المنتج")}<input required value={name} onChange={event=>setName(event.target.value)}/></label>
-        <label>{tr("الفئة")}{product&&["decant","bottle"].includes(product.perfumeForm??"")?<input readOnly value={categories.find(category=>category.id===product.categoryId)?.name??tr(product.perfumeForm==="bottle"?"زجاج التقسيمات":"التقسيمات")} title={tr("الفئة تلقائية حسب نوع المنتج")}/>:<SearchableSelect value={categoryId} onChange={setCategoryId} options={categories.filter(category=>!category.systemKind).map(category=>({value:category.id,label:category.name}))} placeholder={tr("بدون فئة")} searchPlaceholder={tr("ابحث عن فئة")} allowEmpty floating/>}</label>
+        <label>{tr("الفئة")}{product&&["decant","bottle"].includes(product.perfumeForm??"")?<input readOnly value={categories.find(category=>category.id===product.categoryId)?.name??tr(product.perfumeForm==="bottle"?"زجاج التقسيمات":"التقسيمات")} title={tr("الفئة تلقائية حسب نوع المنتج")}/>:<SearchableSelect value={categoryId} onChange={value=>setCategoryId(value||defaultCategoryId)} options={ordinaryCategories.map(category=>({value:category.id,label:category.name}))} placeholder={defaultCategory?.name??tr("العطور")} searchPlaceholder={tr("ابحث عن فئة")} floating/>}</label>
         <label className="barcode-field">{tr("الباركود")}<input ref={barcodeInput} dir="ltr" autoComplete="off" value={barcode} onChange={event=>setBarcode(event.target.value)} onKeyDown={event=>{if(event.key==="Enter")event.preventDefault()}}/><button type="button" className="soft" onClick={()=>barcodeInput.current?.focus()}>{tr("مسح الباركود")}</button></label>
         <label>{tr("تاريخ انتهاء الصلاحية — اختياري")}<input type="date" dir="ltr" value={expiryDate} onChange={event=>setExpiryDate(event.target.value)}/></label>
         <label>{tr("ملاحظة عن المنتج — اختياري")}<textarea maxLength={1000} rows={2} value={note} onChange={event=>setNote(event.target.value)}/></label>

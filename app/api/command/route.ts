@@ -44,12 +44,12 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     return result;
   }
   if (type === "product-category.create" || type === "product-category.update") {
+    const { fragranceCategoryId } = await ensurePerfumeSystemCategories(db, session);
     const categoryId = text(body.id), name = text(body.name);
-    if (type === "product-category.create" && (perfumeSystemCategoryKind(categoryId) || body.systemKind !== undefined)) throw new CommandError("فئات التقسيمات تلقائية؛ يمكنك تغيير اسم الفئة الموجودة فقط", 409);
-    if (perfumeSystemCategoryKind(categoryId)) await ensurePerfumeSystemCategories(db, session);
+    if (type === "product-category.create" && (perfumeSystemCategoryKind(categoryId) || perfumeSystemCategoryKind(categoryId, fragranceCategoryId) || body.systemKind !== undefined)) throw new CommandError("فئات التقسيمات تلقائية؛ يمكنك تغيير اسم الفئة الموجودة فقط", 409);
     if (!name) throw new CommandError("اسم الفئة مطلوب");
     if (name.length > 80) throw new CommandError("اسم الفئة طويل جدًا");
-    if (type === "product-category.update" && perfumeSystemCategoryKind(categoryId) && (await db.collection("productCategories").findOne({ id: categoryId }, { session }))?.name === name) return categoryId;
+    if (type === "product-category.update" && perfumeSystemCategoryKind(categoryId, fragranceCategoryId) && (await db.collection("productCategories").findOne({ id: categoryId }, { session }))?.name === name) return categoryId;
     const categories = await db.collection("productCategories").find({}, { session, projection: { id: 1, name: 1 } }).toArray();
     const normalized = name.toLocaleLowerCase();
     const duplicate = categories.some(category => String(category.name ?? "").trim().toLocaleLowerCase() === normalized && (type !== "product-category.update" || String(category.id) !== categoryId));
@@ -65,11 +65,12 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     return category.id;
   }
   if (type === "product-category.delete") {
+    const { fragranceCategoryId } = await ensurePerfumeSystemCategories(db, session);
     const categoryId = text(body.id);
-    assertPerfumeCategoryCanBeDeleted(categoryId);
+    assertPerfumeCategoryCanBeDeleted(categoryId, fragranceCategoryId);
     const category = categoryId ? await db.collection("productCategories").findOne({ id: categoryId }, { session }) : null;
     if (!category) throw new CommandError("الفئة غير موجودة", 404);
-    await db.collection("products").updateMany({ categoryId }, { $set: { categoryId: null } }, { session });
+    await db.collection("products").updateMany({ categoryId }, { $set: { categoryId: fragranceCategoryId } }, { session });
     await db.collection("productCategories").deleteOne({ id: categoryId }, { session });
     await ensurePerfumeSystemCategories(db, session);
     return categoryId;
