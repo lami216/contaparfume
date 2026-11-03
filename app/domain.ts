@@ -1,4 +1,5 @@
 import { getDisplayCurrencyCode, type CurrencySettings } from "../lib/currency-core";
+import { formatAccountingDecimal, formatAccountingPercentage } from "../lib/accounting-format";
 import type { PerfumeAllocation, PerfumeForm, PerfumeLot } from "./perfume-logic";
 
 export type PaymentMethod = string;
@@ -184,6 +185,7 @@ export interface DocumentRecord {
   replacesDocumentId?: string;
   /** Specialized decant stock lifecycle operation. */
   perfumeStockOperationType?: "opening" | "consumption" | "yield-correction" | "reconciliation" | "bottle-reconciliation" | "unit-conversion";
+  perfumeStockTreatment?: "quantity-correction";
   perfumeStockReasonCode?: string | null;
   inventoryLoss?: number;
   bookValueBefore?: number;
@@ -390,6 +392,15 @@ export function formatQuantity(value: number) {
 export function formatMoney(value: number) {
   return `${formatNumber(value)} ${getDisplayCurrencyCode()}`;
 }
+export function accountingNumber(value: number) {
+  return western(formatAccountingDecimal(DISPLAY_LOCALE, value));
+}
+export function accountingMoney(value: number) {
+  return `${accountingNumber(value)} ${getDisplayCurrencyCode()}`;
+}
+export function accountingPercent(value: number) {
+  return western(formatAccountingPercentage(DISPLAY_LOCALE, value));
+}
 export function displayDocumentNumber(document: Pick<DocumentRecord, "number" | "sequence" | "kind">) {
   return ["sale", "purchase", "expense", "decant-sale", "decant-purchase"].includes(document.kind) && Number.isSafeInteger(Number(document.sequence)) && Number(document.sequence) > 0 ? String(document.sequence) : document.number;
 }
@@ -433,7 +444,7 @@ export function formatDateTime(value: Date | string | number) {
 }
 
 // Existing view-facing names share the same central formatting policy.
-export const money = formatMoney;
+export const money = accountingMoney;
 export const number = formatNumber;
 export function quantity(value: number) {
   return formatQuantity(value);

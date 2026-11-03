@@ -1,6 +1,29 @@
 import type { Locale } from "./locale";
 
 const exactFrench: Record<string, string> = {
+  "أُلغي طلب العملية قبل الحفظ؛ أعد المحاولة إذا لزم الأمر": "La demande a été annulée avant l’enregistrement. Réessayez si nécessaire.",
+  "تعذر بدء العملية في الوقت المحدد؛ أعد المحاولة": "L’opération n’a pas pu démarrer à temps. Veuillez réessayer.",
+  "تعذر التحقق من الطلب في الوقت المحدد؛ أعد المحاولة": "La vérification de la demande a expiré. Veuillez réessayer.",
+  "انتهت مهلة قراءة طلب العملية؛ أعد المحاولة": "La réception de la demande a expiré. Veuillez réessayer.",
+  "تكلفة الوحدة التي راجعتها يجب أن تكون رقمًا موجبًا صالحًا": "Le coût unitaire vérifié doit être un nombre positif valide.",
+  "تغيرت الفاتورة أثناء مراجعة التكلفة؛ حدّث القائمة وأعد المحاولة": "La facture a changé pendant la vérification. Actualisez la liste puis réessayez.",
+  "إعدادات صفحة مراجعة التكاليف غير صالحة": "Les paramètres de pagination de la vérification des coûts sont invalides.",
+  "مراجعة تكاليف المبيعات متاحة للمالك فقط": "Seul le propriétaire peut vérifier les coûts de vente.",
+  "اختر إجراء المراجعة واكتب سببًا واضحًا لا يتجاوز 1000 حرف": "Choisissez une action et indiquez un motif clair de 1000 caractères au maximum.",
+  "السطر غير متاح لمراجعة التكلفة أو تمت مراجعته بالفعل": "Cette ligne n’est pas disponible ou a déjà été vérifiée.",
+  "تغيرت الفاتورة أو مصدر التكلفة؛ حدّث قائمة المراجعة وأعد المحاولة": "La facture ou sa source de coût a changé. Actualisez la liste puis réessayez.",
+  "بيانات مبلغ أو كمية البيع غير مكتملة؛ لا يمكن اعتماد التكلفة آليًا": "Le montant ou la quantité de vente est incomplet. Le coût ne peut pas être validé automatiquement.",
+  "لا يوجد مصدر تكلفة تاريخي مؤكد لهذا السطر؛ لا يمكن تخمين التكلفة": "Cette ligne n’a aucune source de coût historique confirmée. Le coût ne peut pas être estimé.",
+  "هذا التصحيح يعيد فتح دفعة قديمة بينما توجد دفعة أحدث بها رصيد. عالج الدفعة الأحدث أولًا:": "Cette correction rouvrirait un ancien lot alors qu’un lot plus récent contient du stock. Traitez d’abord le lot plus récent :",
+  "توزيع تكلفة البيع الأصلي تغير؛ لم يُحفظ تعديل الفاتورة": "La répartition du coût de la vente d’origine a changé. La modification n’a pas été enregistrée.",
+  "تغيرت دفعات البيع الأصلية أثناء تعديل بيانات الفاتورة؛ لم يُحفظ التعديل": "Les lots de la vente d’origine ont changé pendant la modification. La facture n’a pas été modifiée.",
+  "تغيرت كمية المخزون أثناء تعديل بيانات الفاتورة؛ لم يُحفظ التعديل": "La quantité en stock a changé pendant la modification de la facture. La modification n’a pas été enregistrée.",
+  "صحّح سائل التقسيمات من تسوية مخزون التقسيمات، أو سجّل الفاقد من الاستهلاك؛ لا يمكن تغييره بتصحيح مخزون عام": "Corrigez le liquide dans la régularisation des décants ou enregistrez les pertes en consommation. La correction générale ne peut pas modifier ce stock.",
+  "إلغاء هذه الحركة يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:": "Cette annulation rouvrirait un ancien lot alors qu’un nouveau lot contient du stock. Traitez d’abord le nouveau lot :",
+  "هذه تسوية قديمة لها معالجة محفوظة؛ لتغيير الكمية أو المخزن أو الدفعة ألغِها أولًا ثم أنشئ تصحيح كمية جديدًا دون أرباح أو خسائر.": "Cette ancienne régularisation conserve son traitement. Pour changer la quantité, le dépôt ou le lot, annulez-la puis créez une nouvelle correction de quantité sans gain ni perte.",
+  "رصيد المنتج لا يطابق مجموع دفعاته؛ راجع البيانات قبل تصحيح الكمية.": "Le stock du produit ne correspond pas au total de ses lots. Vérifiez les données avant la correction.",
+  "لا يمكن إثبات أسبقية الدفعة الأخرى التي بها رصيد؛ راجع سندها قبل إعادة فتح الدفعة القديمة.": "L’ordre du lot encore en stock ne peut pas être établi. Vérifiez son document avant de rouvrir l’ancien lot.",
+  "أدخل الرصيد الفعلي لتصحيح الكمية": "Saisissez le stock réel pour corriger la quantité.",
   "اختر فئة منتج صالحة": "Choisissez une catégorie de produit valide.",
   "هذه فئة تلقائية؛ يمكنك تغيير اسمها ولا يمكن حذفها": "Cette catégorie automatique peut être renommée, mais pas supprimée.",
   "ملاحظة بيع المتبقي طويلة جدًا؛ الحد الأقصى 2000 حرف": "La note du reliquat dépasse 2000 caractères.",
@@ -105,7 +128,9 @@ export function translateApiError(locale: Locale, message: string): string {
   if (locale === "ar") return message;
   const exact = exactFrench[message];
   if (exact) return exact;
-  for (const prefix of ["ألغِ أو عدّل تسوية أو استهلاك الدفعة الأحدث قبل تعديل بيع المتبقي أو إلغائه:","إلغاء بيع المتبقي يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:","لا يمكن إلغاء البيع القديم لأن تقييم الدفعة أو تكلفتها تغير بعده؛ ألغِ تصحيح الناتج المرتبط أولًا:","ألغِ الحركات القديمة المرتبطة قبل تهيئة المل، ثم أعد تسجيلها بالمل؛ صور هذه الحركات محفوظة بوحدة التقسيمة القديمة:"]) if (message.startsWith(prefix)) return exactFrench[prefix] + message.slice(prefix.length);
+  for (const prefix of ["هذا التصحيح يعيد فتح دفعة قديمة بينما توجد دفعة أحدث بها رصيد. عالج الدفعة الأحدث أولًا:","إلغاء هذه الحركة يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:","ألغِ أو عدّل تسوية أو استهلاك الدفعة الأحدث قبل تعديل بيع المتبقي أو إلغائه:","إلغاء بيع المتبقي يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:","لا يمكن إلغاء البيع القديم لأن تقييم الدفعة أو تكلفتها تغير بعده؛ ألغِ تصحيح الناتج المرتبط أولًا:","ألغِ الحركات القديمة المرتبطة قبل تهيئة المل، ثم أعد تسجيلها بالمل؛ صور هذه الحركات محفوظة بوحدة التقسيمة القديمة:"]) if (message.startsWith(prefix)) return exactFrench[prefix] + message.slice(prefix.length);
+  const pendingLot = message.match(/^لا يمكن فتح دفعة جديدة؛ ما زال للعطر رصيد تقسيمات في دفعة سابقة \(([^)]*)\)\. إذا نفد فعليًا، سجّل المتبقي كاستهلاك؛ وإذا كان الرصيد خطأً في الإدخال، صحّح الكمية أولًا\. الدفعة السابقة:(.*)$/);
+  if (pendingLot) return `Un lot précédent contient encore du parfum (${pendingLot[1]}). Enregistrez une sortie réelle en consommation ou corrigez une erreur de quantité avant le nouveau lot. Lot précédent :${pendingLot[2]}`;
   const missingCategory = message.match(/^المنتج (.+) يشير إلى فئة غير موجودة؛ راجع التصنيف قبل المتابعة$/);
   if (missingCategory) return `Le produit ${missingCategory[1]} référence une catégorie introuvable. Vérifiez son classement avant de continuer.`;
   const insufficientBalance = message.match(/^الرصيد غير كافٍ في (.+)$/);

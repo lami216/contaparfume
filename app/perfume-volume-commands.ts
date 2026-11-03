@@ -2,7 +2,7 @@ import type { SqliteDatabase as Db, SqliteSession as Session, DbDocument as Row 
 import type { PerfumeLot } from "./perfume-logic.ts";
 import { perfumeLotEquals } from "./perfume-stock-reconciliation.ts";
 import { resolvePerfumeDefaults, reconcileVolumeLot, roundMl, volumeMl } from "./perfume-volume.ts";
-import {laterLotDocuments,perfumeOperationBlocked,prepareLotDeltaUndo} from "./perfume-operation-guards.ts";
+import {assertPerfumeLotCanReopen,assertPerfumeProductLotBalance,laterLotDocuments,perfumeOperationBlocked,prepareLotDeltaUndo} from "./perfume-operation-guards.ts";
 
 type Delegate = (db: Db, session: Session, body: Row) => Promise<unknown>;
 const fail = (message: string) => Object.assign(new Error(message), { status: 409 });
@@ -14,7 +14,7 @@ async function move(db: Db, session: Session, product: Row, warehouse: Row, delt
   if (after < 0) throw fail("المخزون غير كافٍ");
   await db.collection("products").updateOne({ id: product.id }, { $set: { [`stocks.${wh}`]: after } }, { session });
   product.stocks = { ...product.stocks, [wh]: after };
-  await db.collection("stockMovements").insertOne({ id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId: wh, warehouseName: warehouse.name, productId: product.id, productName: product.name, type, quantityDelta: delta, balanceBefore: before, balanceAfter: after, quantityUnit: product.perfumeStockUnit === "ml" ? "ml" : "piece", occurredAt: document.occurredAt }, { session });
+  await db.collection("stockMovements").insertOne({ id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId: wh, warehouseName: warehouse.name, productId: product.id, productName: product.name, type, quantityDelta: delta, balanceBefore: before, balanceAfter: after, quantityUnit: product.perfumeStockUnit === "ml" ? "ml" : "piece", occurredAt: document.occurredAt, createdAt:new Date().toISOString() }, { session });
   return { before, after };
 }
 
@@ -61,7 +61,7 @@ export async function handleVolumeCommand(db: Db, session: Session, body: Row, l
     // These legacy operations reverse exact piece-unit before/after snapshots.
     // Converting only the current lot would lock their cancellation. Keep the
     // historical snapshots intact and require their explicit reversal first.
-    const unsupported = (await db.collection("documents").find({ status: "posted", decantProductId: product.id, perfumeStockOperationType: { $in: ["opening", "consumption", "yield-correction"] } }, { session }).toArray()).filter(document => document.quantityUnit !== "ml");
+    const unsupported = (await db.collection("documents").find({ status: "posted", decantProductId: product.id, perfumeStockOperationType: { $in: ["opening", "consumption", "yield-correction", "reconciliation"] } }, { session }).toArray()).filter(document => document.quantityUnit !== "ml");
     if (unsupported.length) throw perfumeOperationBlocked("ألغِ الحركات القديمة المرتبطة قبل تهيئة المل، ثم أعد تسجيلها بالمل؛ صور هذه الحركات محفوظة بوحدة التقسيمة القديمة:", unsupported);
     const stocks: Record<string, number> = {};
     for (const lot of lots) {
@@ -127,15 +127,21 @@ export async function handleVolumeCommand(db: Db, session: Session, body: Row, l
   if (!warehouse) throw fail("اختر مخزنًا نشطًا");
   const lots = lotsOf(product), index = lots.findIndex(lot => lot.id === body.lotId);
   if (index < 0) throw fail("الدفعة غير موجودة");
+  assertPerfumeProductLotBalance(product);
   const before = structuredClone(lots[index]), wh = String(warehouse._id), returning = type === "perfume-recombine.post";
-  const actual = body.actualQuantity ?? before.stocks[wh] ?? 0;
-  const count = reconcileVolumeLot(before, wh, actual);
+  if (!returning && body.actualQuantity === undefined) throw fail("أدخل الرصيد الفعلي لتصحيح الكمية");
+  const actual = body.actualQuantity === undefined ? before.stocks[wh] ?? 0 : body.actualQuantity;
+  // Only management's trusted historical replacement can request the old
+  // financial treatment. Fresh commands always carry quantity-correction.
+  const quantityCorrection = body.perfumeStockTreatment !== "legacy-reconciliation";
+  const count = reconcileVolumeLot(before, wh, actual, !quantityCorrection);
+  if(quantityCorrection&&count.delta>0)await assertPerfumeLotCanReopen(db,session,{id:before.conversionDocumentId},before,"هذا التصحيح يعيد فتح دفعة قديمة بينما توجد دفعة أحدث بها رصيد. عالج الدفعة الأحدث أولًا:");
   if(!count.delta&&count.lot.remainingQuantity===0&&before.settledAt)throw fail("الدفعة مغلقة بالفعل؛ لا توجد حركة جديدة لاعتمادها");
   const reason = String(body.reason ?? "").trim();
   if (count.delta && !reason) throw fail("سبب فرق الجرد مطلوب");
   if (!returning && !count.delta && count.lot.remainingQuantity !== 0) throw fail("لا يوجد فرق في الجرد");
   if (returning && Object.entries(before.stocks).some(([key,q]) => key !== wh && q > 0)) throw fail("اجمع باقي الدفعة في مخزن واحد قبل الإرجاع");
-  const document: Row = { ...doc(returning ? "إرجاع الباقي إلى عطر ناقص" : "جرد دفعة التقسيمات", warehouse), quantityUnit: "ml", perfumeStockOperationType: "reconciliation", perfumeConversionType: returning ? "perfume-recombine" : undefined, decantProductId: product.id, perfumeLotId: before.id, perfumeLotBefore: before, actualQuantity: count.actual, reconciliationDelta: count.delta, inventoryLoss: count.inventoryLoss, inventoryGain: count.inventoryGain, bookValueBefore: count.bookValueBefore, bookValueAfter: count.bookValueAfter, note: reason, stockDelta: count.delta };
+  const document: Row = { ...doc(returning ? "إرجاع الباقي إلى عطر ناقص" : "جرد دفعة التقسيمات", warehouse), quantityUnit: "ml", ...(quantityCorrection ? { perfumeStockTreatment: "quantity-correction" } : {}), perfumeStockOperationType: "reconciliation", perfumeConversionType: returning ? "perfume-recombine" : undefined, decantProductId: product.id, perfumeLotId: before.id, perfumeLotBefore: before, actualQuantity: count.actual, reconciliationDelta: count.delta, inventoryLoss: count.inventoryLoss, inventoryGain: count.inventoryGain, bookValueBefore: count.bookValueBefore, bookValueAfter: count.bookValueAfter, note: reason, stockDelta: count.delta };
   if (count.delta) {
     const balances = await move(db,session,product,warehouse,count.delta,document,"perfume-reconciliation");
     document.lines.push({ id:id("line"),productId:product.id,description:`${product.name} — فرق جرد`,quantity:count.delta,unitPrice:count.unitCost,lineTotal:0,inventoryLoss:count.inventoryLoss,inventoryGain:count.inventoryGain,balanceBefore:balances.before,balanceAfter:balances.after,perfumeRole:"count" });

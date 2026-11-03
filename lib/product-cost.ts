@@ -1,6 +1,7 @@
 import type { DbDocument, SqliteDatabase, SqliteSession } from "./sqlite.ts";
 
 const positiveCost = (value: unknown) => {
+  if (typeof value !== "number" && (typeof value !== "string" || value.trim() === "")) return null;
   const cost = Number(value);
   return Number.isFinite(cost) && cost > 0 ? cost : null;
 };
@@ -21,6 +22,9 @@ export function resolveProductCost(product: DbDocument, documents: DbDocument[])
   const latest = purchases.at(-1);
   const purchaseCost = positiveCost(latest?.lines.find((line: DbDocument) => line.productId === product.id)?.unitPrice);
   if (purchaseCost !== null) return { cost: purchaseCost, source: "purchase", at: latest!.occurredAt };
+  // A newer purchase with an unknown price supersedes older/opening evidence;
+  // inventing an opening fallback here would persist a false sale snapshot.
+  if (latest) return { cost: null, source: null, at: null };
 
   const openingDocuments = relevant.filter(document => document.openingCorrection === true || String(document.number ?? "").startsWith("OPEN-"));
   const opening = openingDocuments.at(-1);

@@ -57,6 +57,11 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
   }
   async function post(postKind:ManagementKind,input:Row,previous?:Row) {
     if(postKind==="split")await assertSourceCleared(db,session,String(input.sourceProductId));
+    if(postKind==="yield-correction"||postKind==="recombine"){
+      // The caller cannot request historical loss/gain treatment. Only a
+      // validated neutral replacement of a stored old document may replay it.
+      input={...input,perfumeStockTreatment:previous&&previous.perfumeStockTreatment!=="quantity-correction"?"legacy-reconciliation":"quantity-correction"};
+    }
     let openingValuation:ReturnType<typeof openingLiquidValue>|undefined;
     if(postKind==="opening"&&input.volumeMl!==undefined&&input.originalVolumeMl!==undefined){
       const source=await product(input.sourceProductId);
@@ -111,11 +116,23 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
         lines:lines.map(l=>({...l,unitPrice:unitCost,inventoryLoss:loss,inventoryGain:0}))});
       added.managementInput={...cleanInput(input),cost:unitCost};
     }
+    if(previous&&(postKind==="yield-correction"||postKind==="recombine")&&previous.perfumeStockTreatment!=="quantity-correction"){
+      // Old records remain financially historical, including absent fields.
+      const unset:Row={};
+      const createdAt=d.occurredAt;
+      added.occurredAt=previous.occurredAt;added.updatedAt=new Date().toISOString();
+      if(Object.hasOwn(previous,"businessDate"))added.businessDate=previous.businessDate;else unset.businessDate="";
+      await db.collection("stockMovements").updateMany({documentId:d.id},{$set:{occurredAt:previous.occurredAt,createdAt}},{session});
+      for(const key of ["inventoryLoss","inventoryGain"]){if(Object.hasOwn(previous,key))added[key]=previous[key];else unset[key]="";}
+      const originalLines=rows(previous.lines);
+      added.lines=rows(d.lines).map((line,index)=>{const copy={...line},original=originalLines[index];for(const key of ["inventoryLoss","inventoryGain"]){if(original&&Object.hasOwn(original,key))copy[key]=original[key];else delete copy[key];}return copy;});
+      if(Object.keys(unset).length)await documents.updateOne({id:d.id},{$unset:unset},{session});
+    }
     await documents.updateOne({id:d.id},{$set:added},{session});return {result,documentId:String(d.id)};
   }
   async function undo(d:Row) {
     const k=managementKind(d)!;
-    if(d.quantityUnit==="ml"&&d.perfumeStockOperationType==="reconciliation"){
+    if(d.perfumeStockOperationType==="reconciliation"&&(d.quantityUnit==="ml"||d.perfumeStockTreatment==="quantity-correction")){
       await undoVolumeOperation(db,session,d);return;
     }
     if(k==="consumption"){
@@ -216,18 +233,37 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
   if(type==="perfume-management.update"){
     const d=await document(),k=managementKind(d)!;
     if(k==="bottle")return handlePerfumeManagementCommand(db,session,{...body,type:"perfume-bottle.update",id:d.managementProductId},base,core);
+    let replacement=body;
+    if(k==="yield-correction"||k==="recombine"){
+      const wh=String(d.warehouseId),prior=d.managementInput as Row|undefined;
+      const oldActual=d.actualQuantity??prior?.actualQuantity??(d.partialProductId?(d.perfumeLotBefore as PerfumeLot|undefined)?.stocks?.[wh]:(d.perfumeLotAfter as PerfumeLot|undefined)?.stocks?.[wh]);
+      const same=String(body.decantProductId??d.decantProductId)===String(d.decantProductId)&&String(body.lotId??d.perfumeLotId)===String(d.perfumeLotId)&&String(body.warehouseId??d.warehouseId)===wh&&Number(body.actualQuantity??oldActual)===Number(oldActual);
+      if(d.perfumeStockTreatment!=="quantity-correction"&&!same)throw fail("هذه تسوية قديمة لها معالجة محفوظة؛ لتغيير الكمية أو المخزن أو الدفعة ألغِها أولًا ثم أنشئ تصحيح كمية جديدًا دون أرباح أو خسائر.");
+      replacement={...prior,decantProductId:d.decantProductId,lotId:d.perfumeLotId,warehouseId:d.warehouseId,actualQuantity:oldActual,...body};
+      if(same&&!d.partialProductId&&d.perfumeStockOperationType==="reconciliation"){
+        // A neutral edit keeps its signed effect even when an earlier canceled
+        // sale has restored extra liquid since the original absolute count.
+        await undo(d);
+        const current=await product(d.decantProductId),lot=lotsOf(current).find(item=>item.id===d.perfumeLotId);
+        if(!lot)throw stockConflict();
+        replacement={...replacement,actualQuantity:roundMl(Number(lot.stocks[wh]??0)+Number(d.stockDelta))};
+        const made=await post(k,replacement,d);await linkRevision(d,made.documentId);return {handled:true,result:made.documentId};
+      }
+    }
     // A correction is a new linked revision. The prior document, all its lines
     // and reversal movements remain queryable; failure rolls the entire edit back.
     await undo(d);
-    const made=await post(k,body,d);await linkRevision(d,made.documentId);return {handled:true,result:made.documentId};
+    const made=await post(k,replacement,d);await linkRevision(d,made.documentId);return {handled:true,result:made.documentId};
   }
   if(type==="adjustment.update"||type==="adjustment.void"){
     const d=await documents.findOne({id:String(body.documentId??"")},{session});
     if(d?.perfumeStockOperationType==="unit-conversion")throw fail("هذا سند تهيئة وحدة قياس محفوظ؛ لا يُعدل أو يُلغى كتسوية مخزون");
     if(d&&managementKind(d))throw fail("استخدم إدارة التقسيمات لتعديل أو إلغاء هذه العملية حتى تبقى الدفعات متطابقة.");
+    if(type==="adjustment.update"&&d&&d.productArchiveStockClearance!==true&&await products.findOne({id:{$in:rows(d.lines).map(line=>String(line.productId))},perfumeForm:"decant"},{session}))throw fail("صحّح سائل التقسيمات من تسوية مخزون التقسيمات، أو سجّل الفاقد من الاستهلاك؛ لا يمكن تغييره بتصحيح مخزون عام");
   }
   if(type==="adjustment.post"){
     const ids=rows(body.lines).map(line=>String(line?.productId??""));
+    if(ids.length&&await products.findOne({id:{$in:ids},perfumeForm:"decant"},{session}))throw fail("صحّح سائل التقسيمات من تسوية مخزون التقسيمات، أو سجّل الفاقد من الاستهلاك؛ لا يمكن تغييره بتصحيح مخزون عام");
     if(ids.length&&await products.findOne({id:{$in:ids},perfumeForm:"bottle"},{session}))throw fail("سوِّ الزجاج من جرد زجاج التقسيمات لتحديد الكسر أو التلف أو تصحيح خطأ الإدخال",400);
   }
   return {handled:false};

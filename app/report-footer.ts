@@ -1,9 +1,10 @@
+import {reportCostUnknown} from "./report-cost-status.ts";
 import { reportNumber, type ReportResponse, type ReportType, type SummaryTone } from "./report-types.ts";
 
-export type ReportFooterMetric = { key: string; label: string; value: number; tone: SummaryTone; format?: "number" | "percent"; note?: string };
+export type ReportFooterMetric = { key: string; label: string; value: number; tone: SummaryTone; format?: "number" | "percent"; note?: string; uncertain?: boolean };
 type FooterContext = { type: ReportType; result: ReportResponse; productFiltered?: boolean; partyType?: "customer" | "supplier"; translate?: (label: string) => string };
 const signed = (value: number): SummaryTone => value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
-const metric = (summary: ReportResponse["summary"], key: string, label: string, tone: SummaryTone, format?: "number" | "percent", note?: string): ReportFooterMetric => ({ key, label, value: reportNumber(summary[key]), tone, format, note });
+const metric = (summary: ReportResponse["summary"], key: string, label: string, tone: SummaryTone, format?: "number" | "percent", note?: string): ReportFooterMetric => ({ key, label, value: reportNumber(summary[key]), tone, format, note, ...(reportCostUnknown(key,summary)?{uncertain:true}:{}) });
 
 /** Explicit accounting conclusions for each ordinary report; overview owns its summary strip. */
 export function buildReportFooterMetrics({ type, result, productFiltered = false, partyType, translate = value => value }: FooterContext): ReportFooterMetric[] {

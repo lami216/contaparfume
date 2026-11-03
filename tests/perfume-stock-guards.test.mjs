@@ -59,7 +59,7 @@ test('a new conversion requires clearing all previous liquid across warehouses, 
  const before=await createNativeBackup(f.db);
  for(const warehouseId of [f.wh,'other'])await assert.rejects(f.run({type:'perfume-split.post',sourceProductId:'full',warehouseId,volumeMl:100,salePrice:1500}),e=>e.code==='PERFUME_OPERATION_BLOCKED'&&e.dependencies.some(x=>x.documentId===f.source));
  const after=await createNativeBackup(f.db);for(const k of ['products','documents','stockMovements','financialMovements','paymentAccounts'])assert.deepEqual(after.collections[k],before.collections[k]);
- const count=await f.count(0);assert.equal((await f.report()).summary.inventoryLoss,10000);const next=await f.split();
+ const count=await f.count(0);assert.equal((await f.report()).summary.inventoryLoss,0);const next=await f.split();
  await assert.rejects(f.cancel(count),e=>e.dependencies.some(x=>x.documentId===next));
  await f.cancel(next);await f.cancel(count);assert.equal((await f.get()).stocks[f.wh],100);assert.equal((await f.report()).summary.inventoryLoss,0);
 }finally{await f.h.close()}});
@@ -79,11 +79,11 @@ test('unexplained changed valuation is a data error with no invented linked oper
 test('loss and gain details equal their report totals and keep original source types',async()=>{const f=await fixture();try{
  const consumption=await f.consume(),gain=await f.count(95),loss=await f.count(93);
  const broken=await f.run({type:'perfume-bottle-stock.post',bottleProductId:'b',warehouseId:f.wh,actualQuantity:49,bottleStockReason:'breakage',reason:'Broken'});
- let report=await f.report();assert.equal(report.summary.inventoryLoss,1220);assert.equal(report.summary.inventoryGain,500);
- assert.deepEqual(new Set(report.inventoryEffects.loss.map(x=>x.documentId)),new Set([consumption,loss,broken]));assert.equal(report.inventoryEffects.gain[0].documentId,gain);
+ let report=await f.report();assert.equal(report.summary.inventoryLoss,1020);assert.equal(report.summary.inventoryGain,0);
+ assert.deepEqual(new Set(report.inventoryEffects.loss.map(x=>x.documentId)),new Set([consumption,broken]));assert.deepEqual(report.inventoryEffects.gain,[]);assert(!report.inventoryEffects.loss.some(x=>[gain,loss].includes(x.documentId)));
  for(const [key,field] of [['loss','inventoryLoss'],['gain','inventoryGain']])assert.equal(report.inventoryEffects[key].reduce((s,x)=>s+x.value,0),report.summary[field]);
  const profit=await buildReport(f.db,parseReportFilters(new URL('http://127.0.0.1/api/reports?type=profit&allTime=true&productId='+f.p)));
- assert.equal(profit.inventoryEffects.loss.reduce((s,x)=>s+x.value,0),profit.summary.inventoryLoss);assert.equal(profit.inventoryEffects.gain[0].documentId,gain);
+ assert.equal(profit.inventoryEffects.loss.reduce((s,x)=>s+x.value,0),profit.summary.inventoryLoss);assert.deepEqual(profit.inventoryEffects.gain,[]);
  await f.cancel(loss);report=await f.report();assert.equal(report.summary.inventoryLoss,1020);assert(!report.inventoryEffects.loss.some(x=>x.documentId===loss));
  const dated=await buildReport(f.db,parseReportFilters(new URL('http://127.0.0.1/api/reports?type=overview&from=2000-01-01&to=2000-01-02')));assert.deepEqual(dated.inventoryEffects,{loss:[],gain:[]});
 }finally{await f.h.close()}});

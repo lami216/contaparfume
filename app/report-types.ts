@@ -6,7 +6,7 @@ export interface OverviewInvoiceRow extends ReportRow { id: string; documentId: 
 export interface OverviewBankAccount { id: string; name: string; balance: number }
 export interface OverviewWarehouseValue { id: string; name: string; value: number; archived?: boolean }
 export interface OverviewBreakdownRow { id:string; documentId:string; number:string; occurredAt:string; kind:"sale"|"decant-sale"|"return"|"purchase"|"decant-purchase"|"expense"; value:number }
-export interface OverviewProfitBreakdownRow extends OverviewBreakdownRow { revenue:number; cost:number; profit:number }
+export interface OverviewProfitBreakdownRow extends OverviewBreakdownRow { revenue:number; cost:number; profit:number; costKnown?:boolean; unknownRevenue?:number }
 export interface OverviewDetails { sales:OverviewBreakdownRow[]; purchases:OverviewBreakdownRow[]; expenses:OverviewBreakdownRow[]; salesProfit:OverviewProfitBreakdownRow[] }
 export interface InventoryEffectRow {documentId:string;number:string;occurredAt:string;operation:string;product:string;warehouse:string;reason:string;value:number}
 export interface ReportResponse<Row = ReportRow> { report: ReportType; from: string | null; to: string | null; summary: Record<string, number | string | boolean>; rows: Row[]; meta: ReportMeta; invoices?: OverviewInvoiceRow[]; parties?: ReportRow[]; bankAccounts?: OverviewBankAccount[]; warehouseValues?: OverviewWarehouseValue[]; overviewDetails?: OverviewDetails; inventoryEffects?:{loss:InventoryEffectRow[];gain:InventoryEffectRow[]} }

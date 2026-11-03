@@ -1,3 +1,4 @@
+import "./accounting-cost-review.css";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { APP_NAME } from "../lib/app-brand";

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {sqliteHarness} from './sqlite-harness.mjs';
 import {execute} from '../app/api/command/route.ts';
 import {execute as historicalCommand} from '../app/api/command/core-route.ts';
+import {execute as historicalPerfumeCommand} from '../app/api/command/base-route.ts';
 import {buildReport,parseReportFilters} from '../lib/reports.ts';
 import {createNativeBackup,parseAndValidateBackup,restoreNativeBackup} from '../lib/backup.ts';
 import {reversePerfumeLotTransfer} from '../app/perfume-stock-reconciliation.ts';
@@ -55,7 +56,9 @@ test('A02: editing a pre-migration transfer uses the old converted amount and th
 });
 
 test('A08: a legacy sale reversal cannot silently revalue restored portions after yield correction',async t=>{
- const f=await fixture(t),sale=await f.oldSale(2),correction=await f.run({type:'perfume-lot-correct.post',decantProductId:f.p,lotId:f.lot,warehouseId:'w',actualQuantity:4,reason:'Counted yield'});
+ // Seed the actual old revaluation contract through its internal legacy entry;
+ // public new corrections now keep unit cost and cannot request this policy.
+ const f=await fixture(t),sale=await f.oldSale(2),correction=await f.db.transaction(s=>historicalPerfumeCommand(f.db,s,{type:'perfume-lot-correct.post',decantProductId:f.p,lotId:f.lot,warehouseId:'w',actualQuantity:4,reason:'Counted yield',perfumeStockTreatment:'legacy-reconciliation'}));
  const before=await f.snapshot(),report=await f.report();assert.equal((await f.product()).perfumeLots[0].liquidUnitCost,200);
  await assert.rejects(f.run({type:'sale.void',documentId:sale}),error=>{assert.equal(error.status,409);assert.match(error.message,/تكلفة|تقييم/);assert(error.dependencies.some(d=>d.documentId===correction));return true});
  assert.deepEqual(await f.snapshot(),before);assert.deepEqual(await f.report(),report);
@@ -75,7 +78,7 @@ test('A02: a no-op legacy transfer revision retains its last stock-changing unit
 });
 
 test('A02: real valuation dependency guards remain enforced atomically',async t=>{
- const f=await fixture(t),transfer=await f.transfer(2);await f.run({type:'perfume-lot-correct.post',decantProductId:f.p,lotId:f.lot,warehouseId:'w',actualQuantity:6,reason:'Changed yield'});const before=await f.snapshot();await assert.rejects(f.run({type:'transfer.void',documentId:transfer}),/تكلفة الدفعة تغيرت/);assert.deepEqual(await f.snapshot(),before);
+ const f=await fixture(t),transfer=await f.transfer(2);await f.db.transaction(s=>historicalPerfumeCommand(f.db,s,{type:'perfume-lot-correct.post',decantProductId:f.p,lotId:f.lot,warehouseId:'w',actualQuantity:6,reason:'Changed yield',perfumeStockTreatment:'legacy-reconciliation'}));const before=await f.snapshot();await assert.rejects(f.run({type:'transfer.void',documentId:transfer}),/تكلفة الدفعة تغيرت/);assert.deepEqual(await f.snapshot(),before);
 });
 
 test('A02: converted allocation costs still reject a genuinely different ml valuation',async t=>{

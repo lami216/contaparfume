@@ -11,7 +11,8 @@ import { normalizePartyNet, partyCashDelta, partyNet } from "../../party-balance
 import { nextDocumentSequence, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
 import { restoreProductArchiveStockClearance } from "../../../lib/transaction-lifecycle.ts";
 import { handleVolumeCommand } from "../../perfume-volume-commands.ts";
-import { roundMl } from "../../perfume-volume.ts";
+import { reconcileQuantityLot, roundMl } from "../../perfume-volume.ts";
+import { assertPerfumeLotCanReopen, assertPerfumeProductLotBalance } from "../../perfume-operation-guards.ts";
 
 type Input = Record<string, unknown>;
 type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; purchaseCost?: number | null; costAtSale?: number | null; grossProfit?: number | null; perfumeAllocations?: PerfumeAllocation[] };
@@ -159,7 +160,7 @@ async function changeStock(db: Db, session: ClientSession, product: Record<strin
   if (!result.matchedCount) throw new CommandError("تغير المخزون أثناء العملية، أعد المحاولة", 409);
   const currentStocks = (product.stocks ??= {}) as Record<string, number>;
   currentStocks[warehouseId] = after;
-  await db.collection("stockMovements").insertOne({ id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId, warehouseName: warehouse.name, productId, productName: product.name, type, quantityDelta: delta, balanceBefore: before, balanceAfter: after, quantityUnit:product.perfumeStockUnit==="ml"?"ml":"piece", occurredAt: document.occurredAt }, { session });
+  await db.collection("stockMovements").insertOne({ id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId, warehouseName: warehouse.name, productId, productName: product.name, type, quantityDelta: delta, balanceBefore: before, balanceAfter: after, quantityUnit:product.perfumeStockUnit==="ml"?"ml":"piece", occurredAt: document.occurredAt, createdAt:new Date().toISOString() }, { session });
   return { before, after };
 }
 
@@ -355,15 +356,28 @@ async function executeLegacy(db: Db, session: ClientSession, body: Input): Promi
     const warehouse=await warehouses(db).findOne({_id:warehouseId,isArchived:{$ne:true}},{session});if(!warehouse)throw new CommandError("المخزن غير موجود",404);
     const lots=perfumeLots(decant),index=lots.findIndex(item=>item.id===lotId);if(index<0)throw new CommandError("دفعة التقسيم غير موجودة",404);
     const beforeLot=structuredClone(lots[index]);
+    const quantityCorrection=body.perfumeStockTreatment!=="legacy-reconciliation";
     let correction;
-    try{correction=correctPerfumeLotYield(lots[index],warehouseId,positive(body.actualQuantity,"الرصيد الفعلي",true));}
+    try{
+      assertPerfumeProductLotBalance(decant);
+      if(quantityCorrection){
+        const count=reconcileQuantityLot(lots[index],warehouseId,body.actualQuantity);
+        correction={lot:count.lot,quantityDelta:count.delta,afterUnitCost:count.unitCost,beforeWarehouseQuantity:count.before,afterWarehouseQuantity:count.actual,remainingBookValue:count.bookValueBefore,afterBookValue:count.bookValueAfter};
+      }else{
+        const old=correctPerfumeLotYield(lots[index],warehouseId,positive(body.actualQuantity,"الرصيد الفعلي",true));
+        correction={...old,afterBookValue:old.remainingBookValue};
+      }
+    }
     catch(error){throw new CommandError(error instanceof Error?error.message:"تعذر تصحيح ناتج التقسيم",409);}
-    if(correction.quantityDelta===0)throw new CommandError("لا يوجد فرق في ناتج التقسيم لاعتماده",409);
+    if(quantityCorrection&&correction.quantityDelta>0)await assertPerfumeLotCanReopen(db,session,{id:beforeLot.conversionDocumentId},beforeLot,"هذا التصحيح يعيد فتح دفعة قديمة بينما توجد دفعة أحدث بها رصيد. عالج الدفعة الأحدث أولًا:");
+    if(correction.quantityDelta===0&&(correction.lot.remainingQuantity!==0||beforeLot.settledAt))throw new CommandError("لا يوجد فرق في ناتج التقسيم لاعتماده",409);
     lots[index]=correction.lot;
-    const doc={...baseDocument("adjustment","DYC"),perfumeStockOperationType:"yield-correction",partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:reason,total:0,dueTotal:0,paidTotal:0,inventoryLoss:0,bookValueBefore:correction.remainingBookValue,bookValueAfter:correction.remainingBookValue,decantProductId,perfumeLotId:lotId,stockDelta:correction.quantityDelta,perfumeLotBefore:beforeLot,perfumeLotAfter:structuredClone(correction.lot),lines:[] as Record<string,unknown>[]};
+    const doc={...baseDocument("adjustment","DYC"),perfumeStockOperationType:quantityCorrection?"reconciliation":"yield-correction",...(quantityCorrection?{perfumeStockTreatment:"quantity-correction",quantityUnit:beforeLot.quantityUnit??"portion",actualQuantity:correction.afterWarehouseQuantity}:{}),partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:reason,total:0,dueTotal:0,paidTotal:0,inventoryLoss:0,inventoryGain:0,bookValueBefore:correction.remainingBookValue,bookValueAfter:correction.afterBookValue,decantProductId,perfumeLotId:lotId,stockDelta:correction.quantityDelta,perfumeLotBefore:beforeLot,perfumeLotAfter:structuredClone(correction.lot),lines:[] as Record<string,unknown>[]};
     await savePerfumeLots(db,session,decant,lots);
-    const stock=await changeStock(db,session,decant,warehouse,correction.quantityDelta,doc,"perfume-yield-correction");
-    doc.lines=[{id:id("line"),productId:decantProductId,description:`${String(decant.name)} — ${reason}`,quantity:correction.quantityDelta,unitPrice:correction.afterUnitCost,lineTotal:0,balanceBefore:stock.before,balanceAfter:stock.after,perfumeLotId:lotId,perfumeLotStockBefore:correction.beforeWarehouseQuantity,perfumeLotStockAfter:correction.afterWarehouseQuantity}];
+    if(correction.quantityDelta){
+      const stock=await changeStock(db,session,decant,warehouse,correction.quantityDelta,doc,"perfume-yield-correction");
+      doc.lines=[{id:id("line"),productId:decantProductId,description:`${String(decant.name)} — ${reason}`,quantity:correction.quantityDelta,unitPrice:correction.afterUnitCost,lineTotal:0,balanceBefore:stock.before,balanceAfter:stock.after,perfumeLotId:lotId,perfumeLotStockBefore:correction.beforeWarehouseQuantity,perfumeLotStockAfter:correction.afterWarehouseQuantity}];
+    }
     await db.collection("documents").insertOne(doc,{session});return String(doc.id);
   }
   if(type==="perfume-stock-operation.void"){

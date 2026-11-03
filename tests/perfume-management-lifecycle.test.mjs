@@ -65,7 +65,7 @@ test('opening, consumption and yield corrections are editable, noncash and rever
  const revised=await cmd({...input,type:'perfume-management.update',documentId:used,expectedRevision:0,quantity:2});
  assert.equal((await doc(revised)).inventoryLoss,200);assert.equal((await product(d.decantProductId)).stocks.w,6);
  const correction=await cmd({type:'perfume-lot-correct.post',decantProductId:d.decantProductId,lotId:d.perfumeLotId,warehouseId:'w',actualQuantity:7,reason:'yield'});
- assert.equal((await doc(correction)).bookValueAfter,600);
+ assert.equal((await doc(correction)).bookValueAfter,700);assert.equal((await product(d.decantProductId)).perfumeLots[0].liquidUnitCost,100);
  await assert.rejects(cmd({type:'perfume-management.void',documentId:revised}),e=>e.dependencies.some(d=>d.documentId===correction));
  await cmd({type:'perfume-management.void',documentId:correction});await cmd({type:'perfume-management.void',documentId:revised});
  assert.equal((await product(d.decantProductId)).stocks.w,8);await cmd({type:'perfume-management.void',documentId:opening});
@@ -89,6 +89,19 @@ test('bottle definitions edit/archive/restore with administrative history and no
 test('generic adjustment endpoints cannot bypass lot guards or archive a decant definition document',async t=>{
  const {cmd,doc}=await setup(t),id=await cmd(split),d=await doc(id);
  for(const type of ['adjustment.update','adjustment.void'])await assert.rejects(cmd({type,documentId:id,warehouseId:'w',reason:'bypass',lines:[{productId:d.decantProductId,actualQuantity:100}]}),/إدارة التقسيمات/);
+});
+for(const ml of [false,true])test(`actual generic adjustment POST/update cannot change ${ml?'ml':'legacy piece'} liquid without its lots`,async t=>{
+ const {db,cmd,doc,product}=await setup(t),conversion=await cmd({...split,...(ml?{volumeMl:100,divisionsCount:undefined}:{})}),d=await doc(conversion),p=await product(d.decantProductId),amount=p.stocks.w;
+ // Retained historical generic document is intentionally read-only for edits;
+ // its void route remains available under the existing lifecycle.
+ await db.collection('documents').insertOne({id:'old-generic',number:'ADJ-old',kind:'adjustment',status:'posted',revision:0,warehouseId:'w',title:'Old neutral metadata',occurredAt:'2020-01-01T00:00:00.000Z',lines:[{id:'old-line',productId:p.id,quantity:0,balanceBefore:amount,balanceAfter:amount,unitPrice:p.perfumeLots[0].liquidUnitCost,lineTotal:0}]});
+ const snapshot=()=>Promise.all(['products','documents','stockMovements','financialMovements','counters','commandReceipts'].map(name=>db.collection(name).find().toArray()));
+ for(const type of ['adjustment.post','adjustment.update']){
+  const before=await snapshot(),body={type,documentId:type.endsWith('update')?'old-generic':undefined,warehouseId:'w',reason:'Generic bypass',lines:[{productId:p.id,actualQuantity:amount+3}]};
+  const response=await POST(new Request('http://localhost/api/command',{method:'POST',headers:{Host:'localhost',Origin:'http://localhost','Content-Type':'application/json','Idempotency-Key':`generic-${type}-${ml}`},body:JSON.stringify(body)}));
+  assert.equal(response.status,409);assert.match((await response.json()).error,/تسوية مخزون التقسيمات/);assert.deepEqual(await snapshot(),before);
+ }
+ await cmd({type:'adjustment.void',documentId:'old-generic'});assert.equal((await doc('old-generic')).status,'voided');assert.equal((await product(p.id)).stocks.w,amount);
 });
 test('old split and recombine documents can be viewed, inferred and reversed without rewriting their history',async t=>{
  const {db,cmd,doc,product}=await setup(t),id=await cmd(split),d=await doc(id);
@@ -181,7 +194,7 @@ test('HTTP management commands enforce permissions and idempotency; history reta
  assert.match(JSON.stringify(await list.json()),/voided/);
 });
 
-test('opening and yield edits preserve linked revisions and the unsold liquid book value',async t=>{
+test('opening and quantity edits preserve linked revisions and the saved liquid unit cost',async t=>{
  const {db,cmd,doc,product}=await setup(t);
  const input={sourceProductId:'source',warehouseId:'w',quantity:8,remainingValue:800,salePrice:150};
  const first=await cmd({...input,type:'perfume-opening.post'});
@@ -193,7 +206,7 @@ test('opening and yield edits preserve linked revisions and the unsold liquid bo
  const oldYield=await cmd({...correction,type:'perfume-lot-correct.post',actualQuantity:12});
  const newYield=await cmd({...correction,type:'perfume-management.update',documentId:oldYield,expectedRevision:0,actualQuantity:11});
  const revised=await product(p.id),lot=revised.perfumeLots[0];
- assert.equal(revised.stocks.w,11);assert.ok(Math.abs(lot.remainingQuantity*lot.liquidUnitCost-1000)<1e-9);
+ assert.equal(revised.stocks.w,11);assert.equal(lot.liquidUnitCost,100);assert.equal(lot.remainingQuantity*lot.liquidUnitCost,1100);
  assert.equal((await doc(oldYield)).replacedByDocumentId,newYield);
  assert.equal((await doc(newYield)).replacesDocumentId,oldYield);
  await cmd({type:'perfume-management.void',documentId:newYield,expectedRevision:1});

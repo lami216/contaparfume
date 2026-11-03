@@ -25,7 +25,29 @@ export async function assertSourceCleared(db:Db,session:Session,sourceId:string)
   const open=openSourceLots(products,sourceId);
   if(!open.length)return;
   const documents=await db.collection("documents").find({id:{$in:open.map(l=>l.documentId)},status:"posted"},{session}).toArray();
-  throw perfumeOperationBlocked(`لا يمكن فتح دفعة جديدة؛ ما زال للعطر رصيد تقسيمات في دفعة سابقة (${open.map(l=>l.quantity).join("، ")}). إذا نفد فعليًا، سوِّ المتبقي إلى صفر لتسجيل الفرق أولًا. الدفعة السابقة:`,documents);
+  throw perfumeOperationBlocked(`لا يمكن فتح دفعة جديدة؛ ما زال للعطر رصيد تقسيمات في دفعة سابقة (${open.map(l=>l.quantity).join("، ")}). إذا نفد فعليًا، سجّل المتبقي كاستهلاك؛ وإذا كان الرصيد خطأً في الإدخال، صحّح الكمية أولًا. الدفعة السابقة:`,documents);
+}
+
+export function assertPerfumeProductLotBalance(product: Row) {
+  const lots = (Array.isArray(product.perfumeLots) ? product.perfumeLots : []) as PerfumeLot[], stocks = (product.stocks ?? {}) as Row;
+  const warehouses = new Set([...Object.keys(stocks), ...lots.flatMap(lot => Object.keys(lot.stocks ?? {}))]);
+  if (lots.some(lot => !Number.isFinite(Number(lot.remainingQuantity)) || Number(lot.remainingQuantity) < 0 || Object.values(lot.stocks ?? {}).some(q => !Number.isFinite(Number(q)) || Number(q) < 0) || roundMl(Object.values(lot.stocks ?? {}).reduce((sum,q)=>sum+Number(q),0)) !== roundMl(Number(lot.remainingQuantity)))
+    || [...warehouses].some(wh => !Number.isFinite(Number(stocks[wh] ?? 0)) || Number(stocks[wh] ?? 0) < 0 || roundMl(Number(stocks[wh] ?? 0)) !== roundMl(lots.reduce((sum,lot)=>sum+Number(lot.stocks?.[wh] ?? 0),0))))
+    throw perfumeOperationBlocked("رصيد المنتج لا يطابق مجموع دفعاته؛ راجع البيانات قبل تصحيح الكمية.");
+}
+
+/** A source may have only one newly active lot. Reversals must obey the same
+ * rule as posting, without blocking pre-existing overlapping historical lots. */
+export async function assertPerfumeLotCanReopen(db: Db, session: Session, document: Row, lot: PerfumeLot, blockedMessage = "إلغاء هذه الحركة يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:") {
+  if (Number(lot.remainingQuantity) !== 0) return;
+  const products = await db.collection("products").find({parentProductId: lot.sourceProductId, perfumeForm:"decant"},{session}).toArray();
+  const others = openSourceLots(products, lot.sourceProductId, lot.id);
+  if (!others.length) return;
+  const all = await db.collection("documents").find({}, {session}).toArray(), anchor = all.findIndex(item=>item.id===document.id);
+  const ids = new Set(others.map(item=>item.documentId));
+  const blockers = all.filter((item,index)=>item.status==="posted"&&ids.has(String(item.id))&&(anchor<0||index>anchor));
+  if (blockers.length) throw perfumeOperationBlocked(blockedMessage, blockers);
+  if (others.some(item=>!all.some(d=>d.id===item.documentId))) throw perfumeOperationBlocked("لا يمكن إثبات أسبقية الدفعة الأخرى التي بها رصيد؛ راجع سندها قبل إعادة فتح الدفعة القديمة.");
 }
 
 /** Absolute counts/returns are barriers. Voided sales must never be barriers. */

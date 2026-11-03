@@ -1,3 +1,5 @@
+import { CommandAdmissionError, withCommandAdmission, type CommandAdmissionContext } from "../../../lib/command-admission.ts";
+import { confirmSaleCostRecovery } from "../../../lib/sale-cost-recovery.ts";
 import { requireValidLicense } from "../../../lib/license.ts";
 import type { SqliteSession as ClientSession, SqliteDatabase as Db } from "../../../lib/sqlite.ts";
 import { getDatabase } from "../../../lib/sqlite.ts";
@@ -80,11 +82,20 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
 }
 
 export async function POST(request: Request) {
-  const licenseDenied = await requireValidLicense();
+  try { return await withCommandAdmission(request, admission => executeAdmittedPost(request, admission)); }
+  catch (error) {
+    log("error", "api.command.admission.failed", { error });
+    if (error instanceof CommandAdmissionError) return Response.json({ error: error.message }, { status: error.status });
+    const response = serializeBusinessError(error);
+    return Response.json(response.body, { status: response.status });
+  }
+}
+async function executeAdmittedPost(request: Request, admission: CommandAdmissionContext) {
+  const licenseDenied = await admission.preflight(requireValidLicense());
   if (licenseDenied) return licenseDenied;
   let type = "unknown";
   try {
-    const body = await request.json() as Input;
+    const body = await admission.readJson() as Input;
     type = text(body.type);
     const map: Record<string, Capability> = {
       "product.delete":"products.delete","product.stock-zero":"products.delete","product.restore":"products.edit","product.create":"products.create","product.update":"products.edit",
@@ -107,6 +118,9 @@ export async function POST(request: Request) {
       "account-opening-balance-correction.post":"banks.balance_correct","account-opening-balance-correction.update":"banks.balance_correct.edit","account-opening-balance-correction.void":"banks.balance_correct.delete",
       "party.create":body.partyType==="customer"?"customers.create":"suppliers.create","party.update":"customers.edit","party.delete":"customers.delete","party.restore":"customers.edit",
     };
+    if (type === "sale-cost-recovery.confirm") map[type] = "reports.view";
+    const recoveryPrincipal = type === "sale-cost-recovery.confirm" ? await getPrincipalFromRequest(request) : null;
+    if (type === "sale-cost-recovery.confirm" && recoveryPrincipal && !["owner", "local"].includes(recoveryPrincipal.principalType)) return Response.json({ error: "مراجعة تكاليف المبيعات متاحة للمالك فقط" }, { status: 403 });
     let capability = map[type];
     if (["party-cash.post","party.update","party.delete","party.restore"].includes(type)) {
       const party = await getDatabase().collection("parties").findOne({ id: text(body.partyId ?? body.id) });
@@ -157,10 +171,12 @@ export async function POST(request: Request) {
     }
     let result: unknown = "", response: unknown;
     try {
+      admission.assertCanMutate();
       await db.transaction(async session => {
+        admission.assertCanMutate();
         await receipts.insertOne({ _id: idempotencyKey as never, commandType: type, fingerprint, status: "processing", createdAt: new Date() }, { session });
         await db.collection("auditEvents").insertOne({ id: id("audit"), action: type, status: "started", createdAt: new Date() }, { session });
-        result = await execute(db, session, body);
+        result = type === "sale-cost-recovery.confirm" ? confirmSaleCostRecovery(db, body, recoveryPrincipal!) : await execute(db, session, body);
         response = typeof result === "object" && result ? result : { id: result };
         await db.collection("auditEvents").insertOne({ id: id("audit"), action: type, entityId: typeof result === "object" && result ? (result as { id?: unknown }).id : result, status: "committed", createdAt: new Date() }, { session });
         await receipts.updateOne({ _id: idempotencyKey as never }, { $set: { status: "committed", result: response, committedAt: new Date() } }, { session });

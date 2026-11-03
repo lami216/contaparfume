@@ -1,3 +1,4 @@
+import { recoverHistoricalSaleCosts } from "./sale-cost-recovery.ts";
 import type { SqliteSession as ClientSession, SqliteDatabase as Db, DbDocument as Document } from "./sqlite.ts";
 import { ensureDatabaseSchema } from "./sqlite.ts";
 import { rebuildDocumentSequenceCounters } from "./document-sequences.ts";
@@ -82,6 +83,7 @@ export async function restoreNativeBackup(db: Db, backup: ContaBackup, session: 
   // untouched backup has passed reference validation, inside the restore transaction.
   await ensurePerfumeSystemCategories(db, session);
   await rebuildCounters(db, session);
+  recoverHistoricalSaleCosts(db, { context: "native-restore" });
   validateInvariants(await createNativeBackup(db));
 }
 export async function ensureLegacyCompatibility(db: Db, session?: ClientSession) {
