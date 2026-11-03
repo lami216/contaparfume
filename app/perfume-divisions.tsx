@@ -20,7 +20,7 @@ import {openSourceLots,type PerfumeDependency} from "./perfume-operation-guards"
 import type { PerfumeContext } from "./perfume-activity";
 import { DEFAULT_PERFUME_SETTINGS, roundMl } from "./perfume-volume";
 import { defaultWarehouse as preferredWarehouse, warehouseSelectionId } from "./warehouse-selection";
-import { DEFAULT_ORIGINAL_VOLUME_ML, openingLiquidValue } from "./perfume-opening-valuation";
+import { DEFAULT_ORIGINAL_VOLUME_ML, openingLiquidValue, resolveOpeningBottleCost } from "./perfume-opening-valuation";
 
 type RunCommand = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
 type Props = { data: BootstrapData; run: RunCommand; openDoc?: (id: string) => void; onSource?: (document:DocumentRecord) => void; editRequest?: string | null; clearEditRequest?: () => void; section?: Tab; onSectionChange?: (tab:Tab)=>void; navigationRef?:Ref<PerfumeManagementNavigation> };
@@ -87,7 +87,8 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
   const ml=lot?.quantityUnit==="ml",legacyEdit=Boolean(editing&&editing.quantityUnit!=="ml"),defaults=data.perfumeDefaults??DEFAULT_PERFUME_SETTINGS;
   const sourceCost=source?inventoryUnitCost(source):0;
   const automaticOpening=kind==="opening"&&!legacyEdit&&(!editing||editing.openingBottleCost!==undefined);
-  const openingCost=editing?.sourceProductId===source?.id&&editing?.openingBottleCost!==undefined?editing.openingBottleCost:sourceCost;
+  const openingReference=source?resolveOpeningBottleCost(source,source.lastPurchaseCost):null;
+  const openingCost=editing?.sourceProductId===source?.id&&editing?.openingBottleCost!==undefined?editing.openingBottleCost:openingReference?.cost??0;
   let openingValue:ReturnType<typeof openingLiquidValue>|null=null;
   if(automaticOpening&&source){try{openingValue=openingLiquidValue(openingCost,text("volumeMl"),text("originalVolumeMl"))}catch{ /* Incomplete fields remain unsaved. */ }}
   const sourceChoices=kind==="split"?conversionSourceProducts(sources,warehouseId,editing?.sourceProductId):sources;

@@ -7,6 +7,7 @@ import {conversionSourceProducts,managementInputFor,managementTabForKind} from '
 import {defaultWarehouse,soleWarehouseId,warehouseSelectionId} from '../app/warehouse-selection.ts';
 import {openingLiquidValue} from '../app/perfume-opening-valuation.ts';
 import {createNativeBackup,parseAndValidateBackup} from '../lib/backup.ts';
+import {resolveProductCost} from '../lib/product-cost.ts';
 
 async function fixture(t){
  const h=await sqliteHarness();await h.reset();t.after(()=>h.close());const db=h.db;
@@ -60,6 +61,25 @@ test('new automatic opening uses authoritative cost, ignores a forged remaining 
  for(const key of ['inventoryLoss','inventoryGain','sales','purchases','netOperatingResult','currentAccountsBalance'])assert.equal(after[key],before[key],key);
  await f.run({type:'perfume-management.void',documentId:id});assert.equal((await f.product(d.decantProductId)).stocks.w,0);assert.equal((await f.report()).currentInventoryValue,before.currentInventoryValue);
 });
+test('a real zero-stock product card prices a new old-opened balance without inventing a purchase or changing whole stock',async t=>{
+ const f=await fixture(t),sourceId=await f.run({type:'product.create',name:'Zero stock card',pieceCost:1000,piecePrice:1500,openingStock:0});
+ const source=await f.product(sourceId),before=await f.report();assert.deepEqual(source.stocks,{});assert.equal(source.openingCost,null);assert.equal(source.lastPurchaseCost,null);
+ const id=await f.opening({sourceProductId:sourceId}),d=await f.doc(id);assert.equal(d.openingBottleCost,1000);assert.equal(d.openingBottleCostSource,'card-reference');assert.equal(d.bookValueAfter,400);assert.equal(d.perfumeLotAfter.liquidUnitCost,10);
+ assert.deepEqual((await f.product(sourceId)).stocks,{});assert.equal((await f.product(sourceId)).lastPurchaseCost,null);assert.equal(resolveProductCost(await f.product(sourceId),await f.db.collection('documents').find().toArray()).cost,null);assert.equal(await f.db.collection('financialMovements').countDocuments(),0);
+ const backup=await createNativeBackup(f.db);assert.equal(backup.collections.documents.find(row=>row.id===id).openingBottleCostSource,'card-reference');
+ await f.run({type:'product.update',id:sourceId,name:'Zero stock card',pieceCost:2000,piecePrice:1500,openingStock:0});
+ const edited=await f.run({type:'perfume-management.update',documentId:id,expectedRevision:0,...managementInputFor(d,[]),volumeMl:30}),replacement=await f.doc(edited);
+ assert.equal(replacement.openingBottleCost,1000);assert.equal(replacement.openingBottleCostSource,'card-reference');assert.equal(replacement.bookValueAfter,300);assert.equal(replacement.perfumeLotAfter.liquidUnitCost,10);
+ await f.run({type:'perfume-management.void',documentId:edited,expectedRevision:1});assert.deepEqual((await f.product(sourceId)).stocks,{});assert.equal((await f.product(sourceId)).pieceCost,2000);assert.equal((await f.report()).currentInventoryValue,before.currentInventoryValue);assert.equal(await f.db.collection('financialMovements').countDocuments(),0);
+});
+test('a posted purchase remains the opening price after all whole bottles sold and ordinary conversion still requires stock',async t=>{
+ const f=await fixture(t),sourceId=await f.run({type:'product.create',name:'Sold whole bottle',pieceCost:1000,piecePrice:1500,openingStock:0});
+ await f.run({type:'purchase.post',warehouseId:'w',paymentMethod:'cash',lines:[{productId:sourceId,quantity:1,unitPrice:1200}]});
+ const sale=await f.run({type:'sale.post',warehouseId:'w',paymentMethod:'cash',lines:[{productId:sourceId,quantity:1,piecePrice:1500}]}),savedCost=(await f.doc(sale)).lines[0].costAtSale,before=await f.report(),cashCount=await f.db.collection('financialMovements').countDocuments();assert.equal((await f.product(sourceId)).stocks.w,0);assert.equal(savedCost,1200);
+ const id=await f.opening({sourceProductId:sourceId}),d=await f.doc(id);assert.equal(d.openingBottleCost,1200);assert.equal(d.openingBottleCostSource,'purchase');assert.equal(d.bookValueAfter,480);assert.equal(d.perfumeLotAfter.liquidUnitCost,12);assert.equal((await f.doc(sale)).lines[0].costAtSale,savedCost);assert.equal(await f.db.collection('financialMovements').countDocuments(),cashCount);
+ await f.run({type:'perfume-management.void',documentId:id});assert.equal((await f.product(sourceId)).stocks.w,0);assert.equal((await f.report()).currentInventoryValue,before.currentInventoryValue);
+ await assert.rejects(f.run({type:'perfume-split.post',sourceProductId:sourceId,warehouseId:'w',volumeMl:100,salePrice:150}),/المخزون غير كاف/);
+});
 test('editing automatic remaining stock retains the historic full-bottle cost, adjusts the original size, and can be canceled',async t=>{
  const f=await fixture(t),id=await f.opening(),original=await f.doc(id);
  await f.db.collection('products').updateOne({id:'full'},{$set:{openingCost:2000,lastPurchaseCost:2000}});
@@ -76,7 +96,7 @@ test('switching the opening source derives the new source cost instead of reusin
 test('invalid original volume, excessive remaining liquid and missing source cost roll back atomically',async t=>{
  const f=await fixture(t);
  for(const patch of [{originalVolumeMl:0},{volumeMl:101},{originalVolumeMl:'abc'}]){const before=await f.snapshot();await assert.rejects(f.opening(patch));assert.deepEqual(await f.snapshot(),before)}
- await f.db.collection('products').updateOne({id:'full'},{$unset:{openingCost:1,lastPurchaseCost:1}});
+ await f.db.collection('products').updateOne({id:'full'},{$unset:{openingCost:1,lastPurchaseCost:1,pieceCost:1}});
  const before=await f.snapshot();await assert.rejects(f.opening(),/تكلفة شراء/);assert.deepEqual(await f.snapshot(),before);
 });
 test('legacy manual millilitre openings retain their recorded value on edit',async t=>{

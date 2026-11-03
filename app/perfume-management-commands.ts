@@ -6,7 +6,7 @@ import { undoVolumeOperation } from "./perfume-volume-commands.ts";
 import { roundMl } from "./perfume-volume.ts";
 import { splitReversalEvidence } from "./perfume-split-reversal.ts";
 import { currentProductCost } from "../lib/product-cost.ts";
-import { openingLiquidValue } from "./perfume-opening-valuation.ts";
+import { openingLiquidValue, resolveOpeningBottleCost } from "./perfume-opening-valuation.ts";
 import {assertSourceCleared, prepareLotDeltaUndo} from "./perfume-operation-guards.ts";
 
 type Row = Record<string, unknown>;
@@ -63,10 +63,13 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
       input={...input,perfumeStockTreatment:previous&&previous.perfumeStockTreatment!=="quantity-correction"?"legacy-reconciliation":"quantity-correction"};
     }
     let openingValuation:ReturnType<typeof openingLiquidValue>|undefined;
+    let openingCostSource:unknown;
     if(postKind==="opening"&&input.volumeMl!==undefined&&input.originalVolumeMl!==undefined){
       const source=await product(input.sourceProductId);
       const keepCost=previous?.sourceProductId===source.id&&previous?.openingBottleCost!==undefined;
-      const cost=keepCost?Number(previous.openingBottleCost):Number(await currentProductCost(db,session,source));
+      const resolved=keepCost?null:resolveOpeningBottleCost(source,await currentProductCost(db,session,source));
+      const cost=keepCost?Number(previous.openingBottleCost):resolved?.cost??0;
+      openingCostSource=keepCost?previous.openingBottleCostSource:resolved?.source;
       openingValuation=openingLiquidValue(cost,input.volumeMl,input.originalVolumeMl);
       input={...input,remainingValue:openingValuation.remainingValue,originalVolumeMl:openingValuation.originalVolumeMl};
     }
@@ -95,7 +98,7 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     if(!d)throw fail("تعذر ربط العملية بسجل الفواتير");
     const added:Row={perfumeManagementType:postKind,managementInput:cleanInput(input),revision:0,note:String(input.note||input.reason||"")};
     if(postKind==="consumption")added.quantityUnit=(d.perfumeLotAfter as Row|undefined)?.quantityUnit??"portion";
-    if(openingValuation)Object.assign(added,{openingBottleCost:openingValuation.bottleCost,openingOriginalVolumeMl:openingValuation.originalVolumeMl});
+    if(openingValuation)Object.assign(added,{openingBottleCost:openingValuation.bottleCost,openingOriginalVolumeMl:openingValuation.originalVolumeMl,...(openingCostSource!==undefined&&openingCostSource!==null?{openingBottleCostSource:openingCostSource}:{})});
     if(postKind==="split"){
       const line=rows(d.lines).find(l=>Number(l.quantity)>0);const p=await product(line?.productId);const lot=lotsOf(p).find(l=>l.conversionDocumentId===d!.id);if(!lot)throw fail("دفعة التحويل غير موجودة");
       Object.assign(added,{sourceProductId:String(input.sourceProductId),decantProductId:String(p.id),perfumeLotId:lot.id,perfumeLotBefore:null,perfumeLotAfter:lot,decantProductCreated:!previousDecant,decantProductBefore:previousDecant?meta(previousDecant):null,decantProductAfter:meta(p)});

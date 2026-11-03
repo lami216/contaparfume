@@ -171,6 +171,7 @@ export interface DocumentRecord {
   perfumeConversionType?: string;
   managementInput?: Record<string, unknown>;
   openingBottleCost?: number;
+  openingBottleCostSource?: "purchase" | "opening" | "legacy-opening" | "authoritative" | "card-reference";
   openingOriginalVolumeMl?: number;
   managementProductId?: string;
   bottleStockReason?: import("./perfume-management").BottleStockReason;
