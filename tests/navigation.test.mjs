@@ -115,7 +115,12 @@ test("source navigation only mutates the destination after permission and dirty-
   const source=normalizePresentationSource(await readFile(new URL("../app/conta-app.tsx",import.meta.url),"utf8"));
   assert.match(source,/const navigate = async \(id: View, options: \{ replaceEditor\?: boolean \} = \{\}\)/);
   assert.match(source,/if \(!canView\(id\)\) return false/);
-  assert.match(source,/!await confirmAction\([^;]+\)\)\s*return false/);
+  assert.match(source,/const prepareEditorReplacement = async \(\) => requestEditorReplacement\(/);
+  assert.match(source,/confirmDiscard: \(\) => confirmAction\(/);
+  const {requestEditorReplacement}=await import("../app/editor-replacement.ts");
+  let discarded=false;
+  assert.equal(await requestEditorReplacement({hasPendingCommands:()=>false,getGuard:()=>({isEditing:()=>true,isDirty:()=>true,discard:()=>{discarded=true}}),confirmDiscard:async()=>false,onPending:()=>assert.fail("No save is pending")}),false);
+  assert.equal(discarded,false);
   assert.match(source,/return true;/);
   assert.match(source,/if\(!await navigate\("reports"\)\)return;setReportType/);
   assert.match(source,/if\(await navigate\(targetView\)\)setPartyDetail\(party\)/);

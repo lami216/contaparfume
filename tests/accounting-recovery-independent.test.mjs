@@ -89,46 +89,49 @@ test('perfume decant, glass and returned-partial snapshots/allocations are exclu
 
 test('untagged generated perfume evidence blocks automatic and owner recosting while a normal full perfume remains eligible',async t=>{
  const generated=[{perfumeLots:[{id:'old-lot',sourceProductId:'old-full',sourceProductName:'Old full perfume',remainingQuantity:2,originalQuantity:4,stocks:{w:2},liquidUnitCost:50,landedUnitCost:50,bottleCost:0,decantSizeMl:10,createdAt:'2026-09-01T10:00:00.000Z',conversionDocumentId:'old-conversion'}]},{parentProductId:'old-full'},{decantSizeMl:10}];
- for(const extra of generated)for(const cost of [null,0]){const f=await fixture(t,'untagged-generated'),before=await seed(f,{cost,productExtra:extra});await f.owners();const immutable=await operational(f),summary=f.recovery.recoverHistoricalSaleCosts(f.db);assert.equal(summary.automaticRecovered,0);assert.deepEqual(await f.doc('sale'),before.sale);assert.equal(f.recovery.accountingHealth(f.db).rows.length,0);const response=await f.post({type:'sale-cost-recovery.confirm',documentId:'sale',lineId:'sale-line',expectedRevision:0,reviewToken:'unavailable',action:'set-reviewed-cost',reviewedUnitCost:100,reason:'Synthetic attempted generated recost'},'generated-review');assert.equal(response.status,409);assert(response.body.error.includes('السطر غير متاح'));assert.deepEqual(await f.doc('sale'),before.sale);assert.deepEqual(await operational(f),immutable);assert.equal((await journals(f)).length,0)}
+ for(const extra of generated)for(const cost of [null,0]){const f=await fixture(t,'untagged-generated'),before=await seed(f,{cost,productExtra:extra});await f.owners();const immutable=await operational(f),summary=f.recovery.recoverHistoricalSaleCosts(f.db);assert.equal(summary.automaticRecovered,0);assert.deepEqual(await f.doc('sale'),before.sale);assert.equal(f.recovery.accountingHealth(f.db).rows.length,0);const response=await f.post({type:'sale-cost-recovery.confirm',documentId:'sale',lineId:'sale-line',expectedRevision:0,reviewToken:'unavailable',action:'set-reviewed-cost',reviewedUnitCost:100,reason:'Synthetic attempted generated recost'},'generated-review');assert.equal(response.status,400);assert(response.body.error.includes('العملية غير مدعومة'));assert.deepEqual(await f.doc('sale'),before.sale);assert.deepEqual(await operational(f),immutable);assert.equal((await journals(f)).length,0)}
  const full=await fixture(t,'ordinary-full');await seed(full,{productExtra:{perfumeForm:'full',perfumeBottleVolumeMl:100,originalVolumeMl:100,parentProductId:null,decantSizeMl:null,perfumeLots:[]}});assert.equal(full.recovery.recoverHistoricalSaleCosts(full.db).automaticRecovered,1);assert.equal((await full.doc('sale')).lines[0].costAtSale,100);
 });
 
-test('actual owner-only health/review rejects staff and spoofed direct execute; known positive is immutable',async t=>{
- const f=await fixture(t,'auth');await seed(f,{cost:0});await f.owners();assert.equal((await f.health(null)).status,401);assert.equal((await f.health('employee')).status,403);const h=await f.health();assert.equal(h.status,200);const row=h.body.rows[0];assert.equal(row.suggestedPriorCost,100);const body=rowBody(row),before=await all(f);assert.equal((await f.post({...body,actor:{principalType:'owner'}},'staff','employee')).status,403);assert.deepEqual(await all(f),before);await assert.rejects(f.db.transaction(session=>f.execute(f.db,session,body)));assert.deepEqual(await all(f),before);
- await f.db.collection('documents').updateOne({id:'sale'},{$set:{lines:[{...(await f.doc('sale')).lines[0],costAtSale:70,grossProfit:160}]}});const known=await all(f);assert.equal((await f.post(body,'known')).status,409);assert.deepEqual(await all(f),known);
+test('manual cost entry is unavailable to owner and staff, and diagnostics remain read-only', async t => {
+  const f = await fixture(t, 'no-manual-cost-entry');
+  await seed(f, { cost: 0 });
+  await f.owners();
+  assert.equal((await f.health(null)).status, 401);
+  assert.equal((await f.health('employee')).status, 403);
+  const status = await f.health();
+  assert.equal(status.status, 200);
+  const row = status.body.rows[0];
+  assert.equal(row.suggestedPriorCost, 100);
+  const before = await all(f);
+  for (const user of ['owner', 'employee']) {
+    for (const action of ['apply-suggested', 'confirm-zero', 'set-reviewed-cost']) {
+      const body = { ...rowBody(row, action), reviewedUnitCost: 100, actor: { principalType: 'owner' } };
+      assert.equal((await f.post(body, user + action, user)).status, 400);
+      await assert.rejects(f.db.transaction(session => f.execute(f.db, session, body)));
+    }
+  }
+  assert.deepEqual(await all(f), before);
 });
 
-test('actual owner apply uses only the server source, preserves business amounts and journals exact zero before-image; same-key retry is idempotent',async t=>{
- const f=await fixture(t,'review');const before=await seed(f,{cost:0});await f.owners();const row=(await f.health()).body.rows[0],body={...rowBody(row),costAtSale:1,sourceDocumentId:'forged-future',unitCost:1},immutable=await operational(f,{receipts:false});const response=await f.post(body,'apply');assert.equal(response.status,200,JSON.stringify(response));assert.equal(response.body.costAtSale,100);const after=await f.doc('sale');assert.equal(after.lines[0].costAtSale,100);assert.equal(after.revision,before.sale.revision+1);assert.deepEqual(withoutCost(after,{manual:true}),withoutCost(before.sale,{manual:true}));assert.deepEqual(await operational(f,{receipts:false}),immutable);const audit=await journals(f);assert.equal(audit.length,1);assert.deepEqual(audit[0].beforeDocument,before.sale);assert.equal(audit[0].source.documentId,'purchase');const committed=await all(f);assert.deepEqual(await f.post(body,'apply'),response);assert.deepEqual(await all(f),committed);
-});
-
-test('review token/revision/source changes reject atomically, and explicit owner confirm-zero preserves legitimate free cost across restart',async t=>{
- const f=await fixture(t,'stale');await seed(f,{cost:'0'});await f.owners();const row=(await f.health()).body.rows[0],body=rowBody(row),before=await all(f);for(const patch of [{reviewToken:'forged'},{expectedRevision:999},{reason:''}]){const res=await f.post({...body,...patch},'bad-'+JSON.stringify(patch));assert([400,409].includes(res.status));assert.deepEqual(await all(f),before)}
- const edited=await f.post({type:'purchase.update',documentId:'purchase',warehouseId:'w',paymentMethod:'cash',lines:[{productId:'p',quantity:4,unitPrice:120}]},'source-edit');assert.equal(edited.status,200,JSON.stringify(edited));const changed=await all(f);assert.equal((await f.post(body,'stale-source')).status,409);assert.deepEqual(await all(f),changed);const fresh=(await f.health()).body.rows[0];assert.equal(fresh.canApplySuggested,false);const immutable=await operational(f,{receipts:false}),confirmed=await f.post(rowBody(fresh,'confirm-zero'),'zero');assert.equal(confirmed.status,200);assert.equal((await f.doc('sale')).lines[0].costAtSale,0);assert.equal((await f.health()).body.summary.reviewedZero,1);assert.equal((await f.health()).body.rows.length,0);assert.deepEqual(await operational(f,{receipts:false}),immutable);const stable=await all(f);await f.reopen();assert.deepEqual(await all(f),stable);
-});
-
-test('actual review injected audit failure rolls back document, journal, marker and receipt; the same key succeeds after failure is removed',async t=>{
- const f=await fixture(t,'review-rollback');await seed(f,{cost:0});await f.owners();const body=rowBody((await f.health()).body.rows[0]),before=await all(f);f.db.native.exec("CREATE TRIGGER independent_review_fail BEFORE INSERT ON audit_events WHEN json_extract(NEW.data_json,'$.action')='sale-cost-recovery.confirm' BEGIN SELECT RAISE(ABORT,'PRIVATE_SYNTHETIC_REVIEW_FAILURE'); END");const failure=await f.post(body,'retry');assert.equal(failure.status,500);assert.deepEqual(failure.body,{error:'تعذر تنفيذ العملية'});assert.deepEqual(await all(f),before);assert.equal(await f.db.collection('commandReceipts').findOne({_id:f.receiptKey('retry')}),null);f.db.native.exec('DROP TRIGGER independent_review_fail');const success=await f.post(body,'retry');assert.equal(success.status,200);const committed=await all(f);assert.deepEqual(await f.post(body,'retry'),success);assert.deepEqual(await all(f),committed);
-});
-
-test('owner confirmation of zero survives a stock-neutral historical payment edit but meaningful line changes require renewed review',async t=>{
- const f=await fixture(t,'zero-history');await seed(f,{cost:0});await f.owners();let row=(await f.health()).body.rows[0];assert.equal((await f.post(rowBody(row,'confirm-zero'),'zero-confirm')).status,200);const stock=(await f.db.collection('products').findOne({id:'p'})).stocks;
- const header=await f.post({type:'sale.update',documentId:'sale',warehouseId:'w',paymentMethod:'cash',lines:[{productId:'p',quantity:2,piecePrice:150}]},'payment-edit');assert.equal(header.status,200,JSON.stringify(header));assert.equal((await f.doc('sale')).lines[0].costAtSale,0);assert.deepEqual((await f.db.collection('products').findOne({id:'p'})).stocks,stock);let health=await f.health();assert.equal(health.body.summary.savedZeroReview,0);assert.equal(health.body.summary.reviewedZero,1);assert.equal(health.body.rows.length,0);
- const price=await f.post({type:'sale.update',documentId:'sale',warehouseId:'w',paymentMethod:'cash',lines:[{productId:'p',quantity:2,piecePrice:160}]},'price-edit');assert.equal(price.status,200);health=await f.health();assert.equal(health.body.summary.savedZeroReview,1);assert.equal(health.body.rows.length,1);row=health.body.rows[0];assert.equal(row.originalCost,0);
-});
-
-test('explicit owner-reviewed cost can repair an unsupported old zero without claiming a proved source or changing stock/cash/debt',async t=>{
- const f=await fixture(t,'owner-manual'),before=await seed(f,{cost:0,saleExtra:{legacyKey:'synthetic-old-import'}});await f.owners();const row=(await f.health()).body.rows[0];assert.equal(row.canApplySuggested,false);assert.equal(row.canSetReviewedCost,true);const body={...rowBody(row,'set-reviewed-cost'),reviewedUnitCost:'100'},immutable=await operational(f,{receipts:false});
- assert.equal((await f.post({...body,actor:{principalType:'owner'}},'employee-manual','employee')).status,403);const success=await f.post(body,'manual');assert.equal(success.status,200,JSON.stringify(success));assert.equal(success.body.costAtSale,100);const after=await f.doc('sale');assert.deepEqual(withoutCost(after,{manual:true}),withoutCost(before.sale,{manual:true}));assert.deepEqual(await operational(f,{receipts:false}),immutable);const audit=await journals(f);assert.equal(audit.length,1);assert.equal(audit[0].sourceType,'owner-reviewed');assert.equal(audit[0].source,null);assert.deepEqual(audit[0].beforeDocument,before.sale);assert.equal(after.lines[0].saleCostRecovery.sourceDocumentId,null);assert.equal(after.lines[0].saleCostRecovery.sourceType,'owner-reviewed');const committed=await all(f);assert.deepEqual(await f.post(body,'manual'),success);assert.deepEqual(await all(f),committed);assert.equal((await f.post({...body,reviewedUnitCost:1},'positive-overwrite')).status,409);assert.deepEqual(await all(f),committed);
-});
-
-test('manual reviewed cost strictly rejects negative, zero, null, blank, boolean, object and malformed text without committing a receipt',async t=>{
- const f=await fixture(t,'manual-invalid');await seed(f,{cost:0});await f.owners();const row=(await f.health()).body.rows[0],before=await all(f);
- for(const cost of [-1,0,null,'',true,false,{},[],'NaN','0x64']){const key='bad-cost-'+JSON.stringify(cost),response=await f.post({...rowBody(row,'set-reviewed-cost'),reviewedUnitCost:cost},key);assert.equal(response.status,400,JSON.stringify({cost,response}));assert.deepEqual(await all(f),before);assert.equal(await f.db.collection('commandReceipts').findOne({_id:f.receiptKey(key)}),null)}
-});
-
-test('a confirmed legitimate zero and its owner journal survive native backup restore without reopening review',async t=>{
- const f=await fixture(t,'zero-backup');await seed(f,{cost:0});await f.owners();const row=(await f.health()).body.rows[0];assert.equal((await f.post(rowBody(row,'confirm-zero'),'zero')).status,200);const beforeDoc=await f.doc('sale'),beforeJournals=await journals(f),backup=f.backup.parseAndValidateBackup(JSON.stringify(await f.backup.createNativeBackup(f.db)));await f.db.transaction(session=>f.backup.restoreNativeBackup(f.db,backup,session));assert.deepEqual(await f.doc('sale'),beforeDoc);assert.deepEqual(await journals(f),beforeJournals);const health=await f.health();assert.equal(health.body.summary.reviewedZero,1);assert.equal(health.body.summary.savedZeroReview,0);assert.equal(health.body.rows.length,0);
+test('legacy confirmed zero and its original owner journal survive backup restore and invoice edit', async t => {
+  const f = await fixture(t, 'legacy-zero');
+  await seed(f, { cost: 0 });
+  await f.owners();
+  const row = (await f.health()).body.rows[0];
+  f.recovery.confirmSaleCostRecovery(f.db, rowBody(row, 'confirm-zero'), { principalType: 'owner', name: 'Legacy owner' });
+  const beforeDoc = await f.doc('sale'), beforeJournals = await journals(f);
+  const backup = f.backup.parseAndValidateBackup(JSON.stringify(await f.backup.createNativeBackup(f.db)));
+  await f.db.transaction(session => f.backup.restoreNativeBackup(f.db, backup, session));
+  assert.deepEqual(await f.doc('sale'), beforeDoc);
+  assert.deepEqual(await journals(f), beforeJournals);
+  assert.equal((await f.health()).body.summary.reviewedZero, 1);
+  const edit = await f.post({ type: 'sale.update', documentId: 'sale', warehouseId: 'w', paymentMethod: 'cash', lines: [{ productId: 'p', quantity: 2, piecePrice: 150 }] }, 'payment-edit');
+  assert.equal(edit.status, 200);
+  const after = await f.doc('sale');
+  assert.equal(after.lines[0].costAtSale, 0);
+  assert.deepEqual(after.lines[0].saleCostRecovery, beforeDoc.lines[0].saleCostRecovery);
+  assert.deepEqual(await journals(f), beforeJournals);
 });
 
 test('actual new sale refuses malformed latest purchase cost instead of substituting an opening/card cost',async t=>{

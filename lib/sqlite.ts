@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import Database from "better-sqlite3";
 import { recoverHistoricalSaleCosts } from "./sale-cost-recovery.ts";
+import { recoverHistoricalStockData } from "./stock-data-recovery.ts";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -200,7 +201,7 @@ export class SqliteDatabase {
 }
 
 export function databasePath(){return process.env.ALKARNA_DATABASE_PATH||join(process.env.ALKARNA_USER_DATA||join(process.cwd(),".dev-data"),"data","alkarna.sqlite")}
-export function initializeDatabase(){if(database&&connection?.open)return database;const file=databasePath();mkdirSync(dirname(file),{recursive:true});connection=new Database(file);connection.pragma("foreign_keys = ON");connection.pragma("journal_mode = WAL");connection.pragma("synchronous = FULL");connection.pragma("busy_timeout = 5000");try{ensureDatabaseSchema(connection);const ready=new SqliteDatabase(connection);recoverHistoricalSaleCosts(ready,{context:"startup"});database=ready;return database}catch(error){if(connection.open)connection.close();connection=undefined;database=undefined;throw error}}
+export function initializeDatabase(){if(database&&connection?.open)return database;const file=databasePath();mkdirSync(dirname(file),{recursive:true});connection=new Database(file);connection.pragma("foreign_keys = ON");connection.pragma("journal_mode = WAL");connection.pragma("synchronous = FULL");connection.pragma("busy_timeout = 5000");try{ensureDatabaseSchema(connection);const ready=new SqliteDatabase(connection);recoverHistoricalStockData(ready,{context:"startup"});recoverHistoricalSaleCosts(ready,{context:"startup"});database=ready;return database}catch(error){if(connection.open)connection.close();connection=undefined;database=undefined;throw error}}
 export function getDatabase(){return initializeDatabase()}
 export function closeDatabase(){connection?.close();connection=undefined;database=undefined}
 export function ensureDatabaseSchema(input:Database.Database|SqliteDatabase){const db=input instanceof SqliteDatabase?input.native:input;db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL);`);let version=(db.prepare("SELECT max(version) version FROM schema_migrations").get() as any).version??0;if(version<1){db.transaction(()=>{for(const table of Object.values(tableNames))db.exec(`CREATE TABLE ${table}(record_key TEXT PRIMARY KEY,data_json TEXT NOT NULL)`);db.exec(`CREATE TABLE product_stocks(product_id TEXT NOT NULL,warehouse_id TEXT NOT NULL,quantity REAL NOT NULL,PRIMARY KEY(product_id,warehouse_id));CREATE TABLE document_lines(id TEXT PRIMARY KEY,document_id TEXT NOT NULL,product_id TEXT,quantity REAL,unit_price INTEGER,line_total INTEGER);CREATE UNIQUE INDEX products_barcode_nonempty ON products(json_extract(data_json,'$.barcode')) WHERE json_extract(data_json,'$.barcode') IS NOT NULL AND json_extract(data_json,'$.barcode')<>'';`);db.prepare("INSERT INTO schema_migrations VALUES(1,?)").run(new Date().toISOString())})();seed(db);version=1}if(version<2){const indexes=[

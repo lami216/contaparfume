@@ -1,3 +1,4 @@
+import { historicalInvoiceStockLines, planStockChange } from "../../../lib/stock-numbers.ts";
 import {expenseCategorySnapshot} from "../../../lib/expense-categories.ts";
 import { assertPerfumeCategoryCanBeDeleted, ensurePerfumeSystemCategories, perfumeSystemCategoryKind, resolvePerfumeProductCategory } from "../../../lib/perfume-system-categories.ts";
 import { requireValidLicense } from "../../../lib/license.ts";
@@ -10,6 +11,7 @@ import { normalizePartyNet, partyNet } from "../../party-balance.ts";
 import { nextDocumentSequence, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
 import { deriveOpeningStockState, planOpeningStockCorrection } from "../../../lib/opening-stock.ts";
 import { currentProductCost, resolveProductCost } from "../../../lib/product-cost.ts";
+import { isOrdinaryStockCostProduct } from "../../../lib/adjustment-stock-cost.ts";
 import { executeLifecycleCommand, findActiveFinancialMovement, LifecycleCommandError, propagatePartyName, reverseFinancialMovement } from "../../../lib/transaction-lifecycle.ts";
 import { transferPerfumeLotStock } from "../../perfume-stock-reconciliation.ts";
 import { roundMl } from "../../perfume-volume.ts";
@@ -17,7 +19,7 @@ import type { PerfumeAllocation, PerfumeLot } from "../../perfume-logic.ts";
 import { nextOpeningCorrectionSequence, selectLatestOpeningCorrection } from "../../opening-correction-order.ts";
 
 type Input = Record<string, unknown>;
-type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; costAtSale?: number | null; grossProfit?: number | null; perfumeAllocations?: PerfumeAllocation[] };
+type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; costAtSale?: number | null; grossProfit?: number | null; perfumeAllocations?: PerfumeAllocation[]; saleCostRecovery?: Record<string, unknown> };
 type WarehouseDoc = { _id: string; name: string; isSalesDefault?: boolean; [key: string]: unknown };
 const warehouses = (db: Db) => db.collection<WarehouseDoc>("warehouses");
 class CommandError extends Error {
@@ -105,8 +107,8 @@ async function financialMovement(db: Db, session: ClientSession, document: Recor
   if (!result.matchedCount) throw new CommandError(`الرصيد غير كافٍ في ${account.name}`);
   await db.collection("financialMovements").insertOne({ id: id("fin"), paymentMethod: account.id, paymentCode: account.code, direction, amount, documentId: document.id, documentNumber: document.number, partyId: document.partyId ?? null, partyName: document.partyName ?? null, type, occurredAt: document.occurredAt, transferId: document.transferId ?? null, note: document.note ?? null, status: "posted", revision: Number(document.revision ?? 0) }, { session });
 }
-async function authoritativeCost(db: Db, session: ClientSession, product: Record<string, unknown>) {
-  return currentProductCost(db, session, product);
+async function authoritativeCost(db: Db, session: ClientSession, product: Record<string, unknown>, warehouseId?: string) {
+  return currentProductCost(db, session, product, warehouseId);
 }
 async function historicalCost(db: Db, session: ClientSession, productId: string, occurredAt: string) {
   const documents = await db.collection("documents").find(
@@ -231,10 +233,10 @@ async function invoiceUpdateRefs(db:Db,session:ClientSession,body:Input,original
   return {warehouse,party,warehouseId,partyId};
 }
 async function changeStock(db: Db, session: ClientSession, product: Record<string, unknown>, warehouse: Record<string, unknown>, delta: number, document: Record<string, unknown>, type: string) {
-  const warehouseId = String(warehouse._id), productId = String(product.id), before = Number((product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0), after = product.perfumeStockUnit === "ml" ? roundMl(before + delta) : before + delta;
+  const warehouseId = String(warehouse._id), productId = String(product.id);
+  const { before, after, delta: quantityDelta, stockPath, stockMatch } = planStockChange(product, warehouseId, delta, document, product.perfumeStockUnit === "ml" ? roundMl : undefined);
   if (after < 0) throw new CommandError(`المخزون غير كافٍ للمنتج ${product.name}`);
-  const stockPath = `stocks.${warehouseId}`;
-  const stockMatch = before === 0 ? { $or: [{ [stockPath]: 0 }, { [stockPath]: { $exists: false } }] } : { [stockPath]: before };
+
   const result = await db.collection("products").updateOne({ id: productId, ...stockMatch }, { $set: { [stockPath]: after } }, { session });
   if (!result.matchedCount) throw new CommandError("تغير المخزون أثناء العملية، أعد المحاولة", 409);
   const currentStocks = (product.stocks ??= {}) as Record<string, number>;
@@ -243,7 +245,7 @@ async function changeStock(db: Db, session: ClientSession, product: Record<strin
     await warehouses(db).updateOne({ _id: warehouseId, isArchived: true }, { $set: { isArchived: false, archivedAt: null, updatedAt: new Date() } }, { session });
     warehouse.isArchived = false;
   }
-  await db.collection("stockMovements").insertOne({ id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId, warehouseName: warehouse.name, productId, productName: product.name, type, quantityDelta: delta, balanceBefore: before, balanceAfter: after, quantityUnit:product.perfumeStockUnit==="ml"?"ml":"piece", occurredAt: document.occurredAt, documentRevision: Number(document.revision ?? 0) }, { session });
+  await db.collection("stockMovements").insertOne({ id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId, warehouseName: warehouse.name, productId, productName: product.name, type, quantityDelta, balanceBefore: before, balanceAfter: after, quantityUnit:product.perfumeStockUnit==="ml"?"ml":"piece", occurredAt: document.occurredAt, documentRevision: Number(document.revision ?? 0) }, { session });
   return { before, after };
 }
 
@@ -771,8 +773,12 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
       const product = newProducts.get(line.productId)!, old = oldByProduct.get(line.productId);
       const unitPrice = positive(isSale ? line.piecePrice : line.unitPrice, isSale ? "سعر الفرد" : "سعر الشراء"), lineTotal = Math.round(line.quantity * unitPrice);
       if (isSale) {
-        const cost = old ? old.costAtSale ?? null : await historicalCost(db, session, line.productId, String(original.occurredAt));
-        calculated.push({ id: old?.id ?? id("line"), productId: line.productId, description: product.name, quantity: line.quantity, unitPrice, lineTotal, costAtSale: cost, grossProfit: cost == null ? null : lineTotal - line.quantity * Number(cost) });
+        const cost = old
+          ? old.costAtSale ?? null
+          : isOrdinaryStockCostProduct(product)
+            ? await authoritativeCost(db, session, product, warehouseId)
+            : await historicalCost(db, session, line.productId, String(original.occurredAt));
+        calculated.push({ id: old?.id ?? id("line"), productId: line.productId, description: product.name, quantity: line.quantity, unitPrice, lineTotal, costAtSale: cost, grossProfit: cost == null ? null : lineTotal - line.quantity * Number(cost), ...(old?.saleCostRecovery ? { saleCostRecovery: old.saleCostRecovery } : {}) });
       } else calculated.push({ id: old?.id ?? id("line"), productId: line.productId, description: product.name, quantity: line.quantity, unitPrice, lineTotal });
     }
     const total = calculated.reduce((sum, line) => sum + Number(line.lineTotal), 0), paidTotal = paymentMethod === "note" ? 0 : total, dueTotal = total - paidTotal;
@@ -813,7 +819,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     if (isSale && await db.collection("documents").findOne({ kind: "return", status: "posted", parentDocumentId: documentId }, { session })) throw new CommandError("لا يمكن حذف هذه الفاتورة القديمة لوجود حركة تاريخية مرتبطة بها.", 409);
     const warehouse = await warehouses(db).findOne({ _id: String(original.warehouseId) }, { session });
     if (!warehouse) throw new CommandError("مخزن الفاتورة غير موجود", 409);
-    const oldLines = original.lines as Line[], found = await db.collection("products").find({ id: { $in: oldLines.map(line => line.productId) } }, { session }).toArray(), map = new Map(found.map(product => [String(product.id), product]));
+    const oldLines = historicalInvoiceStockLines(original) as Line[], found = await db.collection("products").find({ id: { $in: oldLines.map(line => line.productId) } }, { session }).toArray(), map = new Map(found.map(product => [String(product.id), product]));
     for (const line of oldLines) try {
       const product=map.get(line.productId)!;
       const restoredQuantity=isSale&&product.perfumeStockUnit==="ml"&&line.perfumeAllocations?.length
@@ -832,7 +838,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     if (party && party.partyType !== (isSale ? "customer" : "supplier")) throw new CommandError(isSale ? "يجب اختيار عميل صالح" : "يجب اختيار مورد صالح");
     if (isSale && input.some(line => isProductExpired(map.get(line.productId)!, new Date().toISOString().slice(0, 10)))) throw new CommandError("انتهت صلاحية هذا المنتج ولا يمكن بيعه.");
     if (paymentMethod !== "note") await paymentAccount(db, session, paymentMethod);
-    const costs = isSale ? new Map(await Promise.all(input.map(async line => [line.productId, await authoritativeCost(db, session, map.get(line.productId)!)] as const))) : new Map<string, number | null>();
+    const costs = isSale ? new Map(await Promise.all(input.map(async line => [line.productId, await authoritativeCost(db, session, map.get(line.productId)!, warehouseId)] as const))) : new Map<string, number | null>();
     const calculated = input.map(line => { const p = map.get(line.productId)!; let unitPrice: number, total: number; if (isSale) { const price = positive(line.piecePrice, "سعر الفرد"); total = Math.round(line.quantity * price); unitPrice = price; } else { unitPrice = positive(line.unitPrice, "سعر الشراء"); total = Math.round(unitPrice * line.quantity); } return { id: id("line"), productId: line.productId, description: p.name, quantity: line.quantity, unitPrice, lineTotal: total, ...(isSale ? { costAtSale: costs.get(line.productId) ?? null, grossProfit: costs.get(line.productId) == null ? null : total - line.quantity * Number(costs.get(line.productId)) } : {}) }; });
     const total = calculated.reduce((s, l) => s + l.lineTotal, 0);
     const suppliedCash = body.cashAmount ?? body.paidAmount;
@@ -908,7 +914,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
       const hasWarehouseField = Object.prototype.hasOwnProperty.call(stocks, warehouseId);
       const hasWarehouseMovement = hasWarehouseField ? true : Boolean(await db.collection("stockMovements").findOne({ productId: product.id, warehouseId }, { session }));
       if (!hasWarehouseMovement) throw new CommandError(`لا يمكن تصحيح مخزون المنتج ${product.name} في هذا المخزن قبل دخوله إليه عبر رصيد بداية أو شراء أو تحويل مخزون.`, 409);
-      const cost = await authoritativeCost(db, session, product);
+      const cost = await authoritativeCost(db, session, product, warehouseId);
       costs.set(line.productId, cost);
       if (line.actualQuantity! > before && cost == null) throw new CommandError(`لا يمكن زيادة مخزون المنتج ${product.name} بالتصحيح لأنه لا يملك رصيد بداية أو فاتورة شراء قائمة تحدد تكلفته.`, 409);
     }

@@ -1,3 +1,7 @@
+import { planStockChange, stockBalanceAfter } from "./stock-numbers.ts";
+import { isOrdinaryStockCostProduct } from "./adjustment-stock-cost.ts";
+import { currentProductCost } from "./product-cost.ts";
+import { reportCostNumber } from "./report-commerce.ts";
 import type { SqliteDatabase as Db, SqliteSession as ClientSession } from "./sqlite.ts";
 import { normalizePartyNet, partyCashDelta, partyNet } from "../app/party-balance.ts";
 import type { PerfumeLot } from "../app/perfume-logic.ts";
@@ -122,10 +126,9 @@ export async function propagatePartyName(db: Db, session: ClientSession, partyId
 
 async function changeStock(db: Db, session: ClientSession, product: Stored, warehouse: Stored, delta: number, document: Stored, type: string) {
   const warehouseId = String(warehouse._id), productId = String(product.id);
-  const before = Number((product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0), after = product.perfumeStockUnit === "ml" ? roundMl(before + delta) : before + delta;
+  const { before, after, delta: quantityDelta, stockPath, stockMatch } = planStockChange(product, warehouseId, delta, document, product.perfumeStockUnit === "ml" ? roundMl : undefined);
   if (after < 0) throw new LifecycleCommandError(`المخزون غير كافٍ للمنتج ${product.name}`);
-  const stockPath = `stocks.${warehouseId}`;
-  const stockMatch = before === 0 ? { $or: [{ [stockPath]: 0 }, { [stockPath]: { $exists: false } }] } : { [stockPath]: before };
+
   const changed = await db.collection("products").updateOne({ id: productId, ...stockMatch }, { $set: { [stockPath]: after } }, { session });
   if (!changed.matchedCount) throw new LifecycleCommandError("تغير المخزون أثناء العملية، أعد المحاولة", 409);
   const currentStocks = (product.stocks ??= {}) as Record<string, number>;
@@ -136,7 +139,7 @@ async function changeStock(db: Db, session: ClientSession, product: Stored, ware
   }
   await db.collection("stockMovements").insertOne({
     id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId,
-    warehouseName: warehouse.name, productId, productName: product.name, type, quantityDelta: delta,
+    warehouseName: warehouse.name, productId, productName: product.name, type, quantityDelta,
     balanceBefore: before, balanceAfter: after, quantityUnit:product.perfumeStockUnit==="ml"?"ml":"piece", occurredAt: document.occurredAt,
     documentRevision: Number(document.revision ?? 0),
   }, { session });
@@ -390,7 +393,8 @@ async function updateTransfer(db: Db, session: ClientSession, body: Input) {
   for(const {productId,warehouseId,delta} of deltas.values()){
     if(!delta)continue;
     const product=products.get(productId)!,current=Number(((product.stocks??{}) as Record<string,number>)[warehouseId]??0);
-    if(current+delta<0)throw new LifecycleCommandError("لا يمكن تعديل التحويل لأن جزءًا من المخزون المطلوب عكسه تم التصرف فيه.",409);
+    const after = product.perfumeStockUnit === "ml" ? current + delta : stockBalanceAfter(current, delta);
+    if(after<0)throw new LifecycleCommandError("لا يمكن تعديل التحويل لأن جزءًا من المخزون المطلوب عكسه تم التصرف فيه.",409);
   }
   for(const {productId,warehouseId,delta} of deltas.values()){
     if(!delta)continue;
@@ -458,11 +462,17 @@ async function updateAdjustment(db: Db, session: ClientSession, body: Input) {
     const baseline = Number(old.balanceBefore), oldDelta=Number(old.quantity??0);
     if (!Number.isFinite(baseline)||!Number.isFinite(oldDelta)) throw new LifecycleCommandError("سند التصحيح القديم لا يحتوي بيانات كافية للتعديل الآمن", 409);
     const revisedDelta = line.actualQuantity - baseline, editDelta = revisedDelta - oldDelta, product = products.get(line.productId)!;
+    let unitPrice = old.unitPrice;
+    if (isOrdinaryStockCostProduct(product) && revisedDelta > Math.max(0, oldDelta)) {
+      const cost = await currentProductCost(db, session, product, String(warehouse._id));
+      if (cost === null || (oldDelta > 0 && (reportCostNumber(unitPrice) ?? 0) <= 0)) throw new LifecycleCommandError(`لا يمكن زيادة مخزون المنتج ${product.name} بالتصحيح من دون مصدر تكلفة موثّق.`, 409);
+      if (oldDelta <= 0) unitPrice = cost;
+    }
     if(editDelta){
       try { await changeStock(db, session, product, warehouse, editDelta, audit, "adjustment-edit"); }
       catch (error) { if (error instanceof LifecycleCommandError && /المخزون غير كاف/.test(error.message)) throw new LifecycleCommandError("لا يمكن تعديل التصحيح لأن المخزون الحالي لا يكفي لهذا التغيير.", 409); throw error; }
     }
-    revisedLines.push({ ...old, description: `${product.name} — ${reason} (قبل ${baseline}، بعد ${line.actualQuantity})`, quantity: revisedDelta, balanceBefore: baseline, balanceAfter: line.actualQuantity });
+    revisedLines.push({ ...old, description: `${product.name} — ${reason} (قبل ${baseline}، بعد ${line.actualQuantity})`, quantity: revisedDelta, unitPrice, balanceBefore: baseline, balanceAfter: line.actualQuantity });
   }
   await db.collection("documents").updateOne({ id: documentId, status: "posted" }, { $set: { title: reason, lines: revisedLines, updatedAt: new Date(), revision } }, { session });
   await preserveHistoricalWarehouseArchiveIfEmpty(db,session,String(warehouse._id),warehouseWasArchived,warehouseArchivedAt);

@@ -75,19 +75,30 @@ async function saleFacts(db: Db, documents: Document[], f: ReportFilters, catego
   const facts: ReportRow[] = [];
   const productIds = [...new Set(documents.flatMap(document => ((document.lines ?? []) as Document[]).map(line => String(line.productId ?? "")).filter(Boolean)))];
   const parentIds = [...new Set(documents.filter(document => document.kind === "return" && document.parentDocumentId).map(document => String(document.parentDocumentId)))];
-  const [identityRows, parentRows, purchaseRows, openingRows] = await Promise.all([
+  const editedSaleIds = documents.filter(document => document.kind === "sale" && Number(document.revision) > 0 &&
+    (document.lines ?? []).some((line: Document) => reportCostNumber(line.costAtSale) === null)).map(document => String(document.id));
+  const [identityRows, parentRows, purchaseRows, openingRows, editedStockRows] = await Promise.all([
     db.collection("products").find({id:{$in:productIds}}).project({id:1,name:1,sku:1,perfumeStockUnit:1,legacyDecantUnitMl:1}).toArray(),
     db.collection("documents").find({id:{$in:parentIds}}).project({id:1,kind:1,occurredAt:1}).toArray(),
     productIds.length ? db.collection("documents").find({kind:{$in:[...PURCHASE_KINDS]},"lines.productId":{$in:productIds}}).project({status:1,occurredAt:1,sequence:1,lines:1}).toArray() : Promise.resolve([]),
-    productIds.length ? db.collection("documents").find({kind:"adjustment","lines.productId":{$in:productIds}}).project({status:1,number:1,openingCorrection:1,occurredAt:1,sequence:1,lines:1}).toArray() : Promise.resolve([]),
+    productIds.length ? db.collection("documents").find({kind:"adjustment","lines.productId":{$in:productIds}}).project({status:1,number:1,openingCorrection:1,openingStockAfter:1,openingCostAfter:1,occurredAt:1,sequence:1,lines:1}).toArray() : Promise.resolve([]),
+    editedSaleIds.length ? db.collection("stockMovements").find({ documentId: { $in: editedSaleIds }, type: { $in: ["sale", "sale-edit"] } }).project({ documentId: 1, productId: 1, type: 1 }).toArray() : Promise.resolve([]),
   ]);
+  const lineKey = (documentId: unknown, productId: unknown) => JSON.stringify([documentId, productId]);
+  const originalDebits = new Set<string>(), editedDebits = new Set<string>();
+  for (const row of editedStockRows) (row.type === "sale" ? originalDebits : editedDebits).add(lineKey(row.documentId, row.productId));
   const identities = new Map(identityRows.map(product => [String(product.id),product])), parents = new Map(parentRows.map(document => [String(document.id),document]));
   const purchases = new Map<string,HistoricalReportCost[]>(), openings = new Map<string,HistoricalReportCost[]>();
   for (const [documents, target] of [[purchaseRows,purchases],[openingRows,openings]] as const) for (const document of documents) {
     if (target === openings && !(document.openingCorrection === true || String(document.number ?? "").startsWith("OPEN-"))) continue;
     for (const line of (document.lines ?? []) as Document[]) {
       const key=String(line.productId);if(!productIds.includes(key))continue;
-      const rows=target.get(key)??[];rows.push({at:String(document.occurredAt),sequence:Number(document.sequence??0),value:document.status==="posted"?line.unitPrice:null});target.set(key,rows);
+      let value = document.status === "posted" ? line.unitPrice : null;
+      if (target === openings && document.status === "posted") {
+        if (document.openingCostAfter !== undefined) value = document.openingCostAfter;
+        if ((reportCostNumber(document.openingStockAfter === undefined ? line.quantity : document.openingStockAfter) ?? 0) <= 0) value = null;
+      }
+      const rows=target.get(key)??[];rows.push({at:String(document.occurredAt),sequence:Number(document.sequence??0),value});target.set(key,rows);
     }
   }
   for (const document of documents) {
@@ -98,7 +109,8 @@ async function saleFacts(db: Db, documents: Document[], f: ReportFilters, catego
     for (const [lineIndex, line] of (reportNetLines(document) as Document[]).entries()) {
       if(!lineMatches(line,f,categoryScope))continue;
       const snapshot=reportCostNumber(line.costAtSale),purchase=latestReportCost(purchases.get(String(line.productId))??[],costDate),opening=latestReportCost(openings.get(String(line.productId))??[],costDate);
-      const cost:Cost=snapshot!==null?{unit:snapshot,source:"snapshot"}:purchase.present?{unit:purchase.cost,source:purchase.cost===null?"unknown":"historical-purchase"}:opening.cost!==null?{unit:opening.cost,source:"historical-opening"}:{unit:null,source:"unknown"};
+      const key = lineKey(document.id, line.productId), addedInEdit = editedDebits.has(key) && !originalDebits.has(key);
+      const cost:Cost=snapshot!==null?{unit:snapshot,source:"snapshot"}:addedInEdit?{unit:null,source:"unknown"}:purchase.present?{unit:purchase.cost,source:purchase.cost===null?"unknown":"historical-purchase"}:opening.cost!==null?{unit:opening.cost,source:"historical-opening"}:{unit:null,source:"unknown"};
       const savedProfit=(typeof line.grossProfit==="number"||(typeof line.grossProfit==="string"&&line.grossProfit.trim()!==""))?Number(line.grossProfit):NaN;
       const rawRevenue=reportCostNumber((document.lines as Document[])[lineIndex]?.lineTotal),savedTotalCost=n(line.quantity)*(snapshot??0);
       // Some retired returns copied the whole sale line while their saved profit

@@ -4,23 +4,31 @@ export type AccountingFormatOptions = Pick<Intl.NumberFormatOptions,
 export type AccountingCellFormat = "number" | "percent";
 
 const MAX_ADAPTIVE_FRACTION_DIGITS = 12;
-const formatterCache = new Map<string, Intl.NumberFormat>();
+type CachedFormatter = {
+  format: (value: number) => string;
+  maximumFractionDigits: number;
+  zero: string;
+  negativeZero: string;
+  hundred: string;
+  negativeHundred: string;
+};
+const formatterCache = new Map<string, CachedFormatter>();
 function formatter(locale: string, options: Intl.NumberFormatOptions) {
   const key = `${locale}:${JSON.stringify(options)}`;
   let result = formatterCache.get(key);
   if (!result) {
     if (formatterCache.size >= 128) formatterCache.clear();
-    result = new Intl.NumberFormat(locale, { numberingSystem: "latn", ...options });
+    const intl = new Intl.NumberFormat(locale, { numberingSystem: "latn", ...options });
+    const format = intl.format;
+    result = { format, maximumFractionDigits: intl.resolvedOptions().maximumFractionDigits ?? 3,
+      zero: format(0), negativeZero: format(-0), hundred: format(100), negativeHundred: format(-100) };
     formatterCache.set(key, result);
   }
   return result;
 }
 
-function displaysZero(format: Intl.NumberFormat, value: number) {
-  const digits = format.formatToParts(value)
-    .filter(part => part.type === "integer" || part.type === "fraction")
-    .map(part => part.value).join("");
-  return digits.length > 0 && /^0+$/.test(digits);
+function displaysZero(format: CachedFormatter, text: string) {
+  return text === format.zero || text === format.negativeZero;
 }
 
 function precision(locale: string, value: number, percent: boolean, options: AccountingFormatOptions) {
@@ -28,14 +36,16 @@ function precision(locale: string, value: number, percent: boolean, options: Acc
   const normalized = value === 0 ? 0 : value;
   const baseOptions = { maximumFractionDigits: 3, ...options };
   let format = formatter(locale, baseOptions);
-  let fractionDigits = format.resolvedOptions().maximumFractionDigits ?? 3;
+  let fractionDigits = format.maximumFractionDigits;
+  let text = format.format(normalized);
   const boundary = value < 0 ? -100 : 100;
   const roundsToHundred = () => percent && Number.isFinite(value) && value !== boundary
-    && format.format(normalized) === format.format(boundary);
-  const roundsToZero = () => Number.isFinite(value) && value !== 0 && displaysZero(format, normalized);
+    && text === (boundary < 0 ? format.negativeHundred : format.hundred);
+  const roundsToZero = () => Number.isFinite(value) && value !== 0 && displaysZero(format, text);
   while ((roundsToZero() || roundsToHundred()) && fractionDigits < MAX_ADAPTIVE_FRACTION_DIGITS) {
     fractionDigits++;
     format = formatter(locale, { ...baseOptions, maximumFractionDigits: fractionDigits });
+    text = format.format(normalized);
   }
   if (roundsToHundred()) {
     return { text: `${value < boundary ? "<" : ">"}${boundary}`, fractionDigits, bound: true, scientific: false };
@@ -45,7 +55,7 @@ function precision(locale: string, value: number, percent: boolean, options: Acc
       ...(options.signDisplay ? { signDisplay: options.signDisplay } : {}) });
     return { text: format.format(normalized), fractionDigits, bound: false, scientific: true };
   }
-  return { text: format.format(normalized), fractionDigits, bound: false, scientific: false };
+  return { text, fractionDigits, bound: false, scientific: false };
 }
 
 /** Keeps ordinary formatting, but never rounds a finite nonzero amount to a displayed zero. */

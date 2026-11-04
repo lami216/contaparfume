@@ -43,6 +43,33 @@ test('native opening fallback and same-date sequence work without using future p
  await f.db.collection('documents').updateMany({id:{$in:['one','two']}},{$unset:{sequence:1}});assert.equal((await f.report()).summary.costKnown,false);
 });
 
+test('an opening clearance does not supply its obsolete unit cost to later sales', async t => {
+  const f = await fixture(t);
+  await f.db.collection('documents').insertMany([
+    doc('opening', 'adjustment', '2026-08-01', [line('o', 'a', 2, 80)], { number: 'OPEN-1', openingStockAfter: 2, openingCostAfter: 80 }),
+    doc('clearance', 'adjustment', '2026-08-03', [line('c', 'a', -2, 80)], { number: 'OPEN-COR-1', openingCorrection: true, openingStockAfter: 0, openingCostAfter: null }),
+    doc('before', 'sale', '2026-08-02', [line('b', 'a', 1, 150)]),
+    doc('after', 'sale', '2026-08-10', [line('s', 'a', 1, 150)]),
+  ]);
+  const report = await f.report('sales');
+  const before = report.rows.find(row => row.documentId === 'before');
+  const after = report.rows.find(row => row.documentId === 'after');
+  assert.deepEqual([before.cost, before.costKnown], [80, true]);
+  assert.deepEqual([after.costKnown, after.unknownRevenue], [false, 150]);
+});
+
+test('an unpriced product added in an edit does not inherit the cost from the original invoice date', async t => {
+  const f = await fixture(t);
+  await f.db.collection('documents').insertMany([
+    doc('old-buy', 'purchase', '2026-08-01', [line('o', 'a', 2, 80)]),
+    doc('sale', 'sale', '2026-08-02', [line('new-line', 'a', 1, 150, null)], { revision: 1 }),
+    doc('new-buy', 'purchase', '2026-08-03', [line('n', 'a', 1, 0)]),
+  ]);
+  await f.db.collection('stockMovements').insertOne({ id: 'edit', documentId: 'sale', productId: 'a', type: 'sale-edit', quantityDelta: -1 });
+  const report = await f.report('sales');
+  assert.deepEqual([report.rows[0].costKnown, report.rows[0].unknownRevenue], [false, 150]);
+});
+
 test('discount allocation preserves source data, is idempotent and reconciles full/filtered revenues with historical COGS',async t=>{
  const f=await fixture(t),sale=doc('discount','sale','2026-08-10',[line('a','a',1,100,60),line('b','b',1,50,20)],{total:140,paidTotal:140,legacy:{source:'dataacc-sqlite'}}),before=structuredClone(sale);await f.db.collection('documents').insertOne(sale);
  const net=reportNetLines(sale);close(net.reduce((sum,line)=>sum+line.lineTotal,0),140);assert.deepEqual(sale,before);assert.deepEqual(reportNetLines({...sale,lines:net}),net);assert.deepEqual(net.map(line=>line.costAtSale),[60,20]);

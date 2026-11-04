@@ -133,6 +133,12 @@ export function translateApiError(locale: Locale, message: string): string {
   if (pendingLot) return `Un lot précédent contient encore du parfum (${pendingLot[1]}). Enregistrez une sortie réelle en consommation ou corrigez une erreur de quantité avant le nouveau lot. Lot précédent :${pendingLot[2]}`;
   const missingCategory = message.match(/^المنتج (.+) يشير إلى فئة غير موجودة؛ راجع التصنيف قبل المتابعة$/);
   if (missingCategory) return `Le produit ${missingCategory[1]} référence une catégorie introuvable. Vérifiez son classement avant de continuer.`;
+  const invalidHistory = message.match(/^لا يمكن إلغاء المستند (.+) \((.*)\): كمية السطر (\d+) غير صالحة؛ راجع بيانات السند الأصلي$/);
+  if (invalidHistory) return `Impossible d’annuler le document ${invalidHistory[1]} (${invalidHistory[2]}) : quantité invalide à la ligne ${invalidHistory[3]}. Vérifiez le document d’origine.`;
+  const invalidStock = message.match(/^رصيد المخزون المسجل للمنتج (.+) في المخزن (.+) غير صالح؛ راجع بيانات المخزون$/);
+  if (invalidStock) return `Stock enregistré invalide pour le produit ${invalidStock[1]} dans l’entrepôt ${invalidStock[2]}. Vérifiez les données de stock.`;
+  const invalidMovement = message.match(/^(كمية|ناتج) حركة المخزون في المستند (.+) غير (?:صالحة|صالح)؛ راجع بيانات المستند$/);
+  if (invalidMovement) return `Mouvement de stock invalide pour le document ${invalidMovement[2]}. Vérifiez les données du document.`;
   const insufficientBalance = message.match(/^الرصيد غير كافٍ في (.+)$/);
   if (insufficientBalance) return `Solde insuffisant sur ${insufficientBalance[1]}`;
   const insufficientStock = message.match(/^المخزون غير كافٍ للمنتج (.+)$/);

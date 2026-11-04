@@ -31,8 +31,17 @@ test("decant invoices reuse standard transaction workspace without entering POS 
   assert.match(invoices, /workspace-checkout/);
   assert.match(invoices, /document\.kind === "decant-sale"/);
   assert.match(invoices, /document\.kind === "decant-purchase"/);
-  assert.match(app, /docs=\{data\.documents\.filter\(d => d\.kind === "sale" && d\.status === "posted"\)\}/);
-  assert.match(app, /docs=\{data\.documents\.filter\(d => d\.kind === "purchase" && d\.status === "posted"\)\}/);
+  for (const [name, kind] of [["Pos", "sale"], ["Purchases", "purchase"]]) {
+    const start = app.indexOf(`function ${name}(`), end = app.indexOf("\nfunction ", start + 1);
+    assert.ok(start >= 0);
+    const editor = app.slice(start, end < 0 ? undefined : end);
+    const history = editor.match(/const historyDocuments\s*=\s*useMemo\([\s\S]+?\[data\.documents\]\)/)?.[0];
+    assert.ok(history, `${name} must retain a history scoped to the current documents`);
+    assert.match(history, new RegExp(`\\.kind\\s*===\\s*"${kind}"`));
+    assert.match(history, /\.status\s*===\s*"posted"/);
+    assert.doesNotMatch(history, /decant-sale|decant-purchase|commercialDocumentFamily/);
+    assert.match(editor, /docs=\{historyDocuments\}/);
+  }
 });
 
 test("decant invoices follow the same all-paid-or-note settlement rule", async () => {

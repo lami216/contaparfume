@@ -1,5 +1,4 @@
 import { CommandAdmissionError, withCommandAdmission, type CommandAdmissionContext } from "../../../lib/command-admission.ts";
-import { confirmSaleCostRecovery } from "../../../lib/sale-cost-recovery.ts";
 import { requireValidLicense } from "../../../lib/license.ts";
 import type { SqliteSession as ClientSession, SqliteDatabase as Db } from "../../../lib/sqlite.ts";
 import { getDatabase } from "../../../lib/sqlite.ts";
@@ -118,9 +117,6 @@ async function executeAdmittedPost(request: Request, admission: CommandAdmission
       "account-opening-balance-correction.post":"banks.balance_correct","account-opening-balance-correction.update":"banks.balance_correct.edit","account-opening-balance-correction.void":"banks.balance_correct.delete",
       "party.create":body.partyType==="customer"?"customers.create":"suppliers.create","party.update":"customers.edit","party.delete":"customers.delete","party.restore":"customers.edit",
     };
-    if (type === "sale-cost-recovery.confirm") map[type] = "reports.view";
-    const recoveryPrincipal = type === "sale-cost-recovery.confirm" ? await getPrincipalFromRequest(request) : null;
-    if (type === "sale-cost-recovery.confirm" && recoveryPrincipal && !["owner", "local"].includes(recoveryPrincipal.principalType)) return Response.json({ error: "مراجعة تكاليف المبيعات متاحة للمالك فقط" }, { status: 403 });
     let capability = map[type];
     if (["party-cash.post","party.update","party.delete","party.restore"].includes(type)) {
       const party = await getDatabase().collection("parties").findOne({ id: text(body.partyId ?? body.id) });
@@ -176,7 +172,7 @@ async function executeAdmittedPost(request: Request, admission: CommandAdmission
         admission.assertCanMutate();
         await receipts.insertOne({ _id: idempotencyKey as never, commandType: type, fingerprint, status: "processing", createdAt: new Date() }, { session });
         await db.collection("auditEvents").insertOne({ id: id("audit"), action: type, status: "started", createdAt: new Date() }, { session });
-        result = type === "sale-cost-recovery.confirm" ? confirmSaleCostRecovery(db, body, recoveryPrincipal!) : await execute(db, session, body);
+        result = await execute(db, session, body);
         response = typeof result === "object" && result ? result : { id: result };
         await db.collection("auditEvents").insertOne({ id: id("audit"), action: type, entityId: typeof result === "object" && result ? (result as { id?: unknown }).id : result, status: "committed", createdAt: new Date() }, { session });
         await receipts.updateOne({ _id: idempotencyKey as never }, { $set: { status: "committed", result: response, committedAt: new Date() } }, { session });
