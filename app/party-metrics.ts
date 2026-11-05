@@ -1,4 +1,4 @@
-import type { DocumentRecord, FinancialMovement, PartyFinancialSummary, PartyType } from "./domain";
+import { commercialDocumentFamily, type DocumentRecord, type FinancialMovement, type PartyFinancialSummary, type PartyType } from "./domain";
 import { reportCostNumber, reportNetLines } from "../lib/report-commerce.ts";
 
 /** Builds historical party totals without exposing the underlying cash movements. */
@@ -27,12 +27,13 @@ export function calculatePartyFinancialSummaries(
     const value = Number(document.total);
     if (!Number.isFinite(value)) continue;
     const party = summary(document.partyId);
-    if (document.kind === "purchase") { party.supplierTradeTotal += value; party.supplierInvoiceCount += 1; }
+    const family = commercialDocumentFamily(document.kind);
+    if (family === "purchase") { party.supplierTradeTotal += value; party.supplierInvoiceCount += 1; }
     const parentKind = parentKinds.get(document.parentDocumentId ?? "");
     const supplierReturn = document.kind === "return" && (parentKind === "purchase" || parentKind === "decant-purchase");
     if (supplierReturn) party.supplierTradeTotal -= value;
     // Legacy read-only adjustments must keep historical customer totals unchanged.
-    if (document.kind === "sale" || (document.kind === "return" && !supplierReturn)) {
+    if (family === "sale" || (document.kind === "return" && !supplierReturn)) {
       const sign = document.kind === "return" ? -1 : 1;
       party.customerTradeTotal += sign * value;
       const lines = document.lines ?? [], netLines = reportNetLines(document);
@@ -40,7 +41,7 @@ export function calculatePartyFinancialSummaries(
         // Imported headers may hold a discount absent from raw line prices.
         // Reconcile this read only from the saved unit cost, never today's cost.
         const cost = reportCostNumber(line.costAtSale), quantity = reportCostNumber(line.quantity), net = netLines[index];
-        if (document.kind === "sale" && net && net.lineTotal !== line.lineTotal && cost !== null && quantity !== null) {
+        if (family === "sale" && net && net.lineTotal !== line.lineTotal && cost !== null && quantity !== null) {
           party.customerGrossProfit += sign * (net.lineTotal - quantity * cost);
         } else {
           const grossProfit = Number(line.grossProfit);

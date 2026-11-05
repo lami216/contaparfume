@@ -13,7 +13,7 @@ export default function PerfumeDefaultsEditor({ defaults=DEFAULT_PERFUME_SETTING
   const save=async()=>{setBusy(true);setError("");try{await run({type:"perfume-defaults.update",bottleProductId:bottle},tr("تم حفظ العبوة الافتراضية"))}catch(e){setError(e instanceof Error?e.message:tr("تعذر الحفظ"))}finally{setBusy(false)}};
   return <form className="pm-defaults-row" onSubmit={event=>{event.preventDefault();void save()}}>
     <label>{tr("العبوة الافتراضية")}<select aria-label={tr("العبوة الافتراضية")} value={bottle} onChange={e=>setBottle(e.target.value)} disabled={disabled||busy} required><option value="">{tr("اختر الزجاجة")}</option>{bottles.map(p=><option key={p.id} value={p.id}>{p.name} · {p.decantSizeMl} {tr("مل")}</option>)}</select></label>
-    <small>{selected?`${tr("التعبئة")}: ${selected.decantSizeMl} ${tr("مل")}. `:""}{tr("يمكن تغيير التعبئة عند البيع")}</small>
+    <small>{selected?`${tr("التعبئة")}: ${selected.decantSizeMl} ${tr("مل")}. `:""}{tr("يمكن اختيار زجاجة أخرى عند البيع، والتعبئة حسب سعتها المسجلة")}</small>
     <button type="submit" className="soft" disabled={disabled||busy}>{tr("حفظ")}</button>
     {error&&<small className="error" role="alert">{error}</small>}
   </form>;

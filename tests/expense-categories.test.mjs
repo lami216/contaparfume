@@ -83,3 +83,31 @@ test('schema v8 adds category storage to an existing v7 database without changin
   ensureDatabaseSchema(h.db);assert.equal(await h.db.collection('expenseCategories').countDocuments(),0);assert.deepEqual(await h.db.collection('documents').find().toArray(),before);
   ensureDatabaseSchema(h.db);assert.equal(h.db.native.prepare('SELECT max(version) v FROM schema_migrations').get().v,8);
 });
+
+test('historical scheduled and new expenses all remain included in the simplified report and backup', async t => {
+  const {h,post,cash} = await fixture(t);
+  const category = await command(h, {type:'expense-category.create',name:'Synthetic expenses'});
+  const first = await post({amount:300,expenseCategoryId:category});
+  await h.db.collection('documents').updateOne({id:first},{$set:{recurringId:'historical-template',occurrenceKey:'2026-10'}});
+  await h.db.collection('recurringExpenses').insertOne({id:'historical-template',title:'Historical schedule'});
+  await post({amount:200,expenseCategoryId:category});
+  const third = await post({amount:100,expenseCategoryId:category});
+  await h.db.collection('documents').updateOne({id:third},{$set:{recurringId:null}});
+  const before = await createNativeBackup(h.db);
+  const report = await buildReport(h.db,filter({expenseCategoryId:category}));
+  assert.deepEqual([report.summary.total,report.summary.count],[600,3]);
+  assert.equal(report.rows.length,3);
+  assert.equal(Object.hasOwn(report.summary,'recurringTotal'),false);
+  assert.equal(Object.hasOwn(report.summary,'oneOffTotal'),false);
+  assert(report.rows.every(row=>!Object.hasOwn(row,'recurring')));
+  for(const retiredType of ['once','recurring']){
+    const retiredFilters=parseReportFilters(new URL('http://local/api/reports?type=expenses&allTime=true&expenseType='+retiredType));
+    assert.equal(Object.hasOwn(retiredFilters,'expenseType'),false);
+    assert.equal((await buildReport(h.db,retiredFilters)).summary.total,600);
+  }
+
+  assert.equal((await h.db.collection('paymentAccounts').findOne({id:cash})).balance,9400);
+  const after = await createNativeBackup(h.db);
+  assert.deepEqual(after.collections,before.collections);
+  assert.equal(parseAndValidateBackup(stringifyBackup(after)).collections.recurringExpenses[0].id,'historical-template');
+});
