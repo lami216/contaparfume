@@ -14,7 +14,7 @@ const bounded = (value:string|null, fallback:number, max:number) => {
 };
 
 const documentCapabilities: Capability[] = [
-  "records.view", "pos.view", "purchases.view", "expenses.view", "perfume.divisions.view", "perfume.divisions.manage",
+  "employees.view", "party.opening.manage", "records.view", "pos.view", "purchases.view", "expenses.view", "perfume.divisions.view", "perfume.divisions.manage",
   "customers.view", "suppliers.view", "warehouses.transfer", "warehouses.adjust",
   "banks.view", "banks.movements.view",
 ];

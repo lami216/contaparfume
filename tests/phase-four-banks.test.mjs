@@ -34,7 +34,7 @@ test("bank summary breakdown reconciles every card and keeps zero-value source k
   assert.equal(details.parties.reduce((sum,row)=>sum+row.owedToUs,0),metrics.owedToUs);
   assert.equal(details.parties.reduce((sum,row)=>sum+row.weOwe,0),metrics.weOwe);
   assert.deepEqual(details.income.map(row=>row.kind),["sale","party-receipt:customer","party-receipt:supplier","manual-deposit"]);
-  assert.deepEqual(details.expenses.map(row=>row.kind),["purchase","expense","party-payment:customer","party-payment:supplier","manual-withdrawal"]);
+  assert.deepEqual(details.expenses.map(row=>row.kind),["purchase","expense","employee-payment","party-payment:customer","party-payment:supplier","manual-withdrawal"]);
   assert.deepEqual(details.income.filter(row=>row.kind.startsWith("party-receipt:")).map(row=>[row.kind,row.count,row.value]),[["party-receipt:customer",1,6],["party-receipt:supplier",1,3]]);
   assert.deepEqual(details.expenses.filter(row=>row.kind.startsWith("party-payment:")).map(row=>[row.kind,row.count,row.value]),[["party-payment:customer",1,4],["party-payment:supplier",1,5]]);
   assert.ok(details.expenses.some(row=>row.kind==="manual-withdrawal"&&row.value===0&&row.count===0));

@@ -13,6 +13,8 @@ import { restoreLegacySaleAllocations } from "../../perfume-split-reversal.ts";
 import {createExpenseCategory} from "../../../lib/expense-categories.ts";
 import { assertPerfumeCategoryCanBeDeleted, ensurePerfumeSystemCategories, perfumeSystemCategoryKind } from "../../../lib/perfume-system-categories.ts";
 
+import { postPartyOpening, updatePartyOpening, voidPartyOpening } from "../../../lib/party-opening.ts";
+import { handlePayrollCommand } from "../../../lib/payroll.ts";
 type Input = Record<string, unknown>;
 class CommandError extends Error { status: number; constructor(message: string, status = 400) { super(message); this.status = status; } }
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
@@ -26,6 +28,15 @@ async function executePerfumeCommand(db: Db, session: ClientSession, body: Input
 
 export async function execute(db: Db, session: ClientSession, body: Input) {
   const type = text(body.type);
+  if(type.startsWith("employee.")||type.startsWith("employee-payment.")||type.startsWith("employee-accrual."))return handlePayrollCommand(db,session,body);
+  if(type==="party-opening.post")return postPartyOpening(db,session,body);
+  if(type==="party-opening.update")return updatePartyOpening(db,session,body);
+  if(type==="party-opening.void")return voidPartyOpening(db,session,body);
+  if(type==="party.create"&&body.opening!==undefined){
+    if(!body.opening||typeof body.opening!=="object"||Array.isArray(body.opening))throw new CommandError("رصيد البداية غير صالح");
+    const partyId=await executeCoreCommand(db,session,body);
+    await postPartyOpening(db,session,{...(body.opening as Input),partyId});return partyId;
+  }
   if(type==="expense-category.create")return createExpenseCategory(db,session,body);
   if(["sale.post","sale.update","purchase.post","purchase.update"].includes(type)){
     const productIds=(Array.isArray(body.lines)?body.lines:[]).map(raw=>text((raw as Input).productId));
@@ -97,6 +108,9 @@ async function executeAdmittedPost(request: Request, admission: CommandAdmission
     const body = await admission.readJson() as Input;
     type = text(body.type);
     const map: Record<string, Capability> = {
+      "party-opening.post":"party.opening.manage","party-opening.update":"party.opening.manage","party-opening.void":"party.opening.manage",
+      "employee.create":"employees.manage","employee.update":"employees.manage","employee.archive":"employees.manage","employee.restore":"employees.manage","employee-accrual.sync":"employees.manage","employee-accrual.update":"employees.manage","employee-accrual.void":"employees.manage",
+      "employee-payment.post":"employees.pay","employee-payment.update":"employees.pay","employee-payment.void":"employees.pay",
       "product.delete":"products.delete","product.stock-zero":"products.delete","product.restore":"products.edit","product.create":"products.create","product.update":"products.edit",
       "product-category.create":"products.create","product-category.update":"products.edit","product-category.delete":"products.delete",
       "warehouse.create":"warehouses.create","warehouse.update":"warehouses.edit","warehouse.default":"warehouses.edit","warehouse.delete":"warehouses.delete",
@@ -155,6 +169,7 @@ async function executeAdmittedPost(request: Request, admission: CommandAdmission
       const stockDenied = await requireCapability(request, "warehouses.adjust");
       if (stockDenied) return stockDenied;
     }
+    if(type==="party.create"&&body.opening!==undefined){const openingDenied=await requireCapability(request,"party.opening.manage");if(openingDenied)return openingDenied;}
     if (!validSameOrigin(request)) return Response.json({ error: "طلب غير صالح" }, { status: 403 });
     const idempotencyKey = text(request.headers.get("Idempotency-Key"));
     if (!idempotencyKey || idempotencyKey.length > 200) return Response.json({ error: "مفتاح العملية مطلوب" }, { status: 400 });

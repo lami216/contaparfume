@@ -107,7 +107,7 @@ test("native legacy party records expose a safe delete lifecycle without re-enab
   assert.match(source, /document\.kind === "offset"/);
   assert.match(source, /document\.kind === "payment" && !document\.partyCashDirection/);
   const party = source.slice(source.indexOf("function PartyPage"), source.indexOf("export const ALL_WAREHOUSES"));
-  assert.match(party, /const kinds=\["return","payment","settlement","offset"\]/);
+  assert.match(party, /const kinds=\["return","payment","settlement","offset","party-opening"\]/);
   assert.match(party, /commercialDocumentFamily\(d\.kind\)===\(customer\?"sale":"purchase"\)\|\|kinds\.includes\(d\.kind\)/);
   assert.match(source, /legacy-party-document\.void/);
   assert.match(source, /legacyParty\.deleteOldTransaction/);

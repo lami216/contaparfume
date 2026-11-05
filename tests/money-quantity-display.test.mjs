@@ -44,10 +44,11 @@ test("displayed prices, totals, and inventory values use currency formatting", (
 });
 
 test("stock counts and quantities stay plain numbers without MRU", () => {
-  assert.match(source, /number\(totalPieces\)/);
+  assert.match(source, /number\(inventory\.summary\.count\)/);
+  assert.match(source, /inventoryQuantityLabel\(inventory\.summary,[^\n]*format: number/);
   assert.match(source, /number\(qty\(product\)\)/);
   assert.match(source, /number\(selectedQty\)/);
   assert.match(openingHistorySource, /number\(delta\)/);
   assert.doesNotMatch(openingHistorySource, /money\(delta\)/);
-  assert.doesNotMatch(source, /money\(totalPieces\)|money\(qty\(product\)\)|money\(selectedQty\)|money\(current\)|money\(stock\)/);
+  assert.doesNotMatch(source, /money\(inventory\.summary\.(?:pieces|millilitres)\)|money\(qty\(product\)\)|money\(selectedQty\)|money\(current\)|money\(stock\)/);
 });

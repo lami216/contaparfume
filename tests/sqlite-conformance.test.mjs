@@ -14,5 +14,23 @@ test('financial uniqueness applies only to the effective revision',async()=>{con
 test('unsupported adapter operations fail loudly',async()=>{assert.throws(()=>db.collection('products').createIndex({sku:1}),/schema migration/);await db.collection('products').insertOne({id:'x'});await assert.rejects(db.collection('products').updateOne({id:'x'},{$rename:{sku:'code'}}),/Unsupported SQLite update operator/)});
 test('insertMany batches large writes while preserving ordered partial failure semantics',async()=>{const c=db.collection('auditEvents');await c.insertMany(Array.from({length:1000},(_,i)=>({id:`bulk-${i}`,value:i})));assert.equal(await c.countDocuments(),1000);await c.insertOne({id:'duplicate'});await assert.rejects(c.insertMany([{id:'before-duplicate'},{id:'duplicate'},{id:'after-duplicate'}]),error=>error.code===11000);assert.ok(await c.findOne({id:'before-duplicate'}));assert.equal(await c.findOne({id:'after-duplicate'}),null)});
 
+test('schema v9 adds employee storage and unique accrual periods without changing v8 business records',async()=>{
+ const preserved={id:'keep-v8-document',kind:'sale',status:'posted',total:150,lines:[{productId:'keep-v8-product',quantity:1,costAtSale:100}]};
+ await db.collection('documents').insertOne(preserved);
+ await db.collection('expenseCategories').insertOne({id:'keep-v8-category',name:'Synthetic category'});
+ const before=await Promise.all(['documents','expenseCategories','products','financialMovements'].map(name=>db.collection(name).find().toArray()));
+ db.native.exec('DROP TABLE employees; DROP INDEX IF EXISTS payroll_period_unique; DELETE FROM schema_migrations WHERE version>=9;');
+ const {ensureDatabaseSchema}=await import('../lib/sqlite.ts'); ensureDatabaseSchema(db.native);
+ assert.deepEqual(await Promise.all(['documents','expenseCategories','products','financialMovements'].map(name=>db.collection(name).find().toArray())),before);
+ assert.equal(await db.collection('employees').countDocuments(),0);
+ await db.collection('employees').insertOne({id:'synthetic-employee',balance:0});
+ const period={id:'first-period',kind:'employee-accrual',employeeId:'synthetic-employee',periodStart:'2026-11-01',status:'voided'};
+ await db.collection('documents').insertOne(period);
+ await assert.rejects(db.collection('documents').insertOne({...period,id:'duplicate-period',status:'posted'}),error=>error.code===11000);
+ ensureDatabaseSchema(db.native);
+ assert.equal(db.native.prepare('SELECT max(version) version FROM schema_migrations').get().version,9);
+ assert.equal((await db.collection('documents').findOne({id:preserved.id})).total,150);
+});
 
-test('schema v4 adds product categories and later migrations preserve existing business data',async()=>{await db.collection('products').insertOne({id:'keep-product',sku:'501',name:'Keep me'});db.native.exec('DROP TABLE product_categories; DROP INDEX IF EXISTS financial_document_type_active_unique; DELETE FROM schema_migrations WHERE version>=4;');const {ensureDatabaseSchema}=await import('../lib/sqlite.ts');ensureDatabaseSchema(db.native);assert.equal((await db.collection('products').findOne({id:'keep-product'})).name,'Keep me');await db.collection('productCategories').insertOne({id:'category-1',name:'General'});assert.equal((await db.collection('productCategories').findOne({id:'category-1'})).name,'General');assert.equal(db.native.prepare('SELECT max(version) version FROM schema_migrations').get().version,8)});
+
+test('schema v4 adds product categories and later migrations preserve existing business data',async()=>{await db.collection('products').insertOne({id:'keep-product',sku:'501',name:'Keep me'});db.native.exec('DROP TABLE product_categories; DROP INDEX IF EXISTS financial_document_type_active_unique; DELETE FROM schema_migrations WHERE version>=4;');const {ensureDatabaseSchema}=await import('../lib/sqlite.ts');ensureDatabaseSchema(db.native);assert.equal((await db.collection('products').findOne({id:'keep-product'})).name,'Keep me');await db.collection('productCategories').insertOne({id:'category-1',name:'General'});assert.equal((await db.collection('productCategories').findOne({id:'category-1'})).name,'General');assert.equal(db.native.prepare('SELECT max(version) version FROM schema_migrations').get().version,9)});

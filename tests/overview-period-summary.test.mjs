@@ -10,7 +10,7 @@ test("overview separates current position from period performance", async () => 
   assert.match(ui, /tr\("الوضع الحالي"\)/);
   assert.match(ui, /tr\("أداء الفترة"\)/);
   for (const key of ["currentAccountsBalance","currentInventoryValue","currentReceivable","currentPayable","sales","purchases","expenses","netOperatingResult"]) assert.match(ui, new RegExp(`summary\.${key}`));
-  assert.match(reports, /netOperatingResult:p\.profit-expenses/);
+  assert.match(reports, /const netOperatingResult=p\.profit-expenses/);
 });
 
 test("overview KPI details keep only calculation contributors in one signed money column",async()=>{const ui=await source("app/conta-app.tsx");for(const key of ["currentAccountsBalance","currentInventoryValue","currentReceivable","currentPayable","sales","purchases","expenses","netOperatingResult"])assert.match(ui,new RegExp(`openOverviewSummary\\("${key}"\\)`));assert.match(ui,/label:tr\("صافي المبيعات"\),value:sales/);assert.match(ui,/label:tr\("تكلفة المبيعات"\),value:-salesCost/);assert.match(ui,/label:tr\("إجمالي المصاريف"\),value:-expenses/);assert.doesNotMatch(ui,/excludedProfitMeta/);assert.doesNotMatch(ui,/impact:/);assert.doesNotMatch(ui,/الأثر في المجموع/);assert.match(ui,/overview-sales-total/);assert.match(ui,/overview-return-/);});

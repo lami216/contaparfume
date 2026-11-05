@@ -17,7 +17,10 @@ export type DocumentKind =
   | "offset"
   | "settlement"
   | "account-transfer"
-  | "account-adjustment";
+  | "account-adjustment"
+  | "party-opening"
+  | "employee-accrual"
+  | "employee-payment";
 export type CommercialDocumentFamily = "sale" | "purchase" | null;
 /** Business family used by reports and presentation. Decant documents keep their
  * specialized storage kind because their inventory lifecycle is different. */
@@ -156,6 +159,17 @@ export interface DocumentRecord {
   toAccountId?: string | null;
   status: string;
   title: string | null;
+  employeeId?: string;
+  employeeName?: string;
+  amount?: number;
+  periodStart?: string;
+  periodEnd?: string;
+  dueDate?: string;
+  balanceDelta?: number;
+  allocations?: Array<{accrualId:string;amount:number}>;
+  partyOpeningDirection?: "receivable"|"payable";
+  partyOpeningAmount?: number;
+  partyOpeningContribution?: number;
   expenseCategoryId?: string | null;
   expenseCategoryName?: string | null;
   note?: string | null;
@@ -231,7 +245,10 @@ export interface Movement {
   occurredAt: string;
   documentRevision?: number;
 }
+export interface EmployeeAgreement {id:string;startDate:string;endDate?:string;amount:number;intervalMonths:number;entitlement:"beginning"|"end"}
+export interface Employee {id:string;name:string;phone:string;balance:number;revision:number;isArchived?:boolean;agreements:EmployeeAgreement[]}
 export interface BootstrapData {
+  employees?: Employee[];
   perfumeDefaults?: import("./perfume-volume").PerfumeDefaults;
   principal: { principalType: "local" | "owner" | "user"; name: string; permissions: string[] };
   branding: InvoiceBrandingSettings;
@@ -308,6 +325,8 @@ export interface PaymentAccount {
 }
 export function activePaymentAccounts<T extends Pick<PaymentAccount, "isActive" | "isArchived">>(accounts: T[]) { return accounts.filter(account => account.isActive !== false && account.isArchived !== true); }
 export interface FinancialMovement {
+  employeeId?: string;
+  employeeName?: string;
   id: string;
   paymentMethod: string;
   direction: "in" | "out";
@@ -347,6 +366,9 @@ export const paymentMethods: Array<{
   { id: "bimbank", label: "بيم" },
 ];
 export const kindLabels: Record<DocumentKind, string> = {
+  "party-opening": "رصيد بداية الديون",
+  "employee-accrual": "استحقاق عامل",
+  "employee-payment": "صرف للعامل",
   purchase: "فاتورة شراء",
   sale: "فاتورة بيع",
   "decant-purchase": "فاتورة شراء زجاج التقسيمات",

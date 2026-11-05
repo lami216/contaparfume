@@ -60,7 +60,7 @@ test("decant commercial history contributes its saved trade, profit and supplier
 
   const source = readFileSync(new URL("../app/conta-app.tsx", import.meta.url), "utf8");
   const party = source.slice(source.indexOf("function PartyPage"), source.indexOf("export const ALL_WAREHOUSES"));
-  assert.match(party, /const kinds=\["return","payment","settlement","offset"\]/);
+  assert.match(party, /const kinds=\["return","payment","settlement","offset","party-opening"\]/);
   assert.match(party, /d\.partyId===party\.id&&\(commercialDocumentFamily\(d\.kind\)===\(customer\?"sale":"purchase"\)\|\|kinds\.includes\(d\.kind\)\)/);
 });
 test("a copied legacy customer return retains its explicit represented profit instead of being recosted as a discounted full sale", () => {

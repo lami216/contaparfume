@@ -7,9 +7,10 @@ import { EJSON } from "bson";
 import { resolvePartyType } from "../app/domain.ts";
 import { backupBuildInfo, type BackupApplication, type BackupBuild } from "./build-info.ts";
 import { ensurePerfumeSystemCategories } from "./perfume-system-categories.ts";
+import { validatePayrollSnapshot } from "./payroll.ts";
 
 export const BACKUP_SCHEMA_VERSION = 1;
-export const BACKUP_COLLECTIONS = ["parties", "warehouses", "products", "productCategories", "expenseCategories", "documents", "stockMovements", "financialMovements", "paymentAccounts", "recurringExpenses", "accountTransfers", "counters", "auditEvents", "appSettings", "users", "importMappings"] as const;
+export const BACKUP_COLLECTIONS = ["employees", "parties", "warehouses", "products", "productCategories", "expenseCategories", "documents", "stockMovements", "financialMovements", "paymentAccounts", "recurringExpenses", "accountTransfers", "counters", "auditEvents", "appSettings", "users", "importMappings"] as const;
 // Backups are local, user-selected files. Do not impose an artificial size or record-count cap;
 // validation below still enforces the accounting and reference invariants before restore.
 type BackupCollection = typeof BACKUP_COLLECTIONS[number];
@@ -34,6 +35,7 @@ export function parseAndValidateBackup(input: string): ContaBackup {
   // Old backups stay valid, while new restores replace stale mappings atomically.
   if (!Array.isArray(b.collections.importMappings)) b.collections.importMappings = [];
   if (b.collections.expenseCategories === undefined) b.collections.expenseCategories = [];
+  if (b.collections.employees === undefined) b.collections.employees = [];
   const keys = Object.keys(b.collections);
   if (keys.some(k => !BACKUP_COLLECTIONS.includes(k as BackupCollection))) throw new Error("تحتوي النسخة على collection غير مسموح");
   for (const name of BACKUP_COLLECTIONS) if (!Array.isArray(b.collections[name])) throw new Error(`collection مفقود: ${name}`);
@@ -42,6 +44,7 @@ export function parseAndValidateBackup(input: string): ContaBackup {
 const nonempty = (v: unknown) => typeof v === "string" && v.length > 0;
 function unique(rows: Document[], field: string, label: string, optional = false) { const seen = new Set<string>(); for (const row of rows) { const v = row[field]; if (optional && !nonempty(v)) continue; if (!nonempty(v) || seen.has(v)) throw new Error(`${label} مكرر أو غير صالح`); seen.add(v); } return seen; }
 export function validateInvariants(b: ContaBackup) {
+  validatePayrollSnapshot(b.collections.employees??[], b.collections.documents, b.collections.financialMovements);
   const products=unique(b.collections.products,"id","معرف المنتج"),categories=unique(b.collections.productCategories??[],"id","معرف الفئة"),warehouses=new Set(b.collections.warehouses.map(w=>String(w._id??w.id))),accounts=unique(b.collections.paymentAccounts,"id","معرف الحساب");
   const expenseCategories=unique(b.collections.expenseCategories??[],"id","معرف فئة المصروف");
   for(const category of b.collections.expenseCategories??[])if(typeof category.name!=="string"||!category.name.trim()||category.name.length>80)throw new Error("اسم فئة المصروف غير صالح");
@@ -50,8 +53,17 @@ export function validateInvariants(b: ContaBackup) {
   if(b.collections.warehouses.filter(w=>w.isSalesDefault===true).length!==1)throw new Error("يجب أن تحتوي النسخة على مخزن بيع افتراضي واحد");
   unique(b.collections.products,"sku","رمز المنتج");unique(b.collections.products,"barcode","باركود المنتج",true);unique(b.collections.documents,"id","معرف الفاتورة");unique(b.collections.documents,"number","رقم الفاتورة");
   for(const p of b.collections.products){if(p.categoryId&&!categories.has(String(p.categoryId)))throw new Error("منتج يشير إلى فئة غير موجودة");for(const key of Object.keys((p.stocks??{}) as object))if(!warehouses.has(key))throw new Error("مخزون يشير إلى مخزن غير موجود")}
-  const saleSequences=new Set<string>();
+  const employees=unique(b.collections.employees??[],"id","معرف العامل");
+  for(const employee of b.collections.employees??[]){if(typeof employee.name!=="string"||!employee.name.trim()||!Number.isFinite(Number(employee.balance))||Number(employee.balance)<0||!Array.isArray(employee.agreements))throw new Error("بيانات العامل غير صالحة");}
+  const accruals=new Set(b.collections.documents.filter(d=>d.kind==="employee-accrual").map(d=>String(d.id)));
+  const saleSequences=new Set<string>(),openingParties=new Set<string>(),openingIds=new Set(b.collections.documents.filter(d=>d.kind==="party-opening").map(d=>String(d.id)));
   for(const d of b.collections.documents){
+    if(d.kind==="party-opening"){
+      const contribution=(d.partyOpeningDirection==="receivable"?1:-1)*d.partyOpeningAmount;
+      if(!d.partyId||d.partyOpeningVersion!==1||!["receivable","payable"].includes(d.partyOpeningDirection)||!Number.isFinite(d.partyOpeningAmount)||d.partyOpeningAmount<=0||d.total!==d.partyOpeningAmount||d.partyOpeningContribution!==contribution||d.partyBalanceDelta!==contribution||d.paymentMethod||d.cashAmount!==0||d.paidTotal!==0||d.dueTotal!==0||(d.lines??[]).length)throw new Error("رصيد بداية الديون غير صالح");
+      if(d.status==="posted"){if(openingParties.has(d.partyId))throw new Error("رصيد بداية مكرر للطرف نفسه");openingParties.add(d.partyId);}
+    }
+    if(["employee-accrual","employee-payment"].includes(d.kind)){if(!employees.has(String(d.employeeId))||!Number.isFinite(d.total)||d.total<=0)throw new Error("سند عامل غير صالح");if(d.kind==="employee-payment"&&(!Array.isArray(d.allocations)||d.allocations.some((a:Document)=>!accruals.has(String(a.accrualId))||!Number.isFinite(a.amount)||a.amount<=0)))throw new Error("توزيع صرف العامل غير صالح");}
     if(d.kind==="expense"&&d.expenseCategoryId&&!expenseCategories.has(String(d.expenseCategoryId)))throw new Error("مصروف يشير إلى فئة غير موجودة");
     if(d.warehouseId&&!warehouses.has(String(d.warehouseId)))throw new Error("فاتورة تشير إلى مخزن غير موجود");
     if(d.destinationWarehouseId&&!warehouses.has(String(d.destinationWarehouseId)))throw new Error("فاتورة تشير إلى مخزن وجهة غير موجود");
@@ -60,8 +72,8 @@ export function validateInvariants(b: ContaBackup) {
     if(d.kind==="sale"&&d.businessDate&&d.dailySequence!=null){const sequence=`${d.businessDate}:${d.dailySequence}`;if(saleSequences.has(sequence))throw new Error("تسلسل البيع اليومي مكرر");saleSequences.add(sequence)}
     for(const l of Array.isArray(d.lines)?d.lines:[])if(l.productId&&!products.has(String(l.productId)))throw new Error("فاتورة تشير إلى منتج غير موجود");
   }
-  for(const movement of b.collections.stockMovements){if(movement.productId&&!products.has(String(movement.productId)))throw new Error("حركة مخزون تشير إلى منتج غير موجود");if(movement.warehouseId&&!warehouses.has(String(movement.warehouseId)))throw new Error("حركة مخزون تشير إلى مخزن غير موجود")}
-  for(const movement of b.collections.financialMovements){if(movement.paymentMethod&&!accountKeys.has(String(movement.paymentMethod)))throw new Error("حركة مالية تشير إلى حساب غير موجود");if(movement.partyId&&!parties.has(String(movement.partyId)))throw new Error("حركة مالية تشير إلى طرف غير موجود")}
+  for(const movement of b.collections.stockMovements){if(openingIds.has(movement.documentId))throw new Error("رصيد بداية الديون لا يحرك المخزون");if(movement.productId&&!products.has(String(movement.productId)))throw new Error("حركة مخزون تشير إلى منتج غير موجود");if(movement.warehouseId&&!warehouses.has(String(movement.warehouseId)))throw new Error("حركة مخزون تشير إلى مخزن غير موجود")}
+  for(const movement of b.collections.financialMovements){if(openingIds.has(movement.documentId))throw new Error("رصيد بداية الديون لا يحرك الصندوق");if(movement.paymentMethod&&!accountKeys.has(String(movement.paymentMethod)))throw new Error("حركة مالية تشير إلى حساب غير موجود");if(movement.partyId&&!parties.has(String(movement.partyId)))throw new Error("حركة مالية تشير إلى طرف غير موجود")}
   for(const transfer of b.collections.accountTransfers){if(transfer.fromAccountId&&!accountKeys.has(String(transfer.fromAccountId)))throw new Error("تحويل يشير إلى حساب مصدر غير موجود");if(transfer.toAccountId&&!accountKeys.has(String(transfer.toAccountId)))throw new Error("تحويل يشير إلى حساب وجهة غير موجود")}
   const mappingKeys=new Set<string>(),mappingTargets:Record<string,Set<string>>={products,parties,paymentAccounts:accounts,warehouses};
   for(const mapping of b.collections.importMappings??[]){

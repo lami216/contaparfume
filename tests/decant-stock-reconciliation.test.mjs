@@ -163,7 +163,7 @@ test("decant reconciliation commands are specialized, reversible and noncash", a
   const openingEnd = commands.indexOf('if(type==="perfume-lot-consume.post")', openingStart);
   assert.ok(openingStart >= 0 && openingEnd > openingStart);
   assert.doesNotMatch(commands.slice(openingStart, openingEnd), /financialMovement\(/);
-  assert.match(reports, /netOperatingResult:p\.profit-expenses-inventoryLoss/);
+  assert.match(reports, /const netOperatingResult=p\.profit-expenses-inventoryLoss/);
   assert.match(reports, /productInventoryValueInWarehouse/);
   assert.match(stockMovement, /decant-consumption/);
   assert.match(stockMovement, /decant-yield-correction/);
