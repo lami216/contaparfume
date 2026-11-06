@@ -7,7 +7,7 @@ import { EJSON } from "bson";
 import { resolvePartyType } from "../app/domain.ts";
 import { backupBuildInfo, type BackupApplication, type BackupBuild } from "./build-info.ts";
 import { ensurePerfumeSystemCategories } from "./perfume-system-categories.ts";
-import { validatePayrollSnapshot } from "./payroll.ts";
+import { repairLegacyPayrollResume, validatePayrollSnapshot, type PayrollEmployee } from "./payroll.ts";
 
 export const BACKUP_SCHEMA_VERSION = 1;
 export const BACKUP_COLLECTIONS = ["employees", "parties", "warehouses", "products", "productCategories", "expenseCategories", "documents", "stockMovements", "financialMovements", "paymentAccounts", "recurringExpenses", "accountTransfers", "counters", "auditEvents", "appSettings", "users", "importMappings"] as const;
@@ -39,12 +39,21 @@ export function parseAndValidateBackup(input: string): ContaBackup {
   const keys = Object.keys(b.collections);
   if (keys.some(k => !BACKUP_COLLECTIONS.includes(k as BackupCollection))) throw new Error("تحتوي النسخة على collection غير مسموح");
   for (const name of BACKUP_COLLECTIONS) if (!Array.isArray(b.collections[name])) throw new Error(`collection مفقود: ${name}`);
-  validateInvariants(b as ContaBackup); return b as ContaBackup;
+  const backup = b as ContaBackup;
+  validateInvariants(repairBackupPayroll(backup)); return backup;
+}
+function repairBackupPayroll(backup: ContaBackup): ContaBackup {
+  const { employees = [], documents, auditEvents } = backup.collections;
+  const events = auditEvents.filter(event => ["payroll.employee.restore", "payroll.employee.update"].includes(event?.action));
+  if (!events.length) return backup;
+  const repaired = employees.map(employee => repairLegacyPayrollResume(employee as PayrollEmployee, documents, events));
+  if (repaired.every((employee, index) => employee === employees[index])) return backup;
+  return { ...backup, collections: { ...backup.collections, employees: repaired } };
 }
 const nonempty = (v: unknown) => typeof v === "string" && v.length > 0;
 function unique(rows: Document[], field: string, label: string, optional = false) { const seen = new Set<string>(); for (const row of rows) { const v = row[field]; if (optional && !nonempty(v)) continue; if (!nonempty(v) || seen.has(v)) throw new Error(`${label} مكرر أو غير صالح`); seen.add(v); } return seen; }
 export function validateInvariants(b: ContaBackup) {
-  validatePayrollSnapshot(b.collections.employees??[], b.collections.documents, b.collections.financialMovements);
+  validatePayrollSnapshot(b.collections.employees??[], b.collections.documents, b.collections.financialMovements, b.collections.auditEvents);
   const products=unique(b.collections.products,"id","معرف المنتج"),categories=unique(b.collections.productCategories??[],"id","معرف الفئة"),warehouses=new Set(b.collections.warehouses.map(w=>String(w._id??w.id))),accounts=unique(b.collections.paymentAccounts,"id","معرف الحساب");
   const expenseCategories=unique(b.collections.expenseCategories??[],"id","معرف فئة المصروف");
   for(const category of b.collections.expenseCategories??[])if(typeof category.name!=="string"||!category.name.trim()||category.name.length>80)throw new Error("اسم فئة المصروف غير صالح");
@@ -84,12 +93,23 @@ export function validateInvariants(b: ContaBackup) {
   }
 }
 export async function restoreNativeBackup(db: Db, backup: ContaBackup, session: ClientSession) {
-  validateInvariants(backup);
+  const repaired = repairBackupPayroll(backup);
+  validateInvariants(repaired);
   for (const name of BACKUP_COLLECTIONS) {
     const collection = db.collection(name);
     await collection.deleteMany({}, { session });
-    const rows = backup.collections[name] ?? [];
+    const rows = repaired.collections[name] ?? [];
     if (rows.length) await collection.insertMany(rows, { session, ordered: true });
+  }
+  if (repaired !== backup) {
+    for (const [index, after] of repaired.collections.employees.entries()) {
+      const before = backup.collections.employees[index];
+      if (after === before) continue;
+      await db.collection("auditEvents").insertOne({
+        id: `payroll-audit-${crypto.randomUUID()}`, action: "payroll.employee.resume-repair", status: "committed",
+        entityId: after.id, employeeId: after.id, createdAt: new Date().toISOString(), before, after,
+      }, { session });
+    }
   }
   await ensureLegacyCompatibility(db, session);
   // Old backups may contain uncategorized products. Normalize only after the

@@ -47,15 +47,19 @@ function boundary(start: string, months: number, anchorDay: number) {
   target.setUTCDate(Math.min(anchorDay, maximum));
   return target.toISOString().slice(0, 10);
 }
-function priorDay(value: string) {
+const monthsBetween = (start: string, end: string) =>
+  (Number(end.slice(0, 4)) - Number(start.slice(0, 4))) * 12 + Number(end.slice(5, 7)) - Number(start.slice(5, 7));
+function shiftDay(value: string, days: number) {
   const date = new Date(`${value}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() - 1);
+  date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
+const priorDay = (value: string) => shiftDay(value, -1);
 const agreements = (employee: Employee) => employee.agreements.filter(row => !row.canceledAt).slice().sort((a, b) => a.startDate.localeCompare(b.startDate));
 function periods(employee: Employee, asOf: string) {
   const result: Period[] = [], schedule = agreements(employee);
   for (const [index, agreement] of schedule.entries()) {
+    if (agreement.startDate < employee.startDate) continue;
     const nextAgreement = schedule[index + 1]?.startDate;
     for (let startDate = agreement.startDate; startDate <= asOf && (!nextAgreement || startDate < nextAgreement);) {
       const next = boundary(startDate, agreement.intervalMonths, agreement.anchorDay), endDate = priorDay(next);
@@ -163,7 +167,23 @@ export async function accrueDueEmployees(db: SqliteDatabase, session: SqliteSess
   return atomic(db, session, async () => {
     const employees = await db.collection("employees").find({ isArchived: { $ne: true } }).toArray() as Employee[];
     let created = 0, totalAccrued = 0;
-    for (const employee of employees) {
+    for (let employee of employees) {
+      if (hasLegacyResumeShape(employee)) {
+        const [documents, events] = await Promise.all([
+          db.collection("documents").find({ employeeId: employee.id, kind: "employee-accrual" }).toArray(),
+          db.collection("auditEvents").find({ employeeId: employee.id, action: { $in: ["payroll.employee.restore", "payroll.employee.update"] } }).toArray(),
+        ]);
+        const repaired = repairLegacyPayrollResume(employee, documents, events);
+        if (repaired !== employee) {
+          repaired.updatedAt = now.toISOString();
+          const changed = await db.collection("employees").updateOne({ id: employee.id, revision: employee.revision }, {
+            $set: { agreements: repaired.agreements, revision: repaired.revision, updatedAt: repaired.updatedAt },
+          });
+          if (!changed.matchedCount) throw fail("تغير الموظف أثناء العملية، أعد المحاولة", 409);
+          await audit(db, "employee.resume-repair", employee, repaired, now);
+          employee = repaired;
+        }
+      }
       const result = await accrueEmployee(db, employee, asOf, now, options.context ?? "automatic");
       created += result.created; totalAccrued += result.totalAccrued;
     }
@@ -176,6 +196,11 @@ function agreementFrom(input: Row, startDate: string, anchorDay: number): Agreem
 }
 function validateSchedule(schedule: Agreement[]) {
   const active = schedule.filter(row => !row.canceledAt).sort((a, b) => a.startDate.localeCompare(b.startDate));
+  for (const agreement of active) {
+    day(agreement.startDate);
+    if (interval(agreement.intervalMonths) !== agreement.intervalMonths || !Number.isSafeInteger(agreement.anchorDay) ||
+        agreement.anchorDay < 1 || agreement.anchorDay > 31) throw fail("اتفاق الراتب غير صالح");
+  }
   for (let index = 1; index < active.length; index++) {
     const previous = active[index - 1], current = active[index];
     if (previous.stopDate && previous.stopDate < current.startDate) continue;
@@ -183,6 +208,85 @@ function validateSchedule(schedule: Agreement[]) {
     while (at < current.startDate) at = boundary(at, previous.intervalMonths, previous.anchorDay);
     if (at !== current.startDate || previous.startDate === current.startDate) throw fail("الاتفاق الجديد يجب أن يبدأ عند بداية فترة راتب تالية دون تداخل", 409);
   }
+}
+function clipSameDayStop(schedule: Agreement[], previous: Agreement | undefined, resumeDate: string) {
+  if (previous?.stopDate !== resumeDate || previous.startDate >= resumeDate) return schedule;
+  return schedule.map(row => row.id === previous.id ? { ...row, stopDate: priorDay(resumeDate) } : row);
+}
+function hasLegacyResumeShape(employee: Employee) {
+  const active = agreements(employee);
+  return active.some((row, index) => row.startDate < employee.startDate || active[index - 1]?.stopDate === row.startDate);
+}
+const agreementTerms = ["id", "startDate", "amount", "intervalMonths", "entitlement", "anchorDay"] as const;
+function legacyAgreementEvent(employee: Employee, agreement: Agreement, events: Row[], action = "payroll.employee.restore", maxRevision = employee.revision) {
+  return events.find(event => {
+    if (!event) return false;
+    const { before, after } = event;
+    return event.action === action && event.status === "committed" && event.employeeId === employee.id &&
+      typeof event.createdAt === "string" && Number.isFinite(Date.parse(event.createdAt)) &&
+      before?.id === employee.id && after?.id === employee.id &&
+      before.isArchived === (action === "payroll.employee.restore") && after.isArchived === false &&
+      before.startDate === employee.startDate && after.startDate === employee.startDate &&
+      Number.isSafeInteger(before.revision) && after.revision === before.revision + 1 && after.revision <= maxRevision &&
+      Array.isArray(before.agreements) && Array.isArray(after.agreements) &&
+      !before.agreements.some((row: Agreement) => row?.id === agreement.id) &&
+      after.agreements.some((row: Agreement) => row && agreementTerms.every(key => row[key] === agreement[key]));
+  });
+}
+function legacyEarlyAgreement(employee: Employee, agreement: Agreement, events: Row[]) {
+  if (agreement.startDate >= employee.startDate) return;
+  let candidate = agreement, revision = employee.revision;
+  for (;;) {
+    const resumed = legacyAgreementEvent(employee, candidate, events, "payroll.employee.restore", revision);
+    if (resumed?.before.agreements.some((row: Agreement) => row?.startDate === employee.startDate && row.canceledAt)) return resumed;
+    const edited = legacyAgreementEvent(employee, candidate, events, "payroll.employee.update", revision);
+    if (!edited) return;
+    const previous = edited.before.agreements.find((row: Agreement) => row?.startDate === candidate.startDate && !row.canceledAt);
+    if (!previous) {
+      if (edited.before.agreements.some((row: Agreement) => row?.startDate === employee.startDate && !row.canceledAt)) return edited;
+      return;
+    }
+    candidate = previous;
+    revision = edited.before.revision;
+  }
+}
+
+/** Repair the schedule, retaining every historical accrual, allocation and cash entry. */
+export function repairLegacyPayrollResume(employee: Employee, documents: Row[], events: Row[]) {
+  if (!Array.isArray(employee?.agreements) || !employee.agreements.every(row => row && typeof row.startDate === "string") ||
+      !hasLegacyResumeShape(employee)) return employee;
+  let schedule = employee.agreements;
+  const active = agreements(employee);
+  const posted = documents.filter(row => row.employeeId === employee.id && row.kind === "employee-accrual" && row.status === "posted");
+  for (const [index, agreement] of active.entries()) {
+    const early = legacyEarlyAgreement(employee, agreement, events);
+    if (early) {
+      schedule = schedule.map(row => row.id === agreement.id ? { ...row, canceledAt: early.createdAt } : row);
+      const successor = active[index + 1];
+      if (!employee.isArchived && (!successor || successor.startDate >= employee.startDate)) {
+        const lastEnd = posted.map(row => day(row.periodEnd)).sort().at(-1);
+        const startDate = lastEnd && lastEnd >= employee.startDate ? shiftDay(lastEnd, 1) : employee.startDate;
+        const replacement = { ...agreement, id: `${agreement.id}-after-start`, startDate, anchorDay: Number(startDate.slice(-2)) };
+        delete replacement.stopDate;
+        if (!successor) schedule = [...schedule, replacement];
+        else if (startDate < successor.startDate) {
+          const distance = monthsBetween(startDate, successor.startDate);
+          if (distance > 0 && distance % replacement.intervalMonths === 0 && boundary(startDate, distance, replacement.anchorDay) === successor.startDate) {
+            schedule = [...schedule, { ...replacement, stopDate: priorDay(successor.startDate) }];
+          }
+        }
+      }
+    }
+    const previous = active[index - 1];
+    if (previous?.stopDate !== agreement.startDate || previous.startDate >= agreement.startDate) continue;
+    const event = legacyAgreementEvent(employee, agreement, events);
+    if (!event?.before.agreements.some((row: Agreement) => row?.id === previous.id && row.stopDate === agreement.startDate) ||
+        posted.some(row => row.agreementSnapshot?.id === previous.id && row.periodEnd >= agreement.startDate)) continue;
+    schedule = clipSameDayStop(schedule, previous, agreement.startDate);
+  }
+  if (schedule === employee.agreements) return employee;
+  validateSchedule(schedule);
+  return { ...employee, agreements: schedule.sort((a, b) => a.startDate.localeCompare(b.startDate)), revision: employee.revision + 1 };
 }
 async function paymentDate(input: Row, employee: Employee, now: Date) {
   const date = day(input.occurredAt ?? today(now));
@@ -252,12 +356,14 @@ export async function handlePayrollCommand(db: SqliteDatabase, session: SqliteSe
       } else if (type === "employee.restore") {
         if (!employee.isArchived) throw fail("الموظف غير مؤرشف", 409);
         const resumeDate = day(input.resumeDate);
-        if (resumeDate < asOf) throw fail("استئناف الموظف يبدأ من اليوم أو تاريخ لاحق");
+        if (resumeDate < asOf || resumeDate < employee.startDate) throw fail("تاريخ الاستئناف لا يمكن أن يسبق اليوم أو تاريخ بداية العامل");
         const posted = await db.collection("documents").find({ employeeId: employee.id, kind: "employee-accrual", status: "posted" }).toArray();
         if (posted.some(row => row.periodEnd >= resumeDate)) throw fail("تاريخ الاستئناف يتداخل مع فترة راتب معتمدة", 409);
         const previous = agreements(employee).at(-1) ?? employee.agreements.at(-1)!;
-        employee.agreements = employee.agreements.map(row => row.startDate === resumeDate ? { ...row, canceledAt: now.toISOString() } : row);
+        employee.agreements = clipSameDayStop(employee.agreements, previous, resumeDate)
+          .map(row => row.startDate === resumeDate && !row.canceledAt ? { ...row, canceledAt: now.toISOString() } : row);
         employee.agreements.push(agreementFrom({ amount: input.amount ?? previous.amount, intervalMonths: input.intervalMonths ?? previous.intervalMonths, entitlement: input.entitlement ?? previous.entitlement }, resumeDate, Number(resumeDate.slice(-2))));
+        validateSchedule(employee.agreements);
         employee.isArchived = false; employee.archivedAt = null;
       } else if (type === "employee.update") {
         const name = input.name === undefined ? employee.name : text(input.name), phone = input.phone === undefined ? employee.phone : text(input.phone);
@@ -266,7 +372,7 @@ export async function handlePayrollCommand(db: SqliteDatabase, session: SqliteSe
         if (["amount", "intervalMonths", "entitlement", "effectiveFrom"].some(key => Object.hasOwn(input, key))) {
           if (employee.isArchived) throw fail("استأنف الموظف قبل تعديل اتفاق راتبه", 409);
           const effective = day(input.effectiveFrom ?? nextPayrollAgreementStart(employee, asOf));
-          if (effective <= asOf) throw fail("تعديل الاتفاق يطبق على فترة مستقبلية فقط", 409);
+          if (effective <= asOf || effective < employee.startDate) throw fail("تعديل الاتفاق يطبق على فترة مستقبلية تبدأ من تاريخ بداية العامل أو بعده", 409);
           const schedule = agreements(employee), previous = schedule.filter(row => row.startDate < effective).at(-1) ?? schedule[0];
           const agreement = agreementFrom({ amount: input.amount ?? previous.amount, intervalMonths: input.intervalMonths ?? previous.intervalMonths, entitlement: input.entitlement ?? previous.entitlement }, effective, previous.anchorDay);
           const rest = employee.agreements.filter(row => row.startDate !== effective);
@@ -294,9 +400,15 @@ export async function handlePayrollCommand(db: SqliteDatabase, session: SqliteSe
       checkRevision(document, input); const why = reason(input), before = structuredClone(document);
       const employee = await employeeById(db, document.employeeId), ledger = await state(db, employee);
       if (kind === "employee-payment") {
+        const originalAccount = type.endsWith("update") ? await db.collection("paymentAccounts").findOne({ id: document.paymentMethod }) : null;
         await undoPayment(db, activeSession, employee, document, why, now);
         if (type.endsWith("update")) {
           const revised = await postPayment(db, activeSession, employee, { ...input, occurredAt: input.occurredAt ?? document.businessDate, paymentMethod: input.paymentMethod ?? document.paymentMethod, note: input.note ?? document.note }, now, document);
+          if (originalAccount?.isArchived === true && revised.paymentMethod === originalAccount.id) {
+            await db.collection("paymentAccounts").updateOne({ id: originalAccount.id, balance: 0 }, {
+              $set: { isArchived: true, isActive: originalAccount.isActive, archivedAt: originalAccount.archivedAt, updatedAt: originalAccount.updatedAt },
+            });
+          }
           await audit(db, type, before, { ...revised, reason: why }, now);
           return document.id;
         }
@@ -308,7 +420,8 @@ export async function handlePayrollCommand(db: SqliteDatabase, session: SqliteSe
         }
         const revisedAmount = type.endsWith("void") ? 0 : money(input.amount), date = input.occurredAt === undefined ? document.businessDate : day(input.occurredAt);
         if (revisedAmount < allocated) throw fail("الاستحقاق المعدل لا يمكن أن يقل عن المبلغ المصروف منه", 409);
-        if (date < employee.startDate || date > asOf) throw fail("تاريخ الاستحقاق يجب أن يكون بين بداية الموظف واليوم");
+        const recordedEarlyDate = date === document.businessDate && document.agreementSnapshot?.startDate < employee.startDate;
+        if ((date < employee.startDate && !recordedEarlyDate) || date > asOf) throw fail("تاريخ الاستحقاق يجب أن يكون بين بداية الموظف واليوم");
         if (ledger.documents.some(row => row.kind === "employee-payment" && row.status === "posted" && row.allocations.some((allocation: Row) => allocation.accrualId === document.id) && row.businessDate < date)) throw fail("تاريخ الاستحقاق المعدل يتجاوز تاريخ دفعة مرتبطة", 409);
         await changeBalance(db, employee, revisedAmount - money(document.total), now);
         if (type.endsWith("update")) {
@@ -351,8 +464,9 @@ export function payrollSummary(employees: Row[], documents: Row[], period: { fro
 }
 
 /** Restore validates the whole employee ledger before replacing the current dataset. */
-export function validatePayrollSnapshot(employees: Row[], documents: Row[], financialMovements: Row[]) {
+export function validatePayrollSnapshot(employees: Row[], documents: Row[], financialMovements: Row[], events: Row[] = []) {
   const employeeMap = new Map<string, Row>(), agreementMaps = new Map<string, Map<string, Agreement>>();
+  const verifiedEarlyAgreements = new Set<string>();
   const invalid = () => fail("بيانات الموظفين أو روابط استحقاقاتهم ودفعاتهم غير صالحة");
   const validId = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.trim() === value;
   const validRevision = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -371,7 +485,11 @@ export function validatePayrollSnapshot(employees: Row[], documents: Row[], fina
     const map = new Map<string, Agreement>();
     for (const agreement of employee.agreements) {
       validAgreement(agreement);
-      if (map.has(agreement.id) || agreement.startDate < employee.startDate) throw invalid();
+      if (map.has(agreement.id)) throw invalid();
+      if (agreement.startDate < employee.startDate) {
+        if (!agreement.canceledAt || !legacyEarlyAgreement(employee as Employee, agreement, events)) throw invalid();
+        verifiedEarlyAgreements.add(JSON.stringify([employee.id, agreement.id]));
+      }
       map.set(agreement.id, agreement);
     }
     if (!employee.isArchived && !employee.agreements.some((row: Agreement) => !row.canceledAt)) throw invalid();
@@ -385,7 +503,9 @@ export function validatePayrollSnapshot(employees: Row[], documents: Row[], fina
         !["posted", "voided"].includes(document.status) || typeof document.total !== "number" || document.amount !== document.total || !validId(document.number) ||
         !Array.isArray(document.lines) || document.lines.length !== 0) throw invalid();
     const date = day(document.businessDate), cents = money(document.total);
-    if (typeof document.occurredAt !== "string" || !Number.isFinite(Date.parse(document.occurredAt)) || document.occurredAt.slice(0, 10) !== date || date < employeeMap.get(document.employeeId)!.startDate) throw invalid();
+    const legacyEarlyAccrual = document.kind === "employee-accrual" && verifiedEarlyAgreements.has(JSON.stringify([document.employeeId, document.agreementSnapshot?.id]));
+    if (typeof document.occurredAt !== "string" || !Number.isFinite(Date.parse(document.occurredAt)) || document.occurredAt.slice(0, 10) !== date ||
+        (date < employeeMap.get(document.employeeId)!.startDate && !legacyEarlyAccrual)) throw invalid();
     const sign = document.kind === "employee-accrual" ? 1 : -1;
     if (document.balanceDelta !== amount(sign * cents)) throw invalid();
     if (document.status === "posted") balances.set(document.employeeId, (balances.get(document.employeeId) ?? 0) + sign * cents);
@@ -397,7 +517,7 @@ export function validatePayrollSnapshot(employees: Row[], documents: Row[], fina
       if (!saved || ["startDate", "amount", "intervalMonths", "entitlement", "anchorDay"].some(key => saved[key as keyof Agreement] !== snapshot[key as keyof Agreement]) ||
           start < snapshot.startDate || end !== priorDay(boundary(start, snapshot.intervalMonths, snapshot.anchorDay)) || document.dueDate !== date ||
           document.id !== accrualId(document.employeeId, start)) throw invalid();
-      const months = (Number(start.slice(0, 4)) - Number(snapshot.startDate.slice(0, 4))) * 12 + Number(start.slice(5, 7)) - Number(snapshot.startDate.slice(5, 7));
+      const months = monthsBetween(snapshot.startDate, start);
       if (months < 0 || months % snapshot.intervalMonths !== 0 || boundary(snapshot.startDate, months, snapshot.anchorDay) !== start) throw invalid();
       accruals.set(document.id, document);
     }

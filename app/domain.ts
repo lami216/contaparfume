@@ -246,7 +246,7 @@ export interface Movement {
   documentRevision?: number;
 }
 export interface EmployeeAgreement {id:string;startDate:string;endDate?:string;amount:number;intervalMonths:number;entitlement:"beginning"|"end"}
-export interface Employee {id:string;name:string;phone:string;balance:number;revision:number;isArchived?:boolean;agreements:EmployeeAgreement[]}
+export interface Employee {id:string;name:string;phone:string;startDate:string;balance:number;revision:number;isArchived?:boolean;agreements:EmployeeAgreement[]}
 export interface BootstrapData {
   employees?: Employee[];
   perfumeDefaults?: import("./perfume-volume").PerfumeDefaults;

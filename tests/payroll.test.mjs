@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 import { SqliteDatabase, ensureDatabaseSchema } from '../lib/sqlite.ts';
 import { accrueDueEmployees, handlePayrollCommand, nextPayrollAgreementStart, payrollSummary, validatePayrollSnapshot } from '../lib/payroll.ts';
 import { buildReport, parseReportFilters } from '../lib/reports.ts';
 import { createNativeBackup, parseAndValidateBackup, restoreNativeBackup, stringifyBackup } from '../lib/backup.ts';
+import { execute } from '../app/api/command/route.ts';
 
 const clock = day => new Date(`${day}T15:00:00.000Z`);
 async function fixture(t) {
@@ -186,6 +188,147 @@ test('archive and explicit resume skip the paused gap while preserving paid and 
   await f.sync('2027-01-01');
   assert.deepEqual((await f.docs()).map(row => row.periodStart), ['2026-11-01', '2027-01-01']);
   assert.equal((await f.employee(employeeId)).balance, 12000);
+});
+
+test('a future worker cannot resume before the original start, and the first valid date accrues once', async t => {
+  const f = await fixture(t), today = '2026-11-06', start = '2026-12-01';
+  const employeeId = await f.create({ startDate: start, entitlement: 'beginning' }, today);
+  await assert.rejects(f.run({ type: 'employee.update', employeeId, expectedRevision: 0, effectiveFrom: '2026-11-20', amount: 7000 }, today), /تاريخ بداية العامل/);
+  await f.run({ type: 'employee.archive', employeeId, expectedRevision: 0 }, today);
+  const before = await f.snapshot();
+  await assert.rejects(f.run({ type: 'employee.restore', employeeId, expectedRevision: 1, resumeDate: today }, today), /تاريخ بداية العامل/);
+  assert.deepEqual(await f.snapshot(), before);
+  await f.run({ type: 'employee.restore', employeeId, expectedRevision: 1, resumeDate: start }, today);
+  assert.equal((await f.sync('2026-11-30')).created, 0);
+  assert.equal((await f.sync(start)).created, 1);
+  assert.equal((await f.sync(start)).created, 0);
+  assert.equal((await f.employee(employeeId)).balance, 6000);
+  assert.equal(await f.cash(), 10000);
+  parseAndValidateBackup(stringifyBackup(await createNativeBackup(f.db)));
+});
+
+test('same-day resume closes the interrupted period and old 466 backups with the original stop date restore', async t => {
+  const f = await fixture(t), resumeDate = '2026-11-10';
+  const employeeId = await f.create({}, '2026-11-01');
+  await f.run({ type: 'employee.archive', employeeId, expectedRevision: 0 }, resumeDate);
+  await f.run({ type: 'employee.restore', employeeId, expectedRevision: 1, resumeDate }, resumeDate);
+  assert.deepEqual((await f.employee(employeeId)).agreements.map(row => [row.startDate, row.stopDate]), [
+    ['2026-11-01', '2026-11-09'], [resumeDate, undefined],
+  ]);
+  assert.equal((await f.sync('2026-11-30')).created, 0);
+  assert.equal((await f.sync('2026-12-09')).created, 1);
+  await f.run({ type: 'employee-payment.post', employeeId, amount: 1500, paymentMethod: 'cash' }, '2026-12-09');
+
+  const backup = await createNativeBackup(f.db);
+  const worker = backup.collections.employees[0];
+  const event = backup.collections.auditEvents.find(row => row.action === 'payroll.employee.restore');
+  worker.agreements[0].stopDate = resumeDate;
+  event.after.agreements[0].stopDate = resumeDate;
+  const malformed = structuredClone(backup);
+  malformed.collections.employees[0].agreements[0].intervalMonths = 0;
+  assert.throws(() => parseAndValidateBackup(stringifyBackup(malformed)));
+  const restored = await restore466(t, backup);
+  assert.equal(restored.collections.employees[0].agreements[0].stopDate, '2026-11-09');
+  assert.equal(restored.collections.employees[0].balance, 4500);
+  assert.equal(restored.collections.auditEvents.filter(row => row.action === 'payroll.employee.resume-repair').length, 1);
+});
+
+async function restore466(t, backup) {
+  backup.appVersion = '0.1.26';
+  backup.build = { number: '466', commit: '890d95146e04bfef4cc392009077cd5138701cef' };
+  const serialized = stringifyBackup(backup), decoded = parseAndValidateBackup(serialized);
+  assert.deepEqual(decoded, JSON.parse(serialized), 'Preview leaves the original file content intact');
+  const { db } = await fixture(t);
+  await db.transaction(session => restoreNativeBackup(db, decoded, session));
+  const roundTrip = await createNativeBackup(db);
+  for (const name of ['documents', 'financialMovements', 'paymentAccounts', 'stockMovements', 'parties']) {
+    assert.deepEqual(roundTrip.collections[name], decoded.collections[name], name);
+  }
+  const next = parseAndValidateBackup(stringifyBackup(roundTrip));
+  await db.transaction(session => restoreNativeBackup(db, next, session));
+  const secondRestore = await createNativeBackup(db);
+  assert.deepEqual(secondRestore.collections.employees, roundTrip.collections.employees);
+  assert.deepEqual(secondRestore.collections.auditEvents, roundTrip.collections.auditEvents);
+  return roundTrip;
+}
+
+for (const history of ['unsynced', 'accrued', 'paid']) {
+  test(`build 466 early-resume backup restores ${history} history without rewriting the ledger`, async t => {
+    const f = await fixture(t), early = '2026-11-06', original = '2026-12-01';
+    const employeeId = await f.create({ startDate: original, entitlement: 'beginning' }, early);
+    await f.run({ type: 'employee.archive', employeeId, expectedRevision: 0 }, early);
+    const before = await f.employee(employeeId);
+    const legacy = { id: 'agreement-466-early', startDate: early, amount: 6000, intervalMonths: 1, entitlement: 'beginning', anchorDay: 6 };
+    const after = { ...before, isArchived: false, archivedAt: null, revision: 2, agreements: [...before.agreements, legacy] };
+    await f.db.collection('employees').updateOne({ id: employeeId }, { $set: after });
+    await f.db.collection('auditEvents').insertOne({
+      id: 'audit-466-resume', action: 'payroll.employee.restore', status: 'committed', entityId: employeeId, employeeId, createdAt: clock(early).toISOString(), before, after,
+    });
+    if (history !== 'unsynced') {
+      const hash = createHash('sha256').update(JSON.stringify([employeeId, early])).digest('hex').slice(0, 32);
+      await f.db.collection('documents').insertOne({
+        id: `employee-accrual-${hash}`, number: `EMP-${early}-${hash}`, kind: 'employee-accrual', status: 'posted', revision: 0,
+        employeeId, employeeName: before.name, periodStart: early, periodEnd: '2026-12-05', dueDate: early, businessDate: early,
+        occurredAt: `${early}T12:00:00.000Z`, total: 6000, amount: 6000, balanceDelta: 6000, agreementSnapshot: legacy, lines: [],
+      });
+      await f.db.collection('employees').updateOne({ id: employeeId }, { $set: { balance: 6000 } });
+    }
+    if (history === 'paid') {
+      await f.run({ type: 'employee-payment.post', employeeId, amount: 2500, paymentMethod: 'cash' }, original);
+      await f.run({ type: 'employee.update', employeeId, expectedRevision: 2, effectiveFrom: '2027-01-06', amount: 7000 }, original);
+    }
+    const backup = await createNativeBackup(f.db);
+    const noEvidence = structuredClone(backup);
+    noEvidence.collections.auditEvents = noEvidence.collections.auditEvents.filter(row => row.action !== 'payroll.employee.restore');
+    assert.throws(() => parseAndValidateBackup(stringifyBackup(noEvidence)), /بيانات الموظفين/);
+    const restored = await restore466(t, backup), worker = restored.collections.employees[0];
+    const resume = history === 'unsynced' ? original : '2026-12-06';
+    assert.equal(worker.startDate, original);
+    assert.equal(worker.agreements.find(row => row.id === legacy.id).canceledAt, clock(early).toISOString());
+    assert.equal(worker.agreements.find(row => row.id === `${legacy.id}-after-start`).startDate, resume);
+    assert.equal(worker.balance, { unsynced: 0, accrued: 6000, paid: 3500 }[history]);
+
+    const preRepairBalance = (await f.employee(employeeId)).balance;
+    assert.equal((await f.sync('2026-11-30')).created, 0);
+    assert.equal((await f.employee(employeeId)).balance, preRepairBalance);
+    assert.equal((await f.sync(resume)).created, 1);
+    assert.equal((await f.sync(resume)).created, 0);
+    assert.equal((await f.employee(employeeId)).balance, preRepairBalance + 6000);
+    if (history === 'paid') {
+      assert.equal((await f.sync('2027-01-06')).created, 1);
+      assert.equal((await f.employee(employeeId)).balance, preRepairBalance + 13000);
+    }
+  });
+}
+
+test('editing a zero-balance archived payroll account keeps it archived until cash actually returns', async t => {
+  const f = await fixture(t), employeeId = await f.create();
+  await f.db.collection('paymentAccounts').insertOne({ id: 'bank', code: 'bank', name: 'Synthetic bank', balance: 100, isActive: true });
+  await f.sync('2026-11-30');
+  const documentId = await f.run({ type: 'employee-payment.post', employeeId, amount: 100, paymentMethod: 'bank' });
+  await f.db.transaction(session => execute(f.db, session, { type: 'payment-account.delete', accountId: 'bank' }));
+  const bank = () => f.db.collection('paymentAccounts').findOne({ id: 'bank' });
+  const original = await bank();
+  assert.equal(original.isArchived, true);
+  const edit = (expectedRevision, amount, extra = {}) => f.run({
+    type: 'employee-payment.update', documentId, expectedRevision, amount, reason: 'Synthetic correction', ...extra,
+  }, '2026-12-02');
+  await edit(0, 100, { note: 'Corrected note' });
+  await edit(1, 100, { occurredAt: '2026-12-01' });
+  assert.deepEqual(await bank(), original);
+  assert.equal((await f.employee(employeeId)).balance, 5900);
+  const report = async (from, to) => (await buildReport(f.db, parseReportFilters(new URL(`http://local/?type=expenses&from=${from}&to=${to}&unpaged=true`)))).summary.total;
+  assert.equal(await report('2026-11-01', '2026-11-30'), 0);
+  assert.equal(await report('2026-12-01', '2026-12-31'), 100);
+  const snapshot = await f.snapshot();
+  await assert.rejects(edit(2, 101), /رصيد يكفي/);
+  assert.deepEqual(await f.snapshot(), snapshot);
+  await f.run({ type: 'employee-payment.void', documentId, expectedRevision: 2, reason: 'Synthetic cancellation' }, '2026-12-02');
+  assert.equal((await bank()).balance, 100);
+  assert.equal((await bank()).isArchived, false);
+  assert.equal((await f.employee(employeeId)).balance, 6000);
+  assert.equal(await report('2026-12-01', '2026-12-31'), 0);
+  parseAndValidateBackup(stringifyBackup(await createNativeBackup(f.db)));
 });
 
 test('a future automatic catch-up and a corrupted cached balance never fabricate entitlement or cash', async t => {
