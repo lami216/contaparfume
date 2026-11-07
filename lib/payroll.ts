@@ -17,6 +17,16 @@ const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const fail = (message: string, status = 400) => new PayrollError(message, status);
 const id = (prefix: string) => `${prefix}-${randomUUID()}`;
 const amount = (cents: number) => cents / 100;
+function signedMoney(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) throw fail("رصيد العامل غير صالح");
+  return Math.sign(value) * money(Math.abs(value), true);
+}
+export function employeePaymentDirection(document: Row): "withdraw" | "deposit" {
+  const value = document.employeePaymentDirection ?? "withdraw";
+  if (value !== "withdraw" && value !== "deposit") throw fail("نوع حركة حساب العامل غير صالح");
+  return value;
+}
+const accountSign = (document: Row) => document.kind === "employee-accrual" || employeePaymentDirection(document) === "deposit" ? 1 : -1;
 function money(value: unknown, allowZero = false) {
   if ((typeof value !== "number" && typeof value !== "string") || text(String(value)) === "" ||
       (typeof value === "string" && !/^\d+(?:\.\d{1,2})?$/.test(value.trim()))) throw fail("المبلغ يجب أن يكون رقمًا صالحًا بخانتين عشريتين على الأكثر");
@@ -105,8 +115,8 @@ async function employeeById(db: SqliteDatabase, value: unknown) {
   return employee;
 }
 async function changeBalance(db: SqliteDatabase, employee: Employee, delta: number, now: Date) {
-  const before = money(employee.balance, true), after = before + delta;
-  if (!Number.isSafeInteger(after) || after < 0) throw fail("المبلغ يتجاوز مستحق الموظف", 409);
+  const before = signedMoney(employee.balance), after = before + delta;
+  if (!Number.isSafeInteger(after)) throw fail("رصيد العامل غير صالح", 409);
   const changed = await db.collection("employees").updateOne({ id: employee.id, balance: employee.balance }, { $set: { balance: amount(after), updatedAt: now.toISOString() } });
   if (!changed.matchedCount) throw fail("تغير رصيد الموظف. حدّث الصفحة وأعد المحاولة", 409);
   employee.balance = amount(after);
@@ -116,6 +126,10 @@ async function state(db: SqliteDatabase, employee: Employee) {
   const accruals = documents.filter(row => row.kind === "employee-accrual"), allocated = new Map<string, number>();
   for (const payment of documents.filter(row => row.kind === "employee-payment" && row.status === "posted")) {
     if (!Array.isArray(payment.allocations)) throw fail("روابط دفعة الموظف غير صالحة", 409);
+    if (payment.employeePaymentVersion === 2) {
+      if (payment.allocations.length) throw fail("روابط حركة حساب العامل غير صالحة", 409);
+      continue;
+    }
     let paid = 0;
     for (const allocation of payment.allocations) {
       const cents = money(allocation.amount), source = accruals.find(row => row.id === allocation.accrualId && row.status === "posted");
@@ -136,9 +150,12 @@ async function state(db: SqliteDatabase, employee: Employee) {
     if (accrual.status !== "posted") continue;
     const remaining = money(accrual.total) - (allocated.get(accrual.id) ?? 0);
     if (remaining < 0) throw fail("دفعات الموظف تتجاوز الاستحقاق", 409);
-    balance += remaining;
+    balance += money(accrual.total);
   }
-  if (balance !== money(employee.balance, true)) throw fail("رصيد الموظف لا يطابق سجل استحقاقاته ودفعاته", 409);
+  for (const payment of documents.filter(row => row.kind === "employee-payment" && row.status === "posted")) {
+    balance += accountSign(payment) * money(payment.total);
+  }
+  if (balance !== signedMoney(employee.balance)) throw fail("رصيد الموظف لا يطابق سجل استحقاقاته ودفعاته", 409);
   return { documents, accruals, allocated };
 }
 async function accrueEmployee(db: SqliteDatabase, employee: Employee, asOf: string, now: Date, context: string) {
@@ -295,12 +312,15 @@ async function paymentDate(input: Row, employee: Employee, now: Date) {
 }
 async function postPayment(db: SqliteDatabase, session: SqliteSession, employee: Employee, input: Row, now: Date, previous?: Row) {
   const cents = money(input.amount), date = await paymentDate(input, employee, now), ledger = await state(db, employee);
+  const direction = input.direction ?? previous?.employeePaymentDirection ?? "withdraw";
+  if (direction !== "withdraw" && direction !== "deposit") throw fail("نوع حركة حساب العامل غير صالح");
+  const allowAdvance = input.direction !== undefined || previous?.employeePaymentVersion === 2;
   const account = await db.collection("paymentAccounts").findOne({ $or: [{ id: text(input.paymentMethod) }, { code: text(input.paymentMethod) }], isActive: true, isArchived: { $ne: true } });
   // Other commerce may leave sub-cent cash. Salary amounts are cents, but the
   // existing bank balance must retain its precision rather than be rounded.
   const balance = typeof account?.balance === "number" ? account.balance : typeof account?.balance === "string" && /^\d+(?:\.\d+)?$/.test(account.balance.trim()) ? Number(account.balance) : NaN;
   const required = amount(cents), tolerance = Math.min(1e-7, Number.EPSILON * Math.max(1, Math.abs(balance), required));
-  if (!account || !Number.isFinite(balance) || balance < 0 || balance + tolerance < required) throw fail("اختر حسابًا نشطًا برصيد يكفي مبلغ الصرف", 409);
+  if (!account || !Number.isFinite(balance) || (direction === "withdraw" && (balance < 0 || balance + tolerance < required))) throw fail("اختر حسابًا نشطًا برصيد يكفي مبلغ الصرف", 409);
   const allocations: Array<{ accrualId: string; amount: number }> = [];
   let remaining = cents;
   for (const accrual of ledger.accruals.filter(row => row.status === "posted" && row.dueDate <= date).sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)) || String(a.periodStart).localeCompare(String(b.periodStart)))) {
@@ -309,24 +329,29 @@ async function postPayment(db: SqliteDatabase, session: SqliteSession, employee:
     remaining -= paid;
     if (!remaining) break;
   }
-  if (remaining) throw fail("المبلغ يتجاوز المستحق للموظف في تاريخ الدفع", 409);
+  if (direction === "withdraw" && remaining && !allowAdvance) throw fail("المبلغ يتجاوز المستحق للموظف في تاريخ الدفع", 409);
+  const independent = input.direction !== undefined || direction === "deposit" || remaining > 0 || previous?.employeePaymentVersion === 2;
   const document = { ...(previous ?? {}), id: previous?.id ?? id("employee-payment"), number: previous?.number ?? `EMP-PAY-${randomUUID()}`,
     kind: "employee-payment", status: "posted", revision: Number(previous?.revision ?? -1) + 1, employeeId: employee.id, employeeName: employee.name,
-    paymentMethod: account.id, total: amount(cents), amount: amount(cents), paidTotal: amount(cents), dueTotal: 0, balanceDelta: -amount(cents),
-    businessDate: date, occurredAt: iso(date), allocations, note: text(input.note), lines: [], ...(previous ? { updatedAt: now.toISOString() } : { createdAt: now.toISOString() }) };
-  const movement = await postFinancialMovement(db, session, document, "out", amount(cents), "employee-payment");
+    employeeAccountOrder: previous?.employeeAccountOrder ?? Math.max(0, ...ledger.documents.map(row => Number(row.employeeAccountOrder ?? 0))) + 1,
+    paymentMethod: account.id, total: amount(cents), amount: amount(cents), paidTotal: amount(cents), dueTotal: 0,
+    employeePaymentDirection: direction, ...(independent ? { employeePaymentVersion: 2 } : {}), balanceDelta: (direction === "deposit" ? 1 : -1) * amount(cents),
+    businessDate: date, occurredAt: iso(date), allocations: independent ? [] : allocations, note: text(input.note), lines: [], ...(previous ? { updatedAt: now.toISOString() } : { createdAt: now.toISOString() }) };
+  const movement = await postFinancialMovement(db, session, document, direction === "deposit" ? "in" : "out", amount(cents), "employee-payment");
   await db.collection("financialMovements").updateOne({ id: movement!.id }, { $set: { employeeId: employee.id, employeeName: employee.name } });
-  await changeBalance(db, employee, -cents, now);
+  await changeBalance(db, employee, (direction === "deposit" ? 1 : -1) * cents, now);
   if (previous) await db.collection("documents").updateOne({ id: document.id }, { $set: document });
   else await db.collection("documents").insertOne(document);
   return document;
 }
-async function undoPayment(db: SqliteDatabase, session: SqliteSession, employee: Employee, document: Row, why: string, now: Date) {
+async function undoPayment(db: SqliteDatabase, session: SqliteSession, employee: Employee, document: Row, why: string, now: Date, neutralDepositEdit = false) {
   const movement = await findActiveFinancialMovement(db, session, { documentId: document.id, type: "employee-payment" });
-  if (!movement || money(movement.amount) !== money(document.total)) throw fail("حركة صرف الموظف الأصلية غير متطابقة", 409);
+  if (!movement || money(movement.amount) !== money(document.total) || movement.direction !== (employeePaymentDirection(document) === "deposit" ? "in" : "out")) throw fail("حركة صرف الموظف الأصلية غير متطابقة", 409);
+  const account = await db.collection("paymentAccounts").findOne({ id: document.paymentMethod });
+  if (!neutralDepositEdit && employeePaymentDirection(document) === "deposit" && (!account || Number(account.balance) < Number(document.total))) throw fail("رصيد وسيلة الدفع لا يكفي لعكس إيداع العامل", 409);
   const reverseId = await reverseFinancialMovement(db, session, movement, why);
   await db.collection("financialMovements").updateOne({ id: reverseId }, { $set: { employeeId: employee.id, employeeName: document.employeeName } });
-  await changeBalance(db, employee, money(document.total), now);
+  await changeBalance(db, employee, -accountSign(document) * money(document.total), now);
   await db.collection("documents").updateOne({ id: document.id }, { $set: { status: "voided" } });
 }
 
@@ -401,7 +426,15 @@ export async function handlePayrollCommand(db: SqliteDatabase, session: SqliteSe
       const employee = await employeeById(db, document.employeeId), ledger = await state(db, employee);
       if (kind === "employee-payment") {
         const originalAccount = type.endsWith("update") ? await db.collection("paymentAccounts").findOne({ id: document.paymentMethod }) : null;
-        await undoPayment(db, activeSession, employee, document, why, now);
+        const targetAccount = type.endsWith("update") ? await db.collection("paymentAccounts").findOne({
+          $or: [{ id: text(input.paymentMethod ?? document.paymentMethod) }, { code: text(input.paymentMethod ?? document.paymentMethod) }],
+        }) : null;
+        const sameDepositAccount = type.endsWith("update") && employeePaymentDirection(document) === "deposit" &&
+          (input.direction ?? "deposit") === "deposit" && Boolean(originalAccount && targetAccount && originalAccount.id === targetAccount.id);
+        if (sameDepositAccount && Number(originalAccount!.balance) + amount(money(input.amount)) - Number(document.total) < 0) {
+          throw fail("رصيد وسيلة الدفع لا يكفي لعكس إيداع العامل", 409);
+        }
+        await undoPayment(db, activeSession, employee, document, why, now, sameDepositAccount);
         if (type.endsWith("update")) {
           const revised = await postPayment(db, activeSession, employee, { ...input, occurredAt: input.occurredAt ?? document.businessDate, paymentMethod: input.paymentMethod ?? document.paymentMethod, note: input.note ?? document.note }, now, document);
           if (originalAccount?.isArchived === true && revised.paymentMethod === originalAccount.id) {
@@ -438,25 +471,58 @@ export async function handlePayrollCommand(db: SqliteDatabase, session: SqliteSe
   });
 }
 
+/** Match actual net drawings to earned salary. Deposits and advances alone are not income or expense. */
+export function payrollExpenseEntries(documents: Row[]) {
+  const states = new Map<string, { earned: number; drawn: number; recognized: number }>();
+  const entries: Array<{ documentId: string; employeeId: string; employeeName: string; businessDate: string; occurredAt: string; total: number }> = [];
+  const ordered = documents.filter(row => row.status === "posted" && ["employee-accrual", "employee-payment"].includes(row.kind))
+    .slice().sort((a, b) => String(a.businessDate).localeCompare(String(b.businessDate)) ||
+      (a.kind === b.kind ? 0 : a.kind === "employee-accrual" ? -1 : 1) ||
+      Number(a.employeeAccountOrder ?? 0) - Number(b.employeeAccountOrder ?? 0) ||
+      String(a.createdAt ?? a.occurredAt).localeCompare(String(b.createdAt ?? b.occurredAt)));
+  for (const document of ordered) {
+    const state = states.get(document.employeeId) ?? { earned: 0, drawn: 0, recognized: 0 }, cents = money(document.total);
+    if (document.kind === "employee-accrual") state.earned += cents;
+    else state.drawn += employeePaymentDirection(document) === "deposit" ? -cents : cents;
+    if (!Number.isSafeInteger(state.earned) || !Number.isSafeInteger(state.drawn)) throw fail("مجموع حركات العامل يتجاوز النطاق المسموح");
+    const recognized = Math.min(Math.max(state.drawn, 0), state.earned), delta = recognized - state.recognized;
+    if (delta) entries.push({ documentId: document.id, employeeId: document.employeeId, employeeName: document.employeeName,
+      businessDate: document.businessDate, occurredAt: document.occurredAt, total: amount(delta) });
+    state.recognized = recognized;
+    states.set(document.employeeId, state);
+  }
+  return entries;
+}
+
 export function payrollSummary(employees: Row[], documents: Row[], period: { from?: string; to?: string } = {}) {
   const from = period.from ? day(period.from) : "", to = period.to ? day(period.to) : "";
   if (from && to && from > to) throw fail("بداية الفترة تتجاوز نهايتها");
-  const rows = employees.map(employee => ({ employeeId: String(employee.id), name: String(employee.name), currentOwed: 0, closingBalance: 0, accrualPeriod: 0, paidPeriod: 0, reserveChange: 0 }));
+  const rows = employees.map(employee => ({ employeeId: String(employee.id), name: String(employee.name), currentOwed: 0, currentReceivable: 0, currentUnpaidWages: 0, closingBalance: 0, accrualPeriod: 0, paidPeriod: 0, reserveChange: 0 }));
   const byId = new Map(rows.map(row => [row.employeeId, row]));
   for (const document of documents) {
     if (document.status !== "posted" || !["employee-accrual", "employee-payment"].includes(document.kind)) continue;
     const row = byId.get(String(document.employeeId));
     if (!row) continue;
-    const date = String(document.businessDate ?? document.occurredAt?.slice(0, 10)), cents = money(document.total), sign = document.kind === "employee-accrual" ? 1 : -1;
+    const date = String(document.businessDate ?? document.occurredAt?.slice(0, 10)), cents = money(document.total), sign = accountSign(document);
     row.currentOwed += sign * cents;
+    if (document.kind === "employee-accrual") row.currentUnpaidWages += cents;
     if (!to || date <= to) row.closingBalance += sign * cents;
     if ((!from || date >= from) && (!to || date <= to)) {
-      if (sign > 0) row.accrualPeriod += cents;
-      else row.paidPeriod += cents;
+      if (document.kind === "employee-accrual") row.accrualPeriod += cents;
     }
   }
-  const totals = { currentOwed: 0, closingBalance: 0, accrualPeriod: 0, paidPeriod: 0, reserveChange: 0 };
+  for (const entry of payrollExpenseEntries(documents)) {
+    const row = byId.get(entry.employeeId);
+    if (!row) continue;
+    row.currentUnpaidWages -= signedMoney(entry.total);
+    if ((!from || entry.businessDate >= from) && (!to || entry.businessDate <= to)) {
+      row.paidPeriod += signedMoney(entry.total);
+    }
+  }
+  const totals = { currentOwed: 0, currentReceivable: 0, currentUnpaidWages: 0, closingBalance: 0, accrualPeriod: 0, paidPeriod: 0, reserveChange: 0 };
   for (const row of rows) {
+    row.currentReceivable = Math.max(-row.currentOwed, 0);
+    row.currentOwed = Math.max(row.currentOwed, 0);
     row.reserveChange = row.accrualPeriod - row.paidPeriod;
     for (const key of Object.keys(totals) as Array<keyof typeof totals>) { totals[key] += row[key]; row[key] = amount(row[key]); }
   }
@@ -481,7 +547,7 @@ export function validatePayrollSnapshot(employees: Row[], documents: Row[], fina
     if (!validId(employee.id) || employeeMap.has(employee.id) || typeof employee.name !== "string" || !employee.name.trim() || employee.name.length > 120 ||
         typeof employee.balance !== "number" || !validRevision(employee.revision) || typeof employee.isArchived !== "boolean" ||
         (employee.phone !== undefined && (typeof employee.phone !== "string" || employee.phone.length > 40)) || !Array.isArray(employee.agreements) || !employee.agreements.length) throw invalid();
-    money(employee.balance, true); day(employee.startDate);
+    signedMoney(employee.balance); day(employee.startDate);
     const map = new Map<string, Agreement>();
     for (const agreement of employee.agreements) {
       validAgreement(agreement);
@@ -498,15 +564,22 @@ export function validatePayrollSnapshot(employees: Row[], documents: Row[], fina
   }
   const payroll = documents.filter(row => ["employee-accrual", "employee-payment"].includes(row.kind));
   const documentMap = new Map<string, Row>(), accruals = new Map<string, Row>(), allocations = new Map<string, number>(), balances = new Map<string, number>();
+  const movementOrders = new Set<string>();
   for (const document of payroll) {
     if (!validId(document.id) || documentMap.has(document.id) || !employeeMap.has(document.employeeId) || !validRevision(document.revision) ||
         !["posted", "voided"].includes(document.status) || typeof document.total !== "number" || document.amount !== document.total || !validId(document.number) ||
         !Array.isArray(document.lines) || document.lines.length !== 0) throw invalid();
     const date = day(document.businessDate), cents = money(document.total);
+    if (document.employeeAccountOrder !== undefined && (!Number.isSafeInteger(document.employeeAccountOrder) || document.employeeAccountOrder < 1)) throw invalid();
+    if (document.employeeAccountOrder !== undefined) {
+      const key = JSON.stringify([document.employeeId, document.employeeAccountOrder]);
+      if (movementOrders.has(key)) throw invalid();
+      movementOrders.add(key);
+    }
     const legacyEarlyAccrual = document.kind === "employee-accrual" && verifiedEarlyAgreements.has(JSON.stringify([document.employeeId, document.agreementSnapshot?.id]));
     if (typeof document.occurredAt !== "string" || !Number.isFinite(Date.parse(document.occurredAt)) || document.occurredAt.slice(0, 10) !== date ||
         (date < employeeMap.get(document.employeeId)!.startDate && !legacyEarlyAccrual)) throw invalid();
-    const sign = document.kind === "employee-accrual" ? 1 : -1;
+    const sign = accountSign(document);
     if (document.balanceDelta !== amount(sign * cents)) throw invalid();
     if (document.status === "posted") balances.set(document.employeeId, (balances.get(document.employeeId) ?? 0) + sign * cents);
     documentMap.set(document.id, document);
@@ -523,7 +596,7 @@ export function validatePayrollSnapshot(employees: Row[], documents: Row[], fina
     }
   }
   for (const employee of employees) {
-    if ((balances.get(employee.id) ?? 0) !== money(employee.balance, true)) throw invalid();
+    if ((balances.get(employee.id) ?? 0) !== signedMoney(employee.balance)) throw invalid();
     let previousEnd = "";
     for (const row of [...accruals.values()].filter(item => item.employeeId === employee.id && item.status === "posted").sort((a, b) => a.periodStart.localeCompare(b.periodStart))) {
       if (previousEnd && row.periodStart <= previousEnd) throw invalid();
@@ -531,7 +604,12 @@ export function validatePayrollSnapshot(employees: Row[], documents: Row[], fina
     }
   }
   for (const payment of payroll.filter(row => row.kind === "employee-payment")) {
-    if (!validId(payment.paymentMethod) || !Array.isArray(payment.allocations) || !payment.allocations.length) throw invalid();
+    if (!validId(payment.paymentMethod) || !Array.isArray(payment.allocations)) throw invalid();
+    if (payment.employeePaymentVersion === 2) {
+      if (payment.allocations.length || payment.employeeAccountOrder === undefined || !["withdraw", "deposit"].includes(payment.employeePaymentDirection)) throw invalid();
+      continue;
+    }
+    if (payment.employeePaymentVersion !== undefined || employeePaymentDirection(payment) !== "withdraw" || !payment.allocations.length) throw invalid();
     let total = 0; const seen = new Set<string>();
     for (const allocation of payment.allocations) {
       const source = accruals.get(allocation.accrualId);
@@ -556,7 +634,7 @@ export function validatePayrollSnapshot(employees: Row[], documents: Row[], fina
     money(movement.amount); movementMap.set(movement.id, movement);
     if (movement.status !== "reversed" && movement.isReversal !== true) {
       const payment = documentMap.get(movement.documentId)!;
-      if (movement.type !== "employee-payment" || payment.status !== "posted" || movement.direction !== "out" || movement.amount !== payment.total ||
+      if (movement.type !== "employee-payment" || payment.status !== "posted" || movement.direction !== (employeePaymentDirection(payment) === "deposit" ? "in" : "out") || movement.amount !== payment.total ||
           movement.paymentMethod !== payment.paymentMethod || movement.occurredAt !== payment.occurredAt || movement.revision !== payment.revision) throw invalid();
       active.set(payment.id, (active.get(payment.id) ?? 0) + 1);
     }
@@ -568,7 +646,7 @@ export function validatePayrollSnapshot(employees: Row[], documents: Row[], fina
     if (movement.isReversal === true) {
       const original = movementMap.get(movement.reversalOfMovementId);
       if (!original || original.status !== "reversed" || original.reversalMovementId !== movement.id || original.documentId !== movement.documentId ||
-          original.paymentMethod !== movement.paymentMethod || original.amount !== movement.amount || movement.direction !== "in") throw invalid();
+          original.paymentMethod !== movement.paymentMethod || original.amount !== movement.amount || movement.direction !== (original.direction === "out" ? "in" : "out")) throw invalid();
     } else if (movement.status === "reversed") {
       const reversal = movementMap.get(movement.reversalMovementId);
       if (!reversal || reversal.isReversal !== true || reversal.reversalOfMovementId !== movement.id) throw invalid();

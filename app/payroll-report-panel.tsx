@@ -1,9 +1,25 @@
 "use client";
-import {money} from "./domain";
-import {reportNumber,type ReportResponse} from "./report-types";
-import {reportCostUnknown} from "./report-cost-status";
-import {tr} from "./i18n/messages";
-export function PayrollReportPanel({result,openEmployee}:{result:ReportResponse;openEmployee?:()=>void}){
-  const s=result.summary;
-  return <section className="payroll-report-panel" aria-label={tr("حسابات العمال")}><h3>{tr("حسابات العمال")}</h3><div className="payroll-report-metrics"><div><small>{tr("رصيد العمال المستحق")}</small><strong className="positive">{money(reportNumber(s.currentWorkersOwed))}</strong></div><div><small>{tr("مصروف العمال المدفوع")}</small><strong className="negative">{money(reportNumber(s.workersPaid))}</strong></div><div><small>{tr("استحقاقات العمال خلال الفترة")}</small><strong>{money(reportNumber(s.workersAccrued))}</strong></div><div><small>{tr("الربح المتاح بعد حقوق العمال")}</small><strong className={reportNumber(s.ownerAvailableProfit)<0?"negative":"positive"}>{reportCostUnknown("netOperatingResult",s)?tr("ac.unknown"):money(reportNumber(s.ownerAvailableProfit))}</strong></div></div><p className="employee-hint">{tr("الرصيد المستحق حالي ولم يسحب بعد. المدفوع والاستحقاقات يخصان الفترة المختارة؛ صرف مستحق قديم لا يخصم حق العامل من الربح المتاح مرتين.")}</p>{openEmployee&&<button className="soft no-print" onClick={openEmployee}>{tr("حسابات العمال")}</button>}</section>;
+import { money } from "./domain";
+import { reportNumber, type ReportResponse } from "./report-types";
+import { tr } from "./i18n/messages";
+
+export function PayrollReportPanel({ result, openBalance, openPaid }: {
+  result: ReportResponse;
+  openBalance?: () => void;
+  openPaid?: () => void;
+}) {
+  const owed = reportNumber(result.summary.currentWorkersUnpaidWages ?? result.summary.currentWorkersOwed);
+  const paid = reportNumber(result.summary.workersExpense ?? result.summary.workersPaid);
+  const counters = [
+    { key: "owed", label: tr("حقوق العمال غير المصروفة"), value: owed ? -owed : 0, tone: "positive", open: openBalance },
+    { key: "paid", label: tr("مصروف أجور العمال"), value: paid ? -paid : 0, tone: "negative", open: openPaid },
+  ];
+  return <div className="payroll-profit-counters" aria-label={tr("حسابات العمال")}>
+    {counters.map(counter => {
+      const content = <><small>{counter.label}</small><strong className={counter.tone} dir="ltr">{money(counter.value)}</strong></>;
+      return counter.open
+        ? <button type="button" className="payroll-profit-counter" key={counter.key} onClick={counter.open}>{content}</button>
+        : <div className="payroll-profit-counter" key={counter.key}>{content}</div>;
+    })}
+  </div>;
 }

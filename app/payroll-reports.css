@@ -1,0 +1,51 @@
+.payroll-profit-counters {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.payroll-profit-counter {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid #c6d4dc;
+  border-radius: 9px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+button.payroll-profit-counter { cursor: pointer; }
+.payroll-profit-counter small { font-size: 13px; }
+.payroll-profit-counter strong { font-size: 17px; white-space: nowrap; }
+.payroll-profit-counter .positive { color: #167647; }
+.payroll-profit-counter .negative { color: #b42332; }
+.overview-account-groups { display: grid; gap: 8px; }
+.overview-account-table { width: 100%; table-layout: fixed; }
+.overview-account-table th:first-child { width: 52%; }
+.overview-account-table td { padding-block: 6px; font-size: 14px; }
+.overview-account-table .summary-source-link { margin: 0; padding: 0; text-align: start; font-size: inherit; }
+.party-ledger-filter .party-type-toggle { width: auto; min-width: 264px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.party-ledger-filter .party-type-toggle button { min-width: 0; }
+.summary-account-groups { display: grid; gap: 8px; max-height: 60vh; overflow: auto; }
+.summary-account-group { border: 1px solid #c6d4dc; border-radius: 9px; overflow: hidden; }
+.summary-account-group > summary { cursor: pointer; padding: 10px 12px; background: #edf3f6; font-weight: 700; }
+.summary-account-group > summary > span { display: inline-flex; gap: 8px; align-items: baseline; }
+.summary-account-group > summary small { font-weight: 400; }
+.summary-account-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 38px; padding: 6px 12px; border-top: 1px solid #e2e8ec; }
+.summary-account-row > span:first-child { min-width: 0; }
+.summary-account-row .summary-source-link { margin: 0; padding: 0; font-size: 14px; text-align: start; }
+.summary-account-empty { margin: 0; padding: 9px 12px; color: #64748b; font-size: 13px; }
+.summary-account-total { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 2px 0; }
+.report-ledger-identity { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; }
+@media (max-width: 700px) {
+  .payroll-profit-counters { grid-template-columns: 1fr; }
+  .summary-account-row { padding-inline: 9px; }
+}
+@media print {
+  .payroll-profit-counters { break-inside: avoid; margin-block-start: 8px; }
+  .payroll-profit-counter { padding: 5px 8px; border-color: #94a3b8; }
+}

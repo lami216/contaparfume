@@ -161,6 +161,8 @@ export interface DocumentRecord {
   title: string | null;
   employeeId?: string;
   employeeName?: string;
+  employeePaymentDirection?: "withdraw" | "deposit";
+  employeePaymentVersion?: 2;
   amount?: number;
   periodStart?: string;
   periodEnd?: string;
@@ -368,7 +370,7 @@ export const paymentMethods: Array<{
 export const kindLabels: Record<DocumentKind, string> = {
   "party-opening": "رصيد بداية الديون",
   "employee-accrual": "استحقاق عامل",
-  "employee-payment": "صرف للعامل",
+  "employee-payment": "حركة حساب عامل",
   purchase: "فاتورة شراء",
   sale: "فاتورة بيع",
   "decant-purchase": "فاتورة شراء زجاج التقسيمات",
@@ -384,7 +386,8 @@ export const kindLabels: Record<DocumentKind, string> = {
   "account-adjustment": "سحب / إيداع",
 };
 /** Show a saved payment's actual direction, without guessing for legacy records. */
-export function documentKindLabel(document: Pick<DocumentRecord, "kind" | "partyCashDirection">, partyType?: PartyType): string {
+export function documentKindLabel(document: Pick<DocumentRecord, "kind" | "partyCashDirection" | "employeePaymentDirection">, partyType?: PartyType): string {
+  if (document.kind === "employee-payment") return document.employeePaymentDirection === "deposit" ? "إيداع العامل" : "سحب العامل";
   if (document.kind !== "payment" || !document.partyCashDirection) return kindLabels[document.kind];
   if (partyType === "supplier") return document.partyCashDirection === "receive" ? "استلام من المورد" : "دفع للمورد";
   if (partyType === "customer") return document.partyCashDirection === "receive" ? "استلام من العميل" : "دفع للعميل";

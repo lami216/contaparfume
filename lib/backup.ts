@@ -63,7 +63,7 @@ export function validateInvariants(b: ContaBackup) {
   unique(b.collections.products,"sku","رمز المنتج");unique(b.collections.products,"barcode","باركود المنتج",true);unique(b.collections.documents,"id","معرف الفاتورة");unique(b.collections.documents,"number","رقم الفاتورة");
   for(const p of b.collections.products){if(p.categoryId&&!categories.has(String(p.categoryId)))throw new Error("منتج يشير إلى فئة غير موجودة");for(const key of Object.keys((p.stocks??{}) as object))if(!warehouses.has(key))throw new Error("مخزون يشير إلى مخزن غير موجود")}
   const employees=unique(b.collections.employees??[],"id","معرف العامل");
-  for(const employee of b.collections.employees??[]){if(typeof employee.name!=="string"||!employee.name.trim()||!Number.isFinite(Number(employee.balance))||Number(employee.balance)<0||!Array.isArray(employee.agreements))throw new Error("بيانات العامل غير صالحة");}
+  for(const employee of b.collections.employees??[]){if(typeof employee.name!=="string"||!employee.name.trim()||!Number.isFinite(Number(employee.balance))||!Array.isArray(employee.agreements))throw new Error("بيانات العامل غير صالحة");}
   const accruals=new Set(b.collections.documents.filter(d=>d.kind==="employee-accrual").map(d=>String(d.id)));
   const saleSequences=new Set<string>(),openingParties=new Set<string>(),openingIds=new Set(b.collections.documents.filter(d=>d.kind==="party-opening").map(d=>String(d.id)));
   for(const d of b.collections.documents){
