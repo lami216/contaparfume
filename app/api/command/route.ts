@@ -1,27 +1,67 @@
+import { CommandAdmissionError, withCommandAdmission, type CommandAdmissionContext } from "../../../lib/command-admission.ts";
 import { requireValidLicense } from "../../../lib/license.ts";
 import type { SqliteSession as ClientSession, SqliteDatabase as Db } from "../../../lib/sqlite.ts";
 import { getDatabase } from "../../../lib/sqlite.ts";
 import { log } from "../../../lib/log.ts";
 import { getPrincipalFromRequest, hasCapability, requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
-import { PerfumeInvoiceCommandError } from "../../perfume-invoice-commands.ts";
+import { serializeBusinessError } from "../../../lib/business-error.ts";
 import { resolvePartyType } from "../../domain.ts";
 import { handlePerfumeManagementCommand } from "../../perfume-management-commands.ts";
 import { execute as executeBaseCommand } from "./base-route.ts";
 import { execute as executeCoreCommand } from "./core-route.ts";
+import { restoreLegacySaleAllocations } from "../../perfume-split-reversal.ts";
+import {createExpenseCategory} from "../../../lib/expense-categories.ts";
+import { assertPerfumeCategoryCanBeDeleted, ensurePerfumeSystemCategories, perfumeSystemCategoryKind } from "../../../lib/perfume-system-categories.ts";
 
+import { postPartyOpening, updatePartyOpening, voidPartyOpening } from "../../../lib/party-opening.ts";
+import { handlePayrollCommand } from "../../../lib/payroll.ts";
 type Input = Record<string, unknown>;
 class CommandError extends Error { status: number; constructor(message: string, status = 400) { super(message); this.status = status; } }
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 
+async function executePerfumeCommand(db: Db, session: ClientSession, body: Input) {
+  const result = await executeBaseCommand(db, session, body);
+  await ensurePerfumeSystemCategories(db, session);
+  return result;
+}
+
 export async function execute(db: Db, session: ClientSession, body: Input) {
   const type = text(body.type);
-  const management = await handlePerfumeManagementCommand(db, session, body, executeBaseCommand, executeCoreCommand);
-  if (management.handled) return management.result;
+  if(type.startsWith("employee.")||type.startsWith("employee-payment.")||type.startsWith("employee-accrual."))return handlePayrollCommand(db,session,body);
+  if(type==="party-opening.post")return postPartyOpening(db,session,body);
+  if(type==="party-opening.update")return updatePartyOpening(db,session,body);
+  if(type==="party-opening.void")return voidPartyOpening(db,session,body);
+  if(type==="party.create"&&body.opening!==undefined){
+    if(!body.opening||typeof body.opening!=="object"||Array.isArray(body.opening))throw new CommandError("رصيد البداية غير صالح");
+    const partyId=await executeCoreCommand(db,session,body);
+    await postPartyOpening(db,session,{...(body.opening as Input),partyId});return partyId;
+  }
+  if(type==="expense-category.create")return createExpenseCategory(db,session,body);
+  if(["sale.post","sale.update","purchase.post","purchase.update"].includes(type)){
+    const productIds=(Array.isArray(body.lines)?body.lines:[]).map(raw=>text((raw as Input).productId));
+    const forbidden=type.startsWith("sale")?["decant","bottle"]:["decant","bottle","partial"];
+    if(await db.collection("products").findOne({id:{$in:productIds},perfumeForm:{$in:forbidden}},{session}))throw new CommandError("استخدم فاتورة التقسيمات للعطر المقسم والزجاج؛ لا يمكن ترحيلها من الفاتورة العامة",409);
+  }
+  if(["product.delete","product.stock-zero"].includes(type)){
+    const p=await db.collection("products").findOne({id:text(body.id),perfumeForm:{$in:["decant","bottle"]}},{session});
+    if(p&&(Object.values((p.stocks??{}) as Input).some(value=>Number(value)!==0)||(Array.isArray(p.perfumeLots)&&p.perfumeLots.some(lot=>Number((lot as Input).remainingQuantity)!==0))))throw new CommandError("سوِّ رصيد السائل أو الزجاج من التقسيمات مع تحديد سبب الفرق قبل أرشفة الصنف",409);
+  }
+  const management = await handlePerfumeManagementCommand(db, session, body, executePerfumeCommand, executeCoreCommand);
+  if (management.handled) { await ensurePerfumeSystemCategories(db, session); return management.result; }
+  if (type === "sale.void") {
+    const original = await db.collection("documents").findOne({ id: text(body.documentId), kind: "sale", status: "posted" }, { session });
+    const result = await executeCoreCommand(db, session, body);
+    if (original) await restoreLegacySaleAllocations(db, session, original);
+    return result;
+  }
   if (type === "product-category.create" || type === "product-category.update") {
+    const { fragranceCategoryId } = await ensurePerfumeSystemCategories(db, session);
     const categoryId = text(body.id), name = text(body.name);
+    if (type === "product-category.create" && (perfumeSystemCategoryKind(categoryId) || perfumeSystemCategoryKind(categoryId, fragranceCategoryId) || body.systemKind !== undefined)) throw new CommandError("فئات التقسيمات تلقائية؛ يمكنك تغيير اسم الفئة الموجودة فقط", 409);
     if (!name) throw new CommandError("اسم الفئة مطلوب");
     if (name.length > 80) throw new CommandError("اسم الفئة طويل جدًا");
+    if (type === "product-category.update" && perfumeSystemCategoryKind(categoryId, fragranceCategoryId) && (await db.collection("productCategories").findOne({ id: categoryId }, { session }))?.name === name) return categoryId;
     const categories = await db.collection("productCategories").find({}, { session, projection: { id: 1, name: 1 } }).toArray();
     const normalized = name.toLocaleLowerCase();
     const duplicate = categories.some(category => String(category.name ?? "").trim().toLocaleLowerCase() === normalized && (type !== "product-category.update" || String(category.id) !== categoryId));
@@ -37,30 +77,46 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     return category.id;
   }
   if (type === "product-category.delete") {
+    const { fragranceCategoryId } = await ensurePerfumeSystemCategories(db, session);
     const categoryId = text(body.id);
+    assertPerfumeCategoryCanBeDeleted(categoryId, fragranceCategoryId);
     const category = categoryId ? await db.collection("productCategories").findOne({ id: categoryId }, { session }) : null;
     if (!category) throw new CommandError("الفئة غير موجودة", 404);
-    await db.collection("products").updateMany({ categoryId }, { $set: { categoryId: null } }, { session });
+    await db.collection("products").updateMany({ categoryId }, { $set: { categoryId: fragranceCategoryId } }, { session });
     await db.collection("productCategories").deleteOne({ id: categoryId }, { session });
+    await ensurePerfumeSystemCategories(db, session);
     return categoryId;
   }
-  const perfumeCommands = new Set(["perfume-volume.migrate","perfume-defaults.update","product.delete","product.stock-zero","product.restore","perfume-bottle.create","decant-sale.post","decant-sale.update","decant-sale.void","decant-purchase.post","decant-purchase.update","decant-purchase.void","perfume-split.post","perfume-recombine.post","perfume-opening.post","perfume-lot-consume.post","perfume-lot-correct.post","perfume-stock-operation.void"]);
-  return perfumeCommands.has(type) ? executeBaseCommand(db, session, body) : executeCoreCommand(db, session, body);
+  const perfumeCommands = new Set(["perfume-volume.migrate","perfume-defaults.update","product.delete","product.stock-zero","product.restore","perfume-bottle.create","decant-sale.post","decant-sale.update","decant-sale.void","decant-purchase.post","decant-purchase.update","decant-purchase.void","perfume-remainder-sale.post","perfume-remainder-sale.update","perfume-split.post","perfume-recombine.post","perfume-opening.post","perfume-lot-consume.post","perfume-lot-correct.post","perfume-stock-operation.void"]);
+  return perfumeCommands.has(type) ? executePerfumeCommand(db, session, body) : executeCoreCommand(db, session, body);
 }
 
 export async function POST(request: Request) {
-  const licenseDenied = await requireValidLicense();
+  try { return await withCommandAdmission(request, admission => executeAdmittedPost(request, admission)); }
+  catch (error) {
+    log("error", "api.command.admission.failed", { error });
+    if (error instanceof CommandAdmissionError) return Response.json({ error: error.message }, { status: error.status });
+    const response = serializeBusinessError(error);
+    return Response.json(response.body, { status: response.status });
+  }
+}
+async function executeAdmittedPost(request: Request, admission: CommandAdmissionContext) {
+  const licenseDenied = await admission.preflight(requireValidLicense());
   if (licenseDenied) return licenseDenied;
   let type = "unknown";
   try {
-    const body = await request.json() as Input;
+    const body = await admission.readJson() as Input;
     type = text(body.type);
     const map: Record<string, Capability> = {
+      "party-opening.post":"party.opening.manage","party-opening.update":"party.opening.manage","party-opening.void":"party.opening.manage",
+      "employee.create":"employees.manage","employee.update":"employees.manage","employee.archive":"employees.manage","employee.restore":"employees.manage","employee-accrual.sync":"employees.manage","employee-accrual.update":"employees.manage","employee-accrual.void":"employees.manage",
+      "employee-payment.post":"employees.pay","employee-payment.update":"employees.pay","employee-payment.void":"employees.pay",
       "product.delete":"products.delete","product.stock-zero":"products.delete","product.restore":"products.edit","product.create":"products.create","product.update":"products.edit",
       "product-category.create":"products.create","product-category.update":"products.edit","product-category.delete":"products.delete",
       "warehouse.create":"warehouses.create","warehouse.update":"warehouses.edit","warehouse.default":"warehouses.edit","warehouse.delete":"warehouses.delete",
       "sale.post":"pos.create","sale.update":"pos.edit","sale.void":"pos.delete","purchase.post":"purchases.create","purchase.update":"purchases.edit","purchase.void":"purchases.delete",
       "perfume-volume.migrate":"perfume.divisions.manage","perfume-defaults.update":"perfume.divisions.manage",
+      "perfume-remainder-sale.post":"perfume.divisions.manage","perfume-remainder-sale.update":"perfume.divisions.manage",
       "perfume-management.update":"perfume.divisions.manage","perfume-management.void":"perfume.divisions.manage","perfume-bottle-stock.post":"perfume.divisions.manage","perfume-bottle.update":"perfume.divisions.manage","perfume-bottle.archive":"perfume.divisions.manage","perfume-bottle.restore":"perfume.divisions.manage",
       "perfume-bottle.create":"perfume.divisions.manage","decant-sale.post":"perfume.divisions.manage","decant-sale.update":"perfume.divisions.manage","decant-sale.void":"perfume.divisions.manage","decant-purchase.post":"perfume.divisions.manage","decant-purchase.update":"perfume.divisions.manage","decant-purchase.void":"perfume.divisions.manage","perfume-split.post":"perfume.divisions.manage","perfume-recombine.post":"perfume.divisions.manage","perfume-opening.post":"perfume.divisions.manage","perfume-lot-consume.post":"perfume.divisions.manage","perfume-lot-correct.post":"perfume.divisions.manage","perfume-stock-operation.void":"perfume.divisions.manage",
       "transfer.post":"warehouses.transfer","transfer.update":"warehouses.transfer.edit","transfer.void":"warehouses.transfer.delete",
@@ -68,6 +124,7 @@ export async function POST(request: Request) {
       "opening-stock-correction.update":"warehouses.adjust.edit","opening-stock-correction.void":"warehouses.adjust.delete","opening-stock-initial.void":"warehouses.adjust.delete",
       "party-cash.post":text(body.partyType)==="supplier"?"suppliers.pay":"customers.collect","party-cash.update":"customers.collect.edit","party-cash.void":"customers.collect.delete","legacy-party-document.void":"customers.collect.delete",
       "expense.post":"expenses.create","expense.update":"expenses.edit","expense.void":"expenses.delete",
+      "expense-category.create":"expenses.create",
       "payment-account.create":"banks.create","payment-account.update":"banks.edit","payment-account.delete":"banks.delete","payment-account.restore":"banks.edit",
       "account-adjustment.post":"banks.deposit_withdraw","account-adjustment.update":"banks.deposit_withdraw.edit","account-adjustment.void":"banks.deposit_withdraw.delete",
       "account-transfer.post":"banks.transfer","account-transfer.update":"banks.transfer.edit","account-transfer.void":"banks.transfer.delete",
@@ -112,6 +169,7 @@ export async function POST(request: Request) {
       const stockDenied = await requireCapability(request, "warehouses.adjust");
       if (stockDenied) return stockDenied;
     }
+    if(type==="party.create"&&body.opening!==undefined){const openingDenied=await requireCapability(request,"party.opening.manage");if(openingDenied)return openingDenied;}
     if (!validSameOrigin(request)) return Response.json({ error: "طلب غير صالح" }, { status: 403 });
     const idempotencyKey = text(request.headers.get("Idempotency-Key"));
     if (!idempotencyKey || idempotencyKey.length > 200) return Response.json({ error: "مفتاح العملية مطلوب" }, { status: 400 });
@@ -124,7 +182,9 @@ export async function POST(request: Request) {
     }
     let result: unknown = "", response: unknown;
     try {
+      admission.assertCanMutate();
       await db.transaction(async session => {
+        admission.assertCanMutate();
         await receipts.insertOne({ _id: idempotencyKey as never, commandType: type, fingerprint, status: "processing", createdAt: new Date() }, { session });
         await db.collection("auditEvents").insertOne({ id: id("audit"), action: type, status: "started", createdAt: new Date() }, { session });
         result = await execute(db, session, body);
@@ -144,13 +204,8 @@ export async function POST(request: Request) {
     log("info", "api.command.completed", { commandType: type, entityId: result });
     return Response.json(response);
   } catch (error) {
-    const status = error instanceof CommandError || error instanceof PerfumeInvoiceCommandError
-      ? error.status
-      : typeof (error as { status?: unknown })?.status === "number"
-        ? Number((error as { status: number }).status)
-        : 500;
-    const message = status !== 500 && error instanceof Error ? error.message : "تعذر تنفيذ العملية";
+    const response = serializeBusinessError(error);
     log("error", "api.command.failed", { commandType: type, error });
-    return Response.json({ error: message }, { status });
+    return Response.json(response.body, { status: response.status });
   }
 }

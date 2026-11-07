@@ -2,6 +2,12 @@ import type { PerfumeLot } from "./perfume-logic";
 
 export type PerfumeDefaults = { fillMl: number; bottleProductId: string };
 export const DEFAULT_PERFUME_SETTINGS: PerfumeDefaults = { fillMl: 10, bottleProductId: "" };
+/** A default bottle always proposes its own capacity; invoice fills stay editable. */
+export function resolvePerfumeDefaults(saved: Partial<PerfumeDefaults> | null | undefined, products: Array<{id?:unknown;perfumeForm?:unknown;isArchived?:unknown;decantSizeMl?:unknown}>): PerfumeDefaults {
+  const bottle=products.find(p=>p.id===saved?.bottleProductId&&p.perfumeForm==="bottle"&&!p.isArchived);
+  const size=Number(bottle?.decantSizeMl);
+  return bottle&&Number.isFinite(size)&&size>0?{fillMl:size,bottleProductId:String(bottle.id)}:{...DEFAULT_PERFUME_SETTINGS};
+}
 export const roundMl = (value: number) => Math.round(value * 1000) / 1000;
 /** Integer thousandths avoid accumulated floating-point stock drift. */
 export function volumeMl(value: unknown, zero = false): number {
@@ -16,12 +22,12 @@ export function lotQuantity(lot: Pick<PerfumeLot, "quantityUnit">, value: unknow
   if (!Number.isSafeInteger(n) || (zero ? n < 0 : n <= 0)) throw new Error("الكمية يجب أن تكون عددًا صحيحًا");
   return n;
 }
-export function reconcileVolumeLot(lot: PerfumeLot, warehouseId: string, actualValue: unknown) {
-  if (lot.quantityUnit !== "ml") throw new Error("حدد حجم التقسيمة القديمة قبل التسوية بالمل");
+export function reconcileQuantityLot(lot: PerfumeLot, warehouseId: string, actualValue: unknown, legacyFinancialTreatment = false) {
   if (lot.recombinedAt || lot.partialProductId) throw new Error("أُرجع باقي هذه الدفعة؛ ألغِ عملية الإرجاع أولًا");
-  const actual = volumeMl(actualValue, true), before = volumeMl(lot.stocks[warehouseId] ?? 0, true);
-  const remaining = volumeMl(lot.remainingQuantity, true);
-  const total = roundMl(Object.values(lot.stocks).reduce((sum, q) => sum + volumeMl(q, true), 0));
+  if(actualValue==null||!['number','string'].includes(typeof actualValue)||String(actualValue).trim()==='')throw new Error("أدخل الرصيد الفعلي لتصحيح الكمية");
+  const actual = lotQuantity(lot, actualValue, true), before = lotQuantity(lot, lot.stocks[warehouseId] ?? 0, true);
+  const remaining = lotQuantity(lot, lot.remainingQuantity, true);
+  const total = roundMl(Object.values(lot.stocks).reduce((sum, q) => sum + lotQuantity(lot, q, true), 0));
   if (total !== remaining) throw new Error("رصيد الدفعة لا يطابق مجموع المخازن");
   const cost = Number(lot.liquidUnitCost);
   if (!Number.isFinite(cost) || cost <= 0) throw new Error("لا توجد تكلفة معتمدة للمل في هذه الدفعة");
@@ -30,7 +36,11 @@ export function reconcileVolumeLot(lot: PerfumeLot, warehouseId: string, actualV
     stocks: { ...lot.stocks, [warehouseId]: actual },
     quantityAdjustmentMl: roundMl(Number(lot.quantityAdjustmentMl ?? 0) + delta),
     settledAt: afterRemaining === 0 ? new Date().toISOString() : null };
-  return { lot: updated, before, actual, delta, unitCost: cost, inventoryLoss: Math.max(0, -delta * cost), inventoryGain: Math.max(0, delta * cost), bookValueBefore: remaining * cost, bookValueAfter: afterRemaining * cost };
+  return { lot: updated, before, actual, delta, unitCost: cost, inventoryLoss: legacyFinancialTreatment ? Math.max(0, -delta * cost) : 0, inventoryGain: legacyFinancialTreatment ? Math.max(0, delta * cost) : 0, bookValueBefore: remaining * cost, bookValueAfter: afterRemaining * cost };
+}
+export function reconcileVolumeLot(lot: PerfumeLot, warehouseId: string, actualValue: unknown, legacyFinancialTreatment = false) {
+  if (lot.quantityUnit !== "ml") throw new Error("حدد حجم التقسيمة القديمة قبل التسوية بالمل");
+  return reconcileQuantityLot(lot, warehouseId, actualValue, legacyFinancialTreatment);
 }
 export function lineLiquidMl(line: { quantity: number; liquidQuantityMl?: number; fillMl?: number }, product: { legacyDecantUnitMl?: number }) {
   return roundMl(line.liquidQuantityMl ?? line.quantity * (line.fillMl ?? product.legacyDecantUnitMl ?? 1));

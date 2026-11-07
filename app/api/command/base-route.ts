@@ -1,3 +1,4 @@
+import { historicalInvoiceStockLines, planStockChange } from "../../../lib/stock-numbers.ts";
 import { requireValidLicense } from "../../../lib/license.ts";
 import type { SqliteSession as ClientSession, SqliteDatabase as Db } from "../../../lib/sqlite.ts";
 import { getDatabase } from "../../../lib/sqlite.ts";
@@ -11,7 +12,8 @@ import { normalizePartyNet, partyCashDelta, partyNet } from "../../party-balance
 import { nextDocumentSequence, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
 import { restoreProductArchiveStockClearance } from "../../../lib/transaction-lifecycle.ts";
 import { handleVolumeCommand } from "../../perfume-volume-commands.ts";
-import { roundMl } from "../../perfume-volume.ts";
+import { reconcileQuantityLot, roundMl } from "../../perfume-volume.ts";
+import { assertPerfumeLotCanReopen, assertPerfumeProductLotBalance } from "../../perfume-operation-guards.ts";
 
 type Input = Record<string, unknown>;
 type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; purchaseCost?: number | null; costAtSale?: number | null; grossProfit?: number | null; perfumeAllocations?: PerfumeAllocation[] };
@@ -151,15 +153,15 @@ async function products(db: Db, session: ClientSession, input: Line[]) {
   return new Map(found.map(p => [p.id as string, p]));
 }
 async function changeStock(db: Db, session: ClientSession, product: Record<string, unknown>, warehouse: Record<string, unknown>, delta: number, document: Record<string, unknown>, type: string) {
-  const warehouseId = String(warehouse._id), productId = String(product.id), before = Number((product.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0), after = product.perfumeStockUnit === "ml" ? roundMl(before + delta) : before + delta;
+  const warehouseId = String(warehouse._id), productId = String(product.id);
+  const { before, after, delta: quantityDelta, stockPath, stockMatch } = planStockChange(product, warehouseId, delta, document, product.perfumeStockUnit === "ml" ? roundMl : undefined);
   if (after < 0) throw new CommandError(`المخزون غير كافٍ للمنتج ${product.name}`);
-  const stockPath = `stocks.${warehouseId}`;
-  const stockMatch = before === 0 ? { $or: [{ [stockPath]: 0 }, { [stockPath]: { $exists: false } }] } : { [stockPath]: before };
+
   const result = await db.collection("products").updateOne({ id: productId, ...stockMatch }, { $set: { [stockPath]: after } }, { session });
   if (!result.matchedCount) throw new CommandError("تغير المخزون أثناء العملية، أعد المحاولة", 409);
   const currentStocks = (product.stocks ??= {}) as Record<string, number>;
   currentStocks[warehouseId] = after;
-  await db.collection("stockMovements").insertOne({ id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId, warehouseName: warehouse.name, productId, productName: product.name, type, quantityDelta: delta, balanceBefore: before, balanceAfter: after, quantityUnit:product.perfumeStockUnit==="ml"?"ml":"piece", occurredAt: document.occurredAt }, { session });
+  await db.collection("stockMovements").insertOne({ id: id("mov"), documentId: document.id, documentNumber: document.number, warehouseId, warehouseName: warehouse.name, productId, productName: product.name, type, quantityDelta, balanceBefore: before, balanceAfter: after, quantityUnit:product.perfumeStockUnit==="ml"?"ml":"piece", occurredAt: document.occurredAt, createdAt:new Date().toISOString() }, { session });
   return { before, after };
 }
 
@@ -355,15 +357,28 @@ async function executeLegacy(db: Db, session: ClientSession, body: Input): Promi
     const warehouse=await warehouses(db).findOne({_id:warehouseId,isArchived:{$ne:true}},{session});if(!warehouse)throw new CommandError("المخزن غير موجود",404);
     const lots=perfumeLots(decant),index=lots.findIndex(item=>item.id===lotId);if(index<0)throw new CommandError("دفعة التقسيم غير موجودة",404);
     const beforeLot=structuredClone(lots[index]);
+    const quantityCorrection=body.perfumeStockTreatment!=="legacy-reconciliation";
     let correction;
-    try{correction=correctPerfumeLotYield(lots[index],warehouseId,positive(body.actualQuantity,"الرصيد الفعلي",true));}
+    try{
+      assertPerfumeProductLotBalance(decant);
+      if(quantityCorrection){
+        const count=reconcileQuantityLot(lots[index],warehouseId,body.actualQuantity);
+        correction={lot:count.lot,quantityDelta:count.delta,afterUnitCost:count.unitCost,beforeWarehouseQuantity:count.before,afterWarehouseQuantity:count.actual,remainingBookValue:count.bookValueBefore,afterBookValue:count.bookValueAfter};
+      }else{
+        const old=correctPerfumeLotYield(lots[index],warehouseId,positive(body.actualQuantity,"الرصيد الفعلي",true));
+        correction={...old,afterBookValue:old.remainingBookValue};
+      }
+    }
     catch(error){throw new CommandError(error instanceof Error?error.message:"تعذر تصحيح ناتج التقسيم",409);}
-    if(correction.quantityDelta===0)throw new CommandError("لا يوجد فرق في ناتج التقسيم لاعتماده",409);
+    if(quantityCorrection&&correction.quantityDelta>0)await assertPerfumeLotCanReopen(db,session,{id:beforeLot.conversionDocumentId},beforeLot,"هذا التصحيح يعيد فتح دفعة قديمة بينما توجد دفعة أحدث بها رصيد. عالج الدفعة الأحدث أولًا:");
+    if(correction.quantityDelta===0&&(correction.lot.remainingQuantity!==0||beforeLot.settledAt))throw new CommandError("لا يوجد فرق في ناتج التقسيم لاعتماده",409);
     lots[index]=correction.lot;
-    const doc={...baseDocument("adjustment","DYC"),perfumeStockOperationType:"yield-correction",partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:reason,total:0,dueTotal:0,paidTotal:0,inventoryLoss:0,bookValueBefore:correction.remainingBookValue,bookValueAfter:correction.remainingBookValue,decantProductId,perfumeLotId:lotId,stockDelta:correction.quantityDelta,perfumeLotBefore:beforeLot,perfumeLotAfter:structuredClone(correction.lot),lines:[] as Record<string,unknown>[]};
+    const doc={...baseDocument("adjustment","DYC"),perfumeStockOperationType:quantityCorrection?"reconciliation":"yield-correction",...(quantityCorrection?{perfumeStockTreatment:"quantity-correction",quantityUnit:beforeLot.quantityUnit??"portion",actualQuantity:correction.afterWarehouseQuantity}:{}),partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:reason,total:0,dueTotal:0,paidTotal:0,inventoryLoss:0,inventoryGain:0,bookValueBefore:correction.remainingBookValue,bookValueAfter:correction.afterBookValue,decantProductId,perfumeLotId:lotId,stockDelta:correction.quantityDelta,perfumeLotBefore:beforeLot,perfumeLotAfter:structuredClone(correction.lot),lines:[] as Record<string,unknown>[]};
     await savePerfumeLots(db,session,decant,lots);
-    const stock=await changeStock(db,session,decant,warehouse,correction.quantityDelta,doc,"perfume-yield-correction");
-    doc.lines=[{id:id("line"),productId:decantProductId,description:`${String(decant.name)} — ${reason}`,quantity:correction.quantityDelta,unitPrice:correction.afterUnitCost,lineTotal:0,balanceBefore:stock.before,balanceAfter:stock.after,perfumeLotId:lotId,perfumeLotStockBefore:correction.beforeWarehouseQuantity,perfumeLotStockAfter:correction.afterWarehouseQuantity}];
+    if(correction.quantityDelta){
+      const stock=await changeStock(db,session,decant,warehouse,correction.quantityDelta,doc,"perfume-yield-correction");
+      doc.lines=[{id:id("line"),productId:decantProductId,description:`${String(decant.name)} — ${reason}`,quantity:correction.quantityDelta,unitPrice:correction.afterUnitCost,lineTotal:0,balanceBefore:stock.before,balanceAfter:stock.after,perfumeLotId:lotId,perfumeLotStockBefore:correction.beforeWarehouseQuantity,perfumeLotStockAfter:correction.afterWarehouseQuantity}];
+    }
     await db.collection("documents").insertOne(doc,{session});return String(doc.id);
   }
   if(type==="perfume-stock-operation.void"){
@@ -596,7 +611,7 @@ async function executeLegacy(db: Db, session: ClientSession, body: Input): Promi
     if (isSale && await db.collection("documents").findOne({ kind: "return", status: "posted", parentDocumentId: documentId }, { session })) throw new CommandError("لا يمكن حذف هذه الفاتورة القديمة لوجود حركة تاريخية مرتبطة بها.", 409);
     const warehouse = await warehouses(db).findOne({ _id: String(original.warehouseId) }, { session });
     if (!warehouse) throw new CommandError("مخزن الفاتورة غير موجود", 409);
-    const oldLines = original.lines as Line[], found = await db.collection("products").find({ id: { $in: oldLines.map(line => line.productId) } }, { session }).toArray(), map = new Map(found.map(product => [String(product.id), product]));
+    const oldLines = historicalInvoiceStockLines(original) as Line[], found = await db.collection("products").find({ id: { $in: oldLines.map(line => line.productId) } }, { session }).toArray(), map = new Map(found.map(product => [String(product.id), product]));
     for (const line of oldLines) try { const product=map.get(line.productId)!; if(isSale&&line.perfumeAllocations?.length)await restorePerfumeAllocations(db,session,product,line.perfumeAllocations); await changeStock(db, session, product, warehouse, isSale ? line.quantity : -line.quantity, original, `${kind}-void`); } catch (error) { if (!isSale && error instanceof CommandError && /المخزون غير كاف/.test(error.message)) throw new CommandError("لا يمكن حذف الفاتورة لأن جزءًا من مخزونها تم التصرف فيه.", 409); throw error; }
     if (Number(original.dueTotal) > 0) await changePartyDebt(db, session, original.partyId, kind, -Number(original.dueTotal), true);
     await reverseInvoicePayment(db, session, original, kind);

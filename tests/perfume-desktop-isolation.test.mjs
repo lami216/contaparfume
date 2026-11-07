@@ -10,7 +10,7 @@ test("perfume desktop installation is isolated from the accounting desktop app",
   assert.equal(pkg.build.appId, "mr.alkarna.perfume.desktop");
   assert.equal(pkg.build.executableName, "AlKarnaPerfume");
   assert.equal(pkg.build.nsis.shortcutName, "الكرنة للعطور");
-  assert.equal(pkg.build.nsis.artifactName, "AlKarna-Perfume-Setup-x64.exe");
+  assert.equal(pkg.build.nsis.artifactName, "AlKarna-Perfume-${version}-Setup-x64.exe");
   assert.equal(pkg.build.nsis.uninstallDisplayName, "الكرنة للعطور");
   assert.equal(pkg.build.nsis.guid, "f49df4d4-747b-4ed4-b7d4-3cb1635b6485");
 

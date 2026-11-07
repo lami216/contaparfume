@@ -1,9 +1,10 @@
+import {reportCostUnknown} from "./report-cost-status.ts";
 import { reportNumber, type ReportResponse, type ReportType, type SummaryTone } from "./report-types.ts";
 
-export type ReportFooterMetric = { key: string; label: string; value: number; tone: SummaryTone; format?: "number" | "percent"; note?: string };
-type FooterContext = { type: ReportType; result: ReportResponse; productFiltered?: boolean; partyType?: "customer" | "supplier"; translate?: (label: string) => string };
+export type ReportFooterMetric = { key: string; label: string; value: number; tone: SummaryTone; format?: "number" | "percent"; note?: string; uncertain?: boolean };
+type FooterContext = { type: ReportType; result: ReportResponse; productFiltered?: boolean; partyType?: "employee" | "customer" | "supplier"; translate?: (label: string) => string };
 const signed = (value: number): SummaryTone => value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
-const metric = (summary: ReportResponse["summary"], key: string, label: string, tone: SummaryTone, format?: "number" | "percent", note?: string): ReportFooterMetric => ({ key, label, value: reportNumber(summary[key]), tone, format, note });
+const metric = (summary: ReportResponse["summary"], key: string, label: string, tone: SummaryTone, format?: "number" | "percent", note?: string): ReportFooterMetric => ({ key, label, value: reportNumber(summary[key]), tone, format, note, ...(reportCostUnknown(key,summary)?{uncertain:true}:{}) });
 
 /** Explicit accounting conclusions for each ordinary report; overview owns its summary strip. */
 export function buildReportFooterMetrics({ type, result, productFiltered = false, partyType, translate = value => value }: FooterContext): ReportFooterMetric[] {
@@ -15,9 +16,20 @@ export function buildReportFooterMetrics({ type, result, productFiltered = false
   if (type === "stock" && s.hasVolumeUnits) return [metric(s,"incomingMl",t("السائل الداخل بالمل"),"neutral","number"),metric(s,"outgoingMl",t("السائل الخارج بالمل"),"neutral","number"),...(s.hasPieceUnits?[metric(s,"incomingPieces",t("الداخل بالعدد"),"neutral","number"),metric(s,"outgoingPieces",t("الخارج بالعدد"),"neutral","number")]:[]),metric(s,"movements",t("عدد الحركات"),"neutral","number")];
   if (type === "stock") return [metric(s,"incoming",t("إجمالي الوحدات الداخلة"),"neutral"),metric(s,"outgoing",t("إجمالي الوحدات الخارجة"),"neutral"),metric(s,"netChange",t("صافي تغير الكمية"),"neutral"),metric(s,"movements",t("عدد الحركات"),"neutral")];
   if (type === "debts") return [metric(s,"receivable",t("إجمالي المستحق لنا"),"positive"),metric(s,"payable",t("إجمالي المستحق علينا"),"negative"),metric(s,"net",t("صافي الذمم"),signed(reportNumber(s.net)),undefined,reportNumber(s.net)===0?t("متوازن"):undefined),metric(s,"count",t("عدد الحسابات المطابقة"),"neutral")];
-  if (type === "party-ledger") { const current=reportNumber(s.net),role=partyType??(s.partyType==="supplier"?"supplier":"customer"); return [metric(s,"tradeTotal",t(role==="customer"?"مبيعات العميل في الفترة":"مشترياتنا من المورد في الفترة"),role==="customer"?"positive":"neutral"),metric(s,"debitTotal",t("إجمالي المدين في الفترة"),"neutral"),metric(s,"creditTotal",t("إجمالي الدائن في الفترة"),"neutral"),metric(s,"net",t("الرصيد الحالي الآن"),signed(current),undefined,current===0?t("متوازن"):current>0?t("مستحق لنا"):t("مستحق علينا"))]; }
+  if (type === "party-ledger") {
+    const current = reportNumber(s.net), role = partyType ?? (s.partyType === "employee" ? "employee" : s.partyType === "supplier" ? "supplier" : "customer");
+    if (role === "employee") return [
+      metric(s, "openingBalance", t("رصيد بداية الفترة"), signed(reportNumber(s.openingBalance))),
+      metric(s, "workersAccrued", t("استحقاقات العمال خلال الفترة"), "negative"),
+      metric(s, "workersPaid", t("المسحوب خلال الفترة"), "neutral"),
+      ...(reportNumber(s.workersDeposited) ? [metric(s, "workersDeposited", t("المودع خلال الفترة"), "neutral")] : []),
+      metric(s, "closingBalance", t("رصيد نهاية الفترة"), signed(reportNumber(s.closingBalance))),
+      metric(s, "currentBalance", t("الرصيد الحالي الآن"), signed(current), undefined, current === 0 ? t("متوازن") : current > 0 ? t("مستحق لنا") : t("مستحق علينا")),
+    ];
+    return [metric(s,"tradeTotal",t(role==="customer"?"مبيعات العميل في الفترة":"مشترياتنا من المورد في الفترة"),role==="customer"?"positive":"neutral"),metric(s,"debitTotal",t("إجمالي المدين في الفترة"),"neutral"),metric(s,"creditTotal",t("إجمالي الدائن في الفترة"),"neutral"),metric(s,"net",t("الرصيد الحالي الآن"),signed(current),undefined,current===0?t("متوازن"):current>0?t("مستحق لنا"):t("مستحق علينا"))];
+  }
   if (type === "financial") return [metric(s,"businessIncoming",t("المقبوضات التشغيلية"),"positive"),metric(s,"businessOutgoing",t("المدفوعات التشغيلية"),"negative"),metric(s,"businessNet",t("صافي التدفق التشغيلي"),signed(reportNumber(s.businessNet))),metric(s,"balanceNet",t("صافي تغير الأرصدة خلال الفترة"),signed(reportNumber(s.balanceNet)))];
-  if (type === "expenses") return [metric(s,"total",t("إجمالي المصاريف"),"negative"),metric(s,"recurringTotal",t("المصاريف المتكررة المسجلة"),"negative"),metric(s,"oneOffTotal",t("المصاريف غير المتكررة"),"negative"),metric(s,"count",t("عدد المصاريف"),"neutral")];
+  if (type === "expenses") return [metric(s,"total",t("إجمالي المصاريف"),"negative"),metric(s,"count",t("عدد المصاريف"),"neutral")];
   if (type === "profit") return [metric(s,"revenue",t("صافي المبيعات"),"positive"),metric(s,"cost",t("تكلفة البضاعة المباعة"),"negative"),metric(s,"inventoryLoss",t("خسائر مخزون التقسيمات"),"negative"),...(reportNumber(s.inventoryGain)?[metric(s,"inventoryGain",t("زيادة جرد التقسيمات"),"positive")]:[]),metric(s,"netProfitAfterInventoryLoss",t("ربح المبيعات بعد خسائر المخزون"),signed(reportNumber(s.netProfitAfterInventoryLoss))),metric(s,"margin",t("هامش ربح المبيعات %"),signed(reportNumber(s.margin)),"percent")];
   return [];
 }

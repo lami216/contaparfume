@@ -1,5 +1,10 @@
 /** Shared identification for authorization, history, source navigation and management. */
 export type ManagementKind = "split" | "recombine" | "opening" | "consumption" | "yield-correction" | "bottle" | "bottle-stock";
+export type PerfumeManagementTab = "convert" | "stock" | "bottles";
+export const managementTabForKind = (kind: ManagementKind): PerfumeManagementTab => ["split", "recombine"].includes(kind) ? "convert" : ["bottle", "bottle-stock"].includes(kind) ? "bottles" : "stock";
+export function conversionSourceProducts<T extends {id:string;isArchived?:boolean;perfumeForm?:unknown;stocks?:Record<string,number>}>(products:T[], warehouseId:string, retainedId?:string) {
+  return products.filter(p=>!p.isArchived&&!["decant","partial","bottle"].includes(String(p.perfumeForm??""))&&(p.id===retainedId||Number(p.stocks?.[warehouseId]??0)>=1));
+}
 export type BottleStockReason = "correction" | "breakage" | "damage";
 export const bottleStockReasonLabels = {
   correction: "pm.bottleReason.correction", breakage: "pm.bottleReason.breakage", damage: "pm.bottleReason.damage",
@@ -23,6 +28,28 @@ export const managementPostType: Record<ManagementKind, string> = {
   consumption: "perfume-lot-consume.post", "yield-correction": "perfume-lot-correct.post",
   bottle: "perfume-bottle.create", "bottle-stock": "perfume-bottle-stock.post",
 };
+/** Editing replaces the old effect: preview against its original lot, not the already-adjusted balance. */
+export function managementPreviewLot(document:import("./domain").DocumentRecord|undefined,productId:string,lotId:string,warehouseId:string,current:import("./perfume-logic").PerfumeLot|undefined){
+  if(document?.decantProductId!==productId||document.perfumeLotId!==lotId||document.warehouseId!==warehouseId||!document.perfumeLotBefore)return current;
+  if(current&&!document.partialProductId&&["consumption","reconciliation"].includes(document.perfumeStockOperationType??"")){
+    const delta=Number(document.stockDelta??0);
+    return {...current,remainingQuantity:current.remainingQuantity-delta,stocks:{...current.stocks,[warehouseId]:Number(current.stocks[warehouseId]??0)-delta}};
+  }
+  return document.perfumeLotBefore;
+}
+
+/** A restored quantity alone does not prove that a sale/count/transfer was voided. */
+export function documentUsesPerfumeLot(document: { perfumeLotId?: unknown; perfumeStockOperationType?: unknown; lines?: unknown }, productId: string, lotId: string) {
+  if (document.perfumeStockOperationType === "unit-conversion") return false;
+  const lines = Array.isArray(document.lines) ? document.lines as Record<string, unknown>[] : [];
+  return lines.some(line => {
+    if (line.productId !== productId || Number(line.quantity) === 0) return false;
+    const allocations = [line.perfumeAllocations, line.perfumeTransferAllocations].flatMap(value => Array.isArray(value) ? value as Record<string, unknown>[] : []);
+    if (allocations.length) return allocations.some(allocation => allocation.lotId === lotId);
+    const reference = line.perfumeLotId ?? document.perfumeLotId;
+    return reference ? reference === lotId : true;
+  });
+}
 
 /** Existing posted operations remain editable even before input snapshots existed. */
 export function managementInputFor(document: import("./domain").DocumentRecord, products: import("./domain").Product[]): Record<string, unknown> {

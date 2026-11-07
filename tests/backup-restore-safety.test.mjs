@@ -70,8 +70,8 @@ test("product categories survive backup/restore and pre-category backups remain 
   const parsed=parseAndValidateBackup(JSON.stringify(old));
   assert.deepEqual(parsed.collections.productCategories,[]);
   await h.db.transaction(session=>restoreNativeBackup(h.db,parsed,session));
-  assert.equal(await h.db.collection("productCategories").countDocuments(),0);
-  assert.ok(await h.db.collection("products").findOne({id:"legacy-product"}));
+  assert.deepEqual((await h.db.collection("productCategories").find().toArray()).map(category=>category.id).sort(),["system:perfume:bottles","system:perfume:decants","system:perfume:fragrances"]);
+  assert.equal((await h.db.collection("products").findOne({id:"legacy-product"})).categoryId,"system:perfume:fragrances");
 });
 
 

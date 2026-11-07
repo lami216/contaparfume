@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import ProductName from "./product-name";
 import { ChevronDown, Search } from "lucide-react";
 import { createPortal } from "react-dom";
 import { money, quantity } from "./domain";
@@ -189,7 +190,7 @@ export default function DecantInvoiceProductSearch({ items, categories, mode, on
           data-hover-enter="select" className={selected === item.id ? "selected" : ""}
           onClick={() => add(item)}>
           <td className="num-cell">{quantity(index + 1)}</td>
-          <td className="name-cell" title={item.name}>{item.name}</td>
+          <td className="name-cell" title={item.name}><ProductName name={item.name}/></td>
           <td className="num-cell"><span className="financial-amount money-neutral">{money(item.price)}</span></td>
           <td className="num-cell">{quantity(item.available)}</td>
           <td className="action-cell"><button type="button" className="soft"

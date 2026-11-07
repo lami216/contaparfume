@@ -8,7 +8,7 @@ export function filterTransfers<T extends { occurredAt: string; fromAccountId: s
 const nonOperatingMovementTypes = new Set(["transfer-in", "transfer-out", "opening-balance", "opening-balance-correction", "balance-correction"]);
 export const bankSummaryMovementKinds = {
   in: ["sale","party-receipt:customer","party-receipt:supplier","manual-deposit"],
-  out: ["purchase","expense","party-payment:customer","party-payment:supplier","manual-withdrawal"],
+  out: ["purchase","expense","employee-payment","party-payment:customer","party-payment:supplier","manual-withdrawal"],
 } as const;
 export type BankSummaryMovementBreakdown = { kind:string; count:number; value:number };
 export function bankScopeBreakdown(accounts: PaymentAccount[], movements: FinancialMovement[], parties: Party[]) {

@@ -1,11 +1,13 @@
-import type { DocumentRecord, FinancialMovement, PartyFinancialSummary, PartyType } from "./domain";
+import { commercialDocumentFamily, type DocumentRecord, type FinancialMovement, type PartyFinancialSummary, type PartyType } from "./domain";
+import { reportCostNumber, reportNetLines } from "../lib/report-commerce.ts";
 
 /** Builds historical party totals without exposing the underlying cash movements. */
 export function calculatePartyFinancialSummaries(
-  documents: Array<Pick<DocumentRecord, "kind" | "status" | "partyId" | "total" | "lines">>,
+  documents: Array<Pick<DocumentRecord, "kind" | "status" | "partyId" | "total" | "lines"> & Partial<Pick<DocumentRecord, "id" | "parentDocumentId">>>,
   movements: Array<Pick<FinancialMovement, "partyId" | "direction" | "amount"> & { status?: string; isReversal?: boolean }>,
 ) {
   const summaries = new Map<string, PartyFinancialSummary>();
+  const parentKinds = new Map(documents.filter(document => document.id).map(document => [document.id, String(document.kind)]));
   const summary = (partyId: string) => {
     const existing = summaries.get(partyId);
     if (existing) return existing;
@@ -25,14 +27,26 @@ export function calculatePartyFinancialSummaries(
     const value = Number(document.total);
     if (!Number.isFinite(value)) continue;
     const party = summary(document.partyId);
-    if (document.kind === "purchase") { party.supplierTradeTotal += value; party.supplierInvoiceCount += 1; }
+    const family = commercialDocumentFamily(document.kind);
+    if (family === "purchase") { party.supplierTradeTotal += value; party.supplierInvoiceCount += 1; }
+    const parentKind = parentKinds.get(document.parentDocumentId ?? "");
+    const supplierReturn = document.kind === "return" && (parentKind === "purchase" || parentKind === "decant-purchase");
+    if (supplierReturn) party.supplierTradeTotal -= value;
     // Legacy read-only adjustments must keep historical customer totals unchanged.
-    if (document.kind === "sale" || document.kind === "return") {
+    if (family === "sale" || (document.kind === "return" && !supplierReturn)) {
       const sign = document.kind === "return" ? -1 : 1;
       party.customerTradeTotal += sign * value;
-      for (const line of document.lines ?? []) {
-        const grossProfit = Number(line.grossProfit);
-        if (line.grossProfit != null && Number.isFinite(grossProfit)) party.customerGrossProfit += sign * grossProfit;
+      const lines = document.lines ?? [], netLines = reportNetLines(document);
+      for (const [index, line] of lines.entries()) {
+        // Imported headers may hold a discount absent from raw line prices.
+        // Reconcile this read only from the saved unit cost, never today's cost.
+        const cost = reportCostNumber(line.costAtSale), quantity = reportCostNumber(line.quantity), net = netLines[index];
+        if (family === "sale" && net && net.lineTotal !== line.lineTotal && cost !== null && quantity !== null) {
+          party.customerGrossProfit += sign * (net.lineTotal - quantity * cost);
+        } else {
+          const grossProfit = Number(line.grossProfit);
+          if (line.grossProfit != null && Number.isFinite(grossProfit)) party.customerGrossProfit += sign * grossProfit;
+        }
       }
     }
   }

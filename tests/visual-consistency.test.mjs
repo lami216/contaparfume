@@ -52,7 +52,10 @@ test("warehouse summary uses stable metrics and controlled popover overflow", ()
   for (const label of ["عدد المنتجات", "إجمالي الكمية", "قيمة المخزون"]) assert.match(warehouses, new RegExp(label));
   for (const anomaly of ["القيمة المعروفة", "بدون تكلفة فعلية", "تكلفة غير معروفة"]) assert.doesNotMatch(warehouses, new RegExp(anomaly));
   assert.match(warehouses, /className="inventory-overview inventory-toolbar"/);
-  assert.match(warehouses, /<SearchableSelect value=\{wh\} onChange=\{chooseWarehouse\} placeholder="اختر المخزن" searchPlaceholder="ابحث عن مخزن" floating options=\{\[\{value:ALL_WAREHOUSES,label:"كل المخازن"\},\.\.\.availableWarehouses\.map/);
+  assert.match(warehouses, /<SearchableSelect value=\{wh\} onChange=\{chooseWarehouse\} placeholder="اختر المخزن" searchPlaceholder="ابحث عن مخزن" ariaLabel="المخزن" floating options=\{\[\{value:ALL_WAREHOUSES,label:"كل المخازن"\},\.\.\.availableWarehouses\.map/);
+  assert.match(warehouses, /<SearchableSelect value=\{selectedCategoryId\} onChange=\{chooseCategory\} placeholder="كل الفئات"/);
+  assert.match(warehouses, /inventory-overview-metrics[\s\S]*inventory-value-card[\s\S]*قيمة المخزون[\s\S]*عدد المنتجات[\s\S]*إجمالي الكمية/);
+  assert.match(css, /\.warehouse-workspace \.inventory-overview-metrics\s*\{[^}]*display: grid;[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
   assert.match(warehouses, /availableWarehouses=activeWarehouses\(data\.warehouses\)/);
   assert.match(css, /\.popover-host\s*\{[^}]*overflow:\s*visible/);
   assert.match(css, /\.inventory-panel\{[^}]*grid-template-rows:auto auto minmax\(0,1fr\)/);

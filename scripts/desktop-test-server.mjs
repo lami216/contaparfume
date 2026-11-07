@@ -33,8 +33,20 @@ async function packagedRuntime() {
     for (const name of ['createNativeBackupService', 'registerNativeBackupHandler', 'trustedSender']) {
       if (typeof backup[name] !== 'function') throw new Error('Packaged native backup export missing: ' + name);
     }
+    const fs=require('node:fs'), os=require('node:os');
+    const shellRoot=process.argv[1];
+    const shellVersion=require(path.join(shellRoot,'package.json')).version;
+    if(shellVersion!==process.argv[2])throw Error('Packaged version does not match source package');
+    console.log('PACKAGED version: '+shellVersion);
+    const {createIsolatedBackupWriter}=require(path.join(shellRoot,'desktop','backup-writer.cjs'));
+    const directory=fs.mkdtempSync(path.join(os.tmpdir(),'alkarna-backup-shell-'));
+    const target=path.join(directory,'probe.conta.json');
+    createIsolatedBackupWriter()({filePath:target,signal:AbortSignal.timeout(10000),fetchResponse:async()=>new Response('{}',{headers:{'content-type':'application/json'}})})
+      .then(result=>{if(result.bytes!==2||fs.readFileSync(target,'utf8')!=='{}')throw Error('Packaged backup write mismatch');console.log('PACKAGED isolated backup writer and acknowledgement: passed');})
+      .catch(error=>{console.error(error);process.exitCode=1;})
+      .finally(()=>fs.rmSync(directory,{recursive:true,force:true}));
     console.log('PACKAGED native backup shell module: passed');
-  `, join(relocatedTree, 'resources', 'app.asar')], {
+  `, join(relocatedTree, 'resources', 'app.asar'), JSON.parse(await readFile(join(repositoryRoot,'package.json'),'utf8')).version], {
     env: {...process.env, ELECTRON_RUN_AS_NODE: '1'}, encoding: 'utf8', windowsHide: true, timeout: 30000,
   });
   if (shellProbe.error || shellProbe.status !== 0) {

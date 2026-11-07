@@ -73,7 +73,12 @@ test("party ledger filters real compatible roles and transient documents overlay
   const source = normalizePresentationSource(await readFile(new URL("../app/conta-app.tsx", import.meta.url), "utf8"));
   assert.match(source, /filter\(p=>resolvePartyType\(p\)===partyTypeFilter\)/);
   assert.match(source, /search:`\$\{p\.name\} \$\{p\.phone\?\?""\}`/);
-  assert.match(source, /setPartyTypeFilter\("supplier"\);setPartyId\(""\);setResult\(null\)/);
+  assert.match(source, /reportAccountRoles = \["employee", "customer", "supplier"\]/);
+  assert.match(source, /reportAccountRoles\.map\(role=><button[^>]+aria-pressed=\{partyTypeFilter===role\} onClick=\{\(\)=>selectLedgerRole\(role\)\}/);
+  const roleSwitch=source.slice(source.indexOf('const selectLedgerRole ='),source.indexOf('const ledgerHeading ='));
+  assert.match(roleSwitch,/reportRequest\.current\?\.abort\(\)/);
+  assert.match(roleSwitch,/setPartyTypeFilter\(role\); setPartyId\(""\); setResult\(null\); setSortState\(null\)/);
+  assert.match(source,/partyTypeFilter==="employee"\?\(data\.employees\?\?\[\]\):data\.parties\.filter\(p=>resolvePartyType\(p\)===partyTypeFilter\)/);
   assert.doesNotMatch(source, /\) : doc \? \(/);
   assert.match(source, /\{doc && createPortal\(<div className="modal-overlay document-modal-overlay"/);
 });
@@ -115,7 +120,12 @@ test("source navigation only mutates the destination after permission and dirty-
   const source=normalizePresentationSource(await readFile(new URL("../app/conta-app.tsx",import.meta.url),"utf8"));
   assert.match(source,/const navigate = async \(id: View, options: \{ replaceEditor\?: boolean \} = \{\}\)/);
   assert.match(source,/if \(!canView\(id\)\) return false/);
-  assert.match(source,/!await confirmAction\([^;]+\)\)\s*return false/);
+  assert.match(source,/const prepareEditorReplacement = async \(\) => requestEditorReplacement\(/);
+  assert.match(source,/confirmDiscard: \(\) => confirmAction\(/);
+  const {requestEditorReplacement}=await import("../app/editor-replacement.ts");
+  let discarded=false;
+  assert.equal(await requestEditorReplacement({hasPendingCommands:()=>false,getGuard:()=>({isEditing:()=>true,isDirty:()=>true,discard:()=>{discarded=true}}),confirmDiscard:async()=>false,onPending:()=>assert.fail("No save is pending")}),false);
+  assert.equal(discarded,false);
   assert.match(source,/return true;/);
   assert.match(source,/if\(!await navigate\("reports"\)\)return;setReportType/);
   assert.match(source,/if\(await navigate\(targetView\)\)setPartyDetail\(party\)/);
@@ -127,7 +137,7 @@ test("source navigation only mutates the destination after permission and dirty-
 test("new invoice and expense drafts participate in the unsaved-change guard", async () => {
   const source=normalizePresentationSource(await readFile(new URL("../app/conta-app.tsx",import.meta.url),"utf8"));
   assert.ok((source.match(/isEditing: \(\) => Boolean\(editingDocumentId\) \|\| dirty\(\)/g)??[]).length>=2);
-  assert.match(source,/dirty=\(\)=>editingExpenseId\?snapshot\(\)!==baseline\.current:Boolean\(title\.trim\(\)\|\|amount\|\|paymentMethod\)/);
+  assert.match(source,/dirty=\(\)=>editingExpenseId\?snapshot\(\)!==baseline\.current:Boolean\(title\.trim\(\)\|\|amount\|\|paymentMethod\|\|expenseCategoryId\)/);
   assert.match(source,/isEditing:\(\)=>Boolean\(editingExpenseId\)\|\|dirty\(\)/);
 });
 

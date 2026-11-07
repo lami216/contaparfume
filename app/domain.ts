@@ -1,4 +1,5 @@
 import { getDisplayCurrencyCode, type CurrencySettings } from "../lib/currency-core";
+import { formatAccountingDecimal, formatAccountingPercentage } from "../lib/accounting-format";
 import type { PerfumeAllocation, PerfumeForm, PerfumeLot } from "./perfume-logic";
 
 export type PaymentMethod = string;
@@ -16,7 +17,10 @@ export type DocumentKind =
   | "offset"
   | "settlement"
   | "account-transfer"
-  | "account-adjustment";
+  | "account-adjustment"
+  | "party-opening"
+  | "employee-accrual"
+  | "employee-payment";
 export type CommercialDocumentFamily = "sale" | "purchase" | null;
 /** Business family used by reports and presentation. Decant documents keep their
  * specialized storage kind because their inventory lifecycle is different. */
@@ -52,8 +56,10 @@ export function activeWarehouses<T extends Pick<Warehouse, "isArchived">>(wareho
 export interface ProductCategory {
   id: string;
   name: string;
+  systemKind?: "perfume-decants" | "perfume-bottles" | "perfume-fragrances";
   createdAt?: string;
 }
+export interface ExpenseCategory {id:string;name:string;createdAt?:string}
 export interface Product {
   id: string;
   name: string;
@@ -127,6 +133,9 @@ export interface DocumentLine {
   balanceAfter?: number;
 }
 export interface DocumentRecord {
+  perfumeSaleMode?: "remainder";
+  perfumeSaleSource?: "perfume-remainder";
+  remainderQuantityMl?: number;
   quantityUnit?: "ml" | "piece";
   actualQuantity?: number;
   inventoryGain?: number;
@@ -150,6 +159,21 @@ export interface DocumentRecord {
   toAccountId?: string | null;
   status: string;
   title: string | null;
+  employeeId?: string;
+  employeeName?: string;
+  employeePaymentDirection?: "withdraw" | "deposit";
+  employeePaymentVersion?: 2;
+  amount?: number;
+  periodStart?: string;
+  periodEnd?: string;
+  dueDate?: string;
+  balanceDelta?: number;
+  allocations?: Array<{accrualId:string;amount:number}>;
+  partyOpeningDirection?: "receivable"|"payable";
+  partyOpeningAmount?: number;
+  partyOpeningContribution?: number;
+  expenseCategoryId?: string | null;
+  expenseCategoryName?: string | null;
   note?: string | null;
   /** Opening-stock audit metadata for initial balances and later corrections. */
   openingCorrection?: boolean;
@@ -162,6 +186,9 @@ export interface DocumentRecord {
   perfumeManagementType?: import("./perfume-management").ManagementKind;
   perfumeConversionType?: string;
   managementInput?: Record<string, unknown>;
+  openingBottleCost?: number;
+  openingBottleCostSource?: "purchase" | "opening" | "legacy-opening" | "authoritative" | "card-reference";
+  openingOriginalVolumeMl?: number;
   managementProductId?: string;
   bottleStockReason?: import("./perfume-management").BottleStockReason;
   sourceProductId?: string;
@@ -175,6 +202,7 @@ export interface DocumentRecord {
   replacesDocumentId?: string;
   /** Specialized decant stock lifecycle operation. */
   perfumeStockOperationType?: "opening" | "consumption" | "yield-correction" | "reconciliation" | "bottle-reconciliation" | "unit-conversion";
+  perfumeStockTreatment?: "quantity-correction";
   perfumeStockReasonCode?: string | null;
   inventoryLoss?: number;
   bookValueBefore?: number;
@@ -219,7 +247,10 @@ export interface Movement {
   occurredAt: string;
   documentRevision?: number;
 }
+export interface EmployeeAgreement {id:string;startDate:string;endDate?:string;amount:number;intervalMonths:number;entitlement:"beginning"|"end"}
+export interface Employee {id:string;name:string;phone:string;startDate:string;balance:number;revision:number;isArchived?:boolean;agreements:EmployeeAgreement[]}
 export interface BootstrapData {
+  employees?: Employee[];
   perfumeDefaults?: import("./perfume-volume").PerfumeDefaults;
   principal: { principalType: "local" | "owner" | "user"; name: string; permissions: string[] };
   branding: InvoiceBrandingSettings;
@@ -232,6 +263,7 @@ export interface BootstrapData {
   warehouses: Warehouse[];
   products: Product[];
   categories: ProductCategory[];
+  expenseCategories?: ExpenseCategory[];
   documents: DocumentRecord[];
   movements: Movement[];
   financialMovements: FinancialMovement[];
@@ -295,6 +327,8 @@ export interface PaymentAccount {
 }
 export function activePaymentAccounts<T extends Pick<PaymentAccount, "isActive" | "isArchived">>(accounts: T[]) { return accounts.filter(account => account.isActive !== false && account.isArchived !== true); }
 export interface FinancialMovement {
+  employeeId?: string;
+  employeeName?: string;
   id: string;
   paymentMethod: string;
   direction: "in" | "out";
@@ -334,6 +368,9 @@ export const paymentMethods: Array<{
   { id: "bimbank", label: "بيم" },
 ];
 export const kindLabels: Record<DocumentKind, string> = {
+  "party-opening": "رصيد بداية الديون",
+  "employee-accrual": "استحقاق عامل",
+  "employee-payment": "حركة حساب عامل",
   purchase: "فاتورة شراء",
   sale: "فاتورة بيع",
   "decant-purchase": "فاتورة شراء زجاج التقسيمات",
@@ -349,7 +386,8 @@ export const kindLabels: Record<DocumentKind, string> = {
   "account-adjustment": "سحب / إيداع",
 };
 /** Show a saved payment's actual direction, without guessing for legacy records. */
-export function documentKindLabel(document: Pick<DocumentRecord, "kind" | "partyCashDirection">, partyType?: PartyType): string {
+export function documentKindLabel(document: Pick<DocumentRecord, "kind" | "partyCashDirection" | "employeePaymentDirection">, partyType?: PartyType): string {
+  if (document.kind === "employee-payment") return document.employeePaymentDirection === "deposit" ? "إيداع العامل" : "سحب العامل";
   if (document.kind !== "payment" || !document.partyCashDirection) return kindLabels[document.kind];
   if (partyType === "supplier") return document.partyCashDirection === "receive" ? "استلام من المورد" : "دفع للمورد";
   if (partyType === "customer") return document.partyCashDirection === "receive" ? "استلام من العميل" : "دفع للعميل";
@@ -379,6 +417,15 @@ export function formatQuantity(value: number) {
 }
 export function formatMoney(value: number) {
   return `${formatNumber(value)} ${getDisplayCurrencyCode()}`;
+}
+export function accountingNumber(value: number) {
+  return western(formatAccountingDecimal(DISPLAY_LOCALE, value));
+}
+export function accountingMoney(value: number) {
+  return `${accountingNumber(value)} ${getDisplayCurrencyCode()}`;
+}
+export function accountingPercent(value: number) {
+  return western(formatAccountingPercentage(DISPLAY_LOCALE, value));
 }
 export function displayDocumentNumber(document: Pick<DocumentRecord, "number" | "sequence" | "kind">) {
   return ["sale", "purchase", "expense", "decant-sale", "decant-purchase"].includes(document.kind) && Number.isSafeInteger(Number(document.sequence)) && Number(document.sequence) > 0 ? String(document.sequence) : document.number;
@@ -423,7 +470,7 @@ export function formatDateTime(value: Date | string | number) {
 }
 
 // Existing view-facing names share the same central formatting policy.
-export const money = formatMoney;
+export const money = accountingMoney;
 export const number = formatNumber;
 export function quantity(value: number) {
   return formatQuantity(value);

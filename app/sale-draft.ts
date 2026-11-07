@@ -1,6 +1,7 @@
 import { isProductExpired, type Product } from "./domain";
 import type { Locale } from "./i18n/locale";
 import { clearPendingLowStockWarning, shouldWarnLowStock, stagePendingLowStockWarning, type LowStockWarningItem } from "./low-stock-warning";
+import { stockBalanceAfter } from "../lib/stock-numbers";
 
 export type SaleDraftLine = {
   productId: string;
@@ -80,14 +81,14 @@ export function validateSaleDraft(lines: SaleDraftLine[], products: Product[], w
     }
     const quantity = Number(line.quantity), price = Number(line.piecePrice);
     const available = Number(product.stocks?.[warehouseId ?? ""] ?? 0);
+    const remaining = stockBalanceAfter(available, -quantity);
     if (line.quantity.trim() === "" || !Number.isFinite(quantity) || quantity <= 0) {
       errors.push({ code: "invalidQuantity", productId: product.id, productName: product.name });
       invalidProductIds.add(product.id);
-    } else if (quantity > available) {
+    } else if (remaining < 0) {
       errors.push({ code: "insufficientQuantity", productId: product.id, productName: product.name, requested: quantity, available });
       invalidProductIds.add(product.id);
     } else {
-      const remaining = available - quantity;
       if (shouldWarnLowStock(remaining)) lowStock.push({ productId: product.id, productName: product.name, remaining });
     }
     if (line.piecePrice.trim() === "" || !Number.isFinite(price) || price <= 0) {

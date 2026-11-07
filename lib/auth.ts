@@ -8,6 +8,7 @@ export { hashPassword, verifyPasswordHash } from "./password.ts";
 export const SESSION_COOKIE = "conta_session";
 const MAX_AGE = 60 * 60 * 12;
 export const CAPABILITIES = [
+  "employees.view","employees.manage","employees.pay","party.opening.manage",
   "pos.view","pos.create","pos.edit","pos.delete","purchases.view","purchases.create","purchases.edit","purchases.delete","records.view",
   "products.view","products.create","products.edit","products.delete","customers.view","customers.create","customers.edit","customers.delete","customers.collect","customers.collect.edit","customers.collect.delete","suppliers.view","suppliers.create","suppliers.edit","suppliers.delete","suppliers.pay","suppliers.pay.edit","suppliers.pay.delete",
   "warehouses.view","warehouses.create","warehouses.edit","warehouses.delete","warehouses.inventory.view","warehouses.transfer","warehouses.transfer.edit","warehouses.transfer.delete","warehouses.adjust","warehouses.adjust.edit","warehouses.adjust.delete","banks.view","banks.create","banks.edit","banks.delete","banks.movements.view","banks.transfer","banks.transfer.edit","banks.transfer.delete","banks.deposit_withdraw","banks.deposit_withdraw.edit","banks.deposit_withdraw.delete","banks.balance_correct","banks.balance_correct.edit","banks.balance_correct.delete",

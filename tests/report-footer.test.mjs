@@ -15,7 +15,7 @@ test("visible reports expose exact semantic footer keys",()=>{
   assert.deepEqual(keys("debts"),["receivable","payable","net","count"]);
   assert.deepEqual(keys("party-ledger"),["tradeTotal","debitTotal","creditTotal","net"]);
   assert.deepEqual(keys("financial"),["businessIncoming","businessOutgoing","businessNet","balanceNet"]);
-  assert.deepEqual(keys("expenses"),["total","recurringTotal","oneOffTotal","count"]);
+  assert.deepEqual(keys("expenses"),["total","count"]);
 });
 test("footer tones follow business meaning and meaningful zero stays visible",()=>{
   const debts=buildReportFooterMetrics({type:"debts",result:result({receivable:20,payable:10,net:10,count:2})});
@@ -30,3 +30,19 @@ test("footer tones follow business meaning and meaningful zero stays visible",()
 test("product purchase footer never presents invoice payment allocation",()=>{ const metrics=buildReportFooterMetrics({type:"purchases",result:result({total:100,quantity:4,paid:80,due:20,count:1}),productFiltered:true}); assert.equal(metrics[2].value,25); assert.ok(!metrics.some(x=>["paid","due"].includes(x.key))); });
 test("financial operating classification excludes balance administration and transfers",()=>{ for(const type of ["transfer-in","transfer-out","opening-balance","manual-deposit","manual-withdrawal","balance-correction"]) assert.equal(isOperatingFinancialMovement(type),false); for(const type of ["sale","purchase","expense","party-receipt","party-payment"]) assert.equal(isOperatingFinancialMovement(type),true); });
 test("party ledger composite filter has stable geometry and both roles",async()=>{ const [css,ui]=await Promise.all([readFile(new URL("../app/globals.css",import.meta.url),"utf8"),readFile(new URL("../app/conta-app.tsx",import.meta.url),"utf8")]); assert.match(css,/\.report-filters>\.party-ledger-filter\{max-width:none/); assert.match(css,/grid-template-columns:180px minmax\(280px,340px\)/); assert.match(css,/\.party-ledger-filter \.combobox\{width:100%;min-width:280px/); assert.match(ui,/العملاء/); assert.match(ui,/الموردون/); });
+
+test("expense screen, printable output and export share columns without the retired schedule type", async () => {
+  const ui = await readFile(new URL("../app/conta-app.tsx", import.meta.url), "utf8");
+  const expenseColumns = ui.match(/expenses:\[\[.*?\]\],/)[0];
+  const voucher = ui.match(/if\(record.kind==="expense"\)return[^\n]+/)[0];
+  assert.doesNotMatch(expenseColumns, /recurring|\["[^"]+",tr\("النوع"\)/);
+  assert.match(expenseColumns, /expenseCategory/);
+  assert.doesNotMatch(voucher, /recurringId|مصروف متكرر/);
+  assert.match(ui, /printTable=reportTableModel\(reportColumns\(/);
+  assert.match(ui, /buildReportFooterMetrics\(\{type,result:printResult/);
+  const metrics = buildReportFooterMetrics({
+    type: "expenses",
+    result: result({ total: 600, count: 3, recurringTotal: 300, oneOffTotal: 300 }),
+  });
+  assert.deepEqual(metrics.map(metric => [metric.key, metric.value]), [["total", 600], ["count", 3]]);
+});

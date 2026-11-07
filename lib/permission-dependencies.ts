@@ -14,6 +14,8 @@ export type PermissionName = string;
  * prerequisite for edit/delete.
  */
 const prerequisites: Readonly<Record<PermissionName, readonly PermissionName[]>> = {
+  "employees.manage": ["employees.view"],
+  "employees.pay": ["employees.view"],
   "pos.edit": ["pos.view"],
   "pos.delete": ["pos.view"],
   "purchases.edit": ["purchases.view"],

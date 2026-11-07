@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { sqliteHarness } from "./sqlite-harness.mjs";
 import { execute } from "../app/api/command/route.ts";
+import { isEffectiveFinancialMovement } from "../lib/document-read-model.ts";
 
 test("decant sale and bottle purchase post and void preserve stock and accounting", async () => {
   const harness = await sqliteHarness();
@@ -75,7 +76,13 @@ test("decant sale and bottle purchase post and void preserve stock and accountin
     assert.equal((await db.collection("products").findOne({ id: "decant-test" })).stocks[wh], 3);
     assert.equal((await db.collection("products").findOne({ id: "bottle-test" })).stocks[wh], 9);
     assert.equal((await db.collection("products").findOne({ id: "decant-test" })).perfumeLots[0].remainingQuantity, 3);
-    assert.equal(await db.collection("financialMovements").countDocuments({ documentId: saleId }), 0);
+    const saleCashAudit = await db.collection("financialMovements").find({ documentId: saleId }).toArray();
+    assert.equal(saleCashAudit.length, 2);
+    assert.equal(saleCashAudit.filter(isEffectiveFinancialMovement).length, 0);
+    const originalCash = saleCashAudit.find(row => row.status === "reversed");
+    const cashReversal = saleCashAudit.find(row => row.isReversal === true);
+    assert.equal(originalCash.reversalMovementId, cashReversal.id);
+    assert.equal(cashReversal.reversalOfMovementId, originalCash.id);
 
     await assert.rejects(command({
       type: "decant-sale.update", documentId: saleId, expectedRevision: 0,
@@ -98,7 +105,7 @@ test("decant sale and bottle purchase post and void preserve stock and accountin
     assert.equal((await db.collection("products").findOne({ id: "decant-test" })).perfumeLots[0].remainingQuantity, 4);
     assert.equal((await db.collection("paymentAccounts").findOne({ id: "cash-test" })).balance, 1000);
     assert.equal((await db.collection("parties").findOne({ id: "customer-test" })).receivable, 0);
-    assert.equal(await db.collection("financialMovements").countDocuments({ documentId: saleId }), 0);
+    assert.deepEqual(await db.collection("financialMovements").find({ documentId: saleId }).toArray(), saleCashAudit);
 
     const purchaseId = await command({
       type: "decant-purchase.post", paymentMethod: "note", partyId: "supplier-test", cashAmount: 0,
@@ -142,6 +149,10 @@ test("decant sale and bottle purchase post and void preserve stock and accountin
     assert.equal((await db.collection("products").findOne({ id: "bottle-test" })).stocks[wh], 10);
     assert.equal((await db.collection("parties").findOne({ id: "supplier-test" })).payable, 0);
     assert.equal((await db.collection("paymentAccounts").findOne({ id: "cash-test" })).balance, 1000);
+    const purchaseCashAudit = await db.collection("financialMovements").find({ documentId: purchaseId }).toArray();
+    assert.equal(purchaseCashAudit.length, 2);
+    assert.equal(purchaseCashAudit.filter(isEffectiveFinancialMovement).length, 0);
+    assert.equal(purchaseCashAudit.find(row => row.isReversal === true).reversalOfMovementId, purchaseCashAudit.find(row => row.status === "reversed").id);
   } finally {
     await harness.close();
   }

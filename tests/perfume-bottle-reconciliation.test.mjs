@@ -93,8 +93,9 @@ test('a correction increase cannot be reversed after its stock has been consumed
 });
 test('loss filters by bottle, category and reporting period agree without cross-contaminating perfume',async t=>{
  const f=await fixture(t),id=await f.count('breakage');await f.db.collection('documents').updateOne({id},{$set:{occurredAt:'2026-01-03T12:00:00.000Z'}});
- for(const params of [{productId:'b5'},{categoryId:'glass'},{allTime:'false',from:'2026-01-01',to:'2026-01-31'}])assert.equal((await f.report('profit',params)).summary.inventoryLoss,40);
- for(const params of [{productId:'b10'},{categoryId:'perfume'},{allTime:'false',from:'2026-02-01',to:'2026-02-28'}])assert.equal((await f.report('profit',params)).summary.inventoryLoss,0);
+ const categoryId=(await f.product('b5')).categoryId;assert.equal(categoryId,'system:perfume:bottles');assert.equal((await f.db.collection('productCategories').findOne({id:'glass'})).name,'Glass');
+ for(const params of [{productId:'b5'},{categoryId},{allTime:'false',from:'2026-01-01',to:'2026-01-31'}])assert.equal((await f.report('profit',params)).summary.inventoryLoss,40);
+ for(const params of [{productId:'b10'},{categoryId:'glass'},{categoryId:'perfume'},{allTime:'false',from:'2026-02-01',to:'2026-02-28'}])assert.equal((await f.report('profit',params)).summary.inventoryLoss,0);
 });
 test('legacy counts stay non-profit corrections and hydrate with an explicit reason for editing',async t=>{
  const f=await fixture(t),id=await f.count('correction');

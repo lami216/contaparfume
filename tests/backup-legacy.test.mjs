@@ -27,3 +27,49 @@ test("chunk upload rejects missing, duplicate and invalid SQLite data",async()=>
 test("standalone configuration traces the sql.js WASM runtime",async()=>{const config=await readFile(new URL("../next.config.ts",import.meta.url),"utf8");assert.match(config,/sql-wasm\.wasm/);assert.match(config,/outputFileTracingIncludes/);});
 test("legacy SQLite restore accepts and parses sources above the former 50 MiB cap",async()=>{const SQL=await initSqlJs(),db=new SQL.Database();db.run("CREATE TABLE itemsTB(id INTEGER, title TEXT); INSERT INTO itemsTB VALUES(1,'uncapped');");const exported=db.export();db.close();const bytes=new Uint8Array(51*1024*1024+17);bytes.set(exported);const started=await startLegacyUpload(bytes.length);assert.equal(started.chunks,Math.ceil(bytes.length/LEGACY_CHUNK_BYTES));try{for(let i=0,offset=0;offset<bytes.length;i++,offset+=LEGACY_CHUNK_BYTES)await appendLegacyChunk(started.uploadId,i,bytes.slice(offset,offset+LEGACY_CHUNK_BYTES));const complete=await finishLegacyUpload(started.uploadId);assert.equal(complete.length,bytes.length);const preview=await inspectLegacyDatabase(complete);assert.equal(preview.groups.find(x=>x.key==="products").count,1);}finally{await removeLegacyUpload(started.uploadId);}});
 test("all native and legacy restore paths stay free of application-level total file-size caps",async()=>{const [backupSource,legacySource,uploadSource,legacyPreviewRoute,legacyImportRoute,nativePreviewRoute,nativeRestoreRoute,appSource]=await Promise.all(["../lib/backup.ts","../legacy/dataacc-sqlite.ts","../legacy/upload-store.ts","../app/api/settings/legacy/preview/route.ts","../app/api/settings/legacy/import/route.ts","../app/api/settings/restore/preview/route.ts","../app/api/settings/restore/route.ts","../app/conta-app.tsx"].map(path=>readFile(new URL(path,import.meta.url),"utf8")));for(const source of [backupSource,legacySource,uploadSource,legacyPreviewRoute,legacyImportRoute,nativePreviewRoute,nativeRestoreRoute,appSource]){assert.equal(source.includes("MAX_LEGACY_BYTES"),false);assert.equal(source.includes("MAX_BACKUP_BYTES"),false);assert.equal(source.includes("MAX_BACKUP_ITEMS"),false);}assert.doesNotMatch(legacySource,/bytes\.byteLength\s*>/);assert.doesNotMatch(uploadSource,/\bsize\s*>\s*/);assert.doesNotMatch(legacyPreviewRoute,/byteLength\s*>/);const restoreFlow=appSource.slice(appSource.indexOf("const uploadExternal="),appSource.indexOf("const advance="));assert.ok(restoreFlow.length>0);assert.doesNotMatch(restoreFlow,/file\.size\s*>/);});
+
+test('DataAcc opening stock uses the first valid positive legacy cost without repricing its historical invoices', async t => {
+  const { default: Database } = await import('better-sqlite3');
+  const { SqliteDatabase, ensureDatabaseSchema } = await import('../lib/sqlite.ts');
+  const db = new SqliteDatabase(new Database(':memory:'));
+  t.after(() => db.close());
+  ensureDatabaseSchema(db);
+  await db.dropDatabase();
+  const { default: initSqlJs } = await import('sql.js');
+  const { executeLegacyImport } = await import('../legacy/dataacc-sqlite.ts');
+  const SQL = await initSqlJs(), legacy = new SQL.Database();
+  t.after(() => legacy.close());
+  legacy.run(`
+    CREATE TABLE itemsTB(id INTEGER, title TEXT, last_cost, avg_cost, start_Cost);
+    INSERT INTO itemsTB VALUES (1,'Latest',95,80,70),(2,'Average',0,'81.5',71),
+      (3,'Start',NULL,-1,72),(4,'Unknown','0x10','',0);
+    CREATE TABLE storesTB(id INTEGER, title TEXT);
+    INSERT INTO storesTB VALUES (1,'Imported warehouse');
+    CREATE TABLE stores_itemsTB(item_idFK INTEGER, store_idFK INTEGER, qty REAL);
+    INSERT INTO stores_itemsTB VALUES (1,1,2),(2,1,2),(3,1,2),(4,1,2);
+    CREATE TABLE buyBillTB(id INTEGER, Date TEXT, priceBillAfterKhasm REAL, StoreFK INTEGER);
+    INSERT INTO buyBillTB VALUES (1,'2026-08-10',150,1);
+    CREATE TABLE items_BuyTB(id INTEGER, BuyFK INTEGER, item_idFK INTEGER, qty REAL, price_Buy REAL, LastCost REAL);
+    INSERT INTO items_BuyTB VALUES (1,1,2,1,150,77);
+  `);
+  await executeLegacyImport(db, null, legacy.export());
+  const products = await db.collection('products').find({ legacyKey: { $exists: true } }).sort({ legacyKey: 1 }).toArray();
+  const moves = await db.collection('stockMovements').find({ type: 'legacy-opening' }).toArray();
+  const sale = await db.collection('documents').findOne({ kind: 'sale' });
+  assert.deepEqual(products.map(product => product.legacyOpeningCost), [95, 81.5, 72, null]);
+  assert.equal(moves.length, 4);
+  for (const product of products) {
+    const move = moves.find(row => row.productId === product.id);
+    assert.equal(product.stocks[move.warehouseId], 2);
+    assert.equal(move.quantityDelta, 2);
+  }
+  assert.equal(sale.lines[0].productId, products[1].id);
+  assert.equal(sale.lines[0].costAtSale, 77);
+  assert.equal(sale.lines[0].grossProfit, 73);
+
+  legacy.run('UPDATE itemsTB SET last_cost = 99');
+  await executeLegacyImport(db, null, legacy.export());
+  assert.deepEqual(await db.collection('products').find({ legacyKey: { $exists: true } }).sort({ legacyKey: 1 }).toArray(), products);
+  assert.deepEqual(await db.collection('stockMovements').find({ type: 'legacy-opening' }).toArray(), moves);
+  assert.deepEqual(await db.collection('documents').findOne({ id: sale.id }), sale);
+});

@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import Database from "better-sqlite3";
+import { recoverHistoricalSaleCosts } from "./sale-cost-recovery.ts";
+import { recoverHistoricalStockData } from "./stock-data-recovery.ts";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -7,7 +9,7 @@ export type DbDocument = Record<string, any>;
 export type SqliteSession = Record<string, never>;
 
 const tableNames: Record<string, string> = {
-  products: "products", productCategories: "product_categories", warehouses: "warehouses", parties: "parties", paymentAccounts: "payment_accounts",
+  employees: "employees", products: "products", productCategories: "product_categories", expenseCategories: "expense_categories", warehouses: "warehouses", parties: "parties", paymentAccounts: "payment_accounts",
   documents: "documents", stockMovements: "stock_movements", financialMovements: "financial_movements",
   recurringExpenses: "recurring_expenses", accountTransfers: "account_transfers", appSettings: "app_settings",
   auditEvents: "audit_events", counters: "counters", commandReceipts: "command_receipts", users: "users",
@@ -45,7 +47,7 @@ function matches(row: DbDocument, query: DbDocument = {}): boolean {
 
 type SqlCandidate = { sql: string; params: Array<string | number | null>; complete: boolean };
 const sqlScalarFields = new Set([
-  "_id","id","key","kind","status","partyId","partyType","paymentMethod","type","direction","productId","categoryId",
+  "_id","id","key","kind","status","partyId","partyType","paymentMethod","type","direction","productId","categoryId","expenseCategoryId",
   "documentId","parentDocumentId","warehouseId","recurringId","code","legacyKey","usernameNormalized","sourceType",
   "sourceEntityType","sourceKey","businessDate","isArchived","isReversal","isActive","isSalesDefault","occurrenceKey",
   "expiryDate","receivable","payable",
@@ -199,7 +201,7 @@ export class SqliteDatabase {
 }
 
 export function databasePath(){return process.env.ALKARNA_DATABASE_PATH||join(process.env.ALKARNA_USER_DATA||join(process.cwd(),".dev-data"),"data","alkarna.sqlite")}
-export function initializeDatabase(){if(database&&connection?.open)return database;const file=databasePath();mkdirSync(dirname(file),{recursive:true});connection=new Database(file);connection.pragma("foreign_keys = ON");connection.pragma("journal_mode = WAL");connection.pragma("synchronous = FULL");connection.pragma("busy_timeout = 5000");ensureDatabaseSchema(connection);database=new SqliteDatabase(connection);return database}
+export function initializeDatabase(){if(database&&connection?.open)return database;const file=databasePath();mkdirSync(dirname(file),{recursive:true});connection=new Database(file);connection.pragma("foreign_keys = ON");connection.pragma("journal_mode = WAL");connection.pragma("synchronous = FULL");connection.pragma("busy_timeout = 5000");try{ensureDatabaseSchema(connection);const ready=new SqliteDatabase(connection);recoverHistoricalStockData(ready,{context:"startup"});recoverHistoricalSaleCosts(ready,{context:"startup"});database=ready;return database}catch(error){if(connection.open)connection.close();connection=undefined;database=undefined;throw error}}
 export function getDatabase(){return initializeDatabase()}
 export function closeDatabase(){connection?.close();connection=undefined;database=undefined}
 export function ensureDatabaseSchema(input:Database.Database|SqliteDatabase){const db=input instanceof SqliteDatabase?input.native:input;db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL);`);let version=(db.prepare("SELECT max(version) version FROM schema_migrations").get() as any).version??0;if(version<1){db.transaction(()=>{for(const table of Object.values(tableNames))db.exec(`CREATE TABLE ${table}(record_key TEXT PRIMARY KEY,data_json TEXT NOT NULL)`);db.exec(`CREATE TABLE product_stocks(product_id TEXT NOT NULL,warehouse_id TEXT NOT NULL,quantity REAL NOT NULL,PRIMARY KEY(product_id,warehouse_id));CREATE TABLE document_lines(id TEXT PRIMARY KEY,document_id TEXT NOT NULL,product_id TEXT,quantity REAL,unit_price INTEGER,line_total INTEGER);CREATE UNIQUE INDEX products_barcode_nonempty ON products(json_extract(data_json,'$.barcode')) WHERE json_extract(data_json,'$.barcode') IS NOT NULL AND json_extract(data_json,'$.barcode')<>'';`);db.prepare("INSERT INTO schema_migrations VALUES(1,?)").run(new Date().toISOString())})();seed(db);version=1}if(version<2){const indexes=[
@@ -233,6 +235,6 @@ export function ensureDatabaseSchema(input:Database.Database|SqliteDatabase){con
 ["documents_status_time_idx","documents","json_extract(data_json,'$.status'),json_extract(data_json,'$.occurredAt')"],
 ["stock_time_idx","stock_movements","json_extract(data_json,'$.occurredAt')"],
 ["products_expiry_idx","products","json_extract(data_json,'$.expiryDate')"],
-] as const;db.transaction(()=>{for(const[name,table,expression]of indexes)db.exec(`CREATE INDEX IF NOT EXISTS ${name} ON ${table}(${expression})`);db.prepare("INSERT INTO schema_migrations VALUES(7,?)").run(new Date().toISOString())})();version=7}cleanupExpiredRecords(db);const check=db.pragma("quick_check") as any[];if(check[0]?.quick_check!=="ok")throw new Error("SQLite quick_check failed")}
+] as const;db.transaction(()=>{for(const[name,table,expression]of indexes)db.exec(`CREATE INDEX IF NOT EXISTS ${name} ON ${table}(${expression})`);db.prepare("INSERT INTO schema_migrations VALUES(7,?)").run(new Date().toISOString())})();version=7}if(version<8){db.transaction(()=>{db.exec(`CREATE TABLE IF NOT EXISTS expense_categories(record_key TEXT PRIMARY KEY,data_json TEXT NOT NULL);CREATE UNIQUE INDEX IF NOT EXISTS expense_categories_name_unique ON expense_categories(json_extract(data_json,'$.normalizedName')) WHERE json_extract(data_json,'$.normalizedName') IS NOT NULL;CREATE INDEX IF NOT EXISTS expense_documents_category_time_idx ON documents(json_extract(data_json,'$.expenseCategoryId'),json_extract(data_json,'$.status'),json_extract(data_json,'$.occurredAt'));`);db.prepare("INSERT INTO schema_migrations VALUES(8,?)").run(new Date().toISOString())})();version=8}if(version<9){db.transaction(()=>{db.exec(`CREATE TABLE IF NOT EXISTS employees(record_key TEXT PRIMARY KEY,data_json TEXT NOT NULL);CREATE INDEX IF NOT EXISTS employees_id_idx ON employees(json_extract(data_json,'$.id'));CREATE UNIQUE INDEX IF NOT EXISTS payroll_period_unique ON documents(json_extract(data_json,'$.employeeId'),json_extract(data_json,'$.periodStart')) WHERE json_extract(data_json,'$.kind')='employee-accrual';`);db.prepare("INSERT INTO schema_migrations VALUES(9,?)").run(new Date().toISOString())})();version=9}cleanupExpiredRecords(db);const check=db.pragma("quick_check") as any[];if(check[0]?.quick_check!=="ok")throw new Error("SQLite quick_check failed")}
 export function cleanupExpiredRecords(db:Database.Database){for(const table of ["command_receipts","legacy_import_runs","import_runs","import_safety_backups","restore_snapshots"])db.prepare(`DELETE FROM ${table} WHERE json_extract(data_json,'$.expiresAt') IS NOT NULL AND datetime(json_extract(data_json,'$.expiresAt')) <= datetime('now')`).run();db.prepare("DELETE FROM command_receipts WHERE json_extract(data_json,'$.status')='committed' AND datetime(json_extract(data_json,'$.createdAt')) < datetime('now','-7 days')").run()}
 function seed(db:Database.Database){const now=new Date().toISOString(),put=(table:string,key:string,data:any)=>db.prepare(`INSERT OR IGNORE INTO ${table}(record_key,data_json) VALUES(?,?)`).run(key,encode({...data,_id:key}));put("warehouses","wh-main",{name:"المخزن الرئيسي",isSalesDefault:false,createdAt:now});put("warehouses","wh-boutique",{name:"البوتيك",isSalesDefault:true,createdAt:now});for(const[code,name,color,icon]of [["cash","نقدي","#16835f","banknote"],["bankily","بنكيلي","#1677c8","wallet"],["masrvi","مصرفي","#6d55c7","building"],["sedad","السداد","#d07a20","landmark"],["bimbank","بيم","#c14666","card"]])put("payment_accounts",`account-${code}`,{id:`account-${code}`,code,name,color,icon,isActive:true,balance:0,balanceInitialized:true,createdAt:now})}
