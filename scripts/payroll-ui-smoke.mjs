@@ -131,7 +131,7 @@ async function main() {
       if (request.url === "/app.css") { response.writeHead(200, { "content-type": "text/css" }); response.end(css); return; }
       if (request.url === "/") {
         response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        response.end('<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><link rel="stylesheet" href="/app.css"><style>body{display:block;margin:0}#root{height:100vh}.employees-workspace{height:100%}</style><div id="root"></div><script src="/app.js"></script></html>');
+        response.end('<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><link rel="stylesheet" href="/app.css"><style>body{display:block;margin:0}#root{display:block;height:100vh}.employees-workspace{height:100%}</style><div id="root" class="app-shell section-employees"></div><script src="/app.js"></script></html>');
         return;
       }
       const chunks = [];
