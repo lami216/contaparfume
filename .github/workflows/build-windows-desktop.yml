@@ -31,7 +31,7 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - run: npx tsc --noEmit
       - name: Exercise worker account UI on isolated synthetic data
-        run: node --import tsx scripts/payroll-ui-smoke.mjs
+        run: node --import tsx --test scripts/payroll-ui-smoke.mjs
       - name: Upload worker UI evidence
         if: always()
         uses: actions/upload-artifact@v7

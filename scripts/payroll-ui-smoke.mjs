@@ -10,6 +10,7 @@ import { build } from "esbuild";
 if (process.env.CI !== "true" || process.env.GITHUB_ACTIONS !== "true" || process.platform !== "win32") {
   throw new Error("This smoke check runs only in GitHub Actions on Windows.");
 }
+assert(process.execArgv.includes("--test") || process.env.NODE_TEST_CONTEXT !== undefined, "Use the Node test runner for this CI-only fixture.");
 
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = path.join(source, "test-output", "payroll-ui");
@@ -51,7 +52,7 @@ async function connectCdp(url) {
   });
   socket.addEventListener("message", event => {
     const message = JSON.parse(String(event.data));
-    if (message.method === "Runtime.exceptionThrown") errors.push(message.params.exceptionDetails.text);
+    if (message.method === "Runtime.exceptionThrown") errors.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text);
     const request = pending.get(message.id);
     if (!request) return;
     pending.delete(message.id);
@@ -86,6 +87,8 @@ async function main() {
   await database.collection("paymentAccounts").updateOne({ id: account.id }, { $set: { balance: 1000, openingBalance: 1000, isActive: true } });
   const { execute, POST } = await import("../app/api/command/route.ts");
   const { GET } = await import("../app/api/bootstrap/route.ts");
+  const bootstrapCheck = await GET(new Request("http://127.0.0.1:3219/api/bootstrap"));
+  assert.equal(bootstrapCheck.status, 200, await bootstrapCheck.text());
   const date = new Date().toISOString().slice(0, 10);
   const employeeId = await database.transaction(session => execute(database, session, {
     type: "employee.create", name: "عامل فحص الواجهة", phone: "00000000", amount: 100,
@@ -281,6 +284,7 @@ try {
 } catch (error) {
   result.status = "failed";
   result.error = error.stack;
+  result.browserErrors = cdp?.errors ?? [];
   if (cdp) {
     try {
       const screenshot = await cdp.call("Page.captureScreenshot", { format: "png" });
