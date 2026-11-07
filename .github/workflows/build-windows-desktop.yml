@@ -29,7 +29,7 @@ jobs:
       - run: node node_modules/electron/install.js
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
-      - run: npm test
+      - run: npx tsc --noEmit
       - name: Exercise worker account UI on isolated synthetic data
         run: node --import tsx scripts/payroll-ui-smoke.mjs
       - name: Upload worker UI evidence
@@ -40,7 +40,7 @@ jobs:
           path: test-output/payroll-ui/
           if-no-files-found: ignore
           retention-days: 14
-      - run: npx tsc --noEmit
+      - run: npm test
       - run: npm run lint
       - run: npm run build
       - run: npm run test:production-legacy

@@ -9,11 +9,24 @@ test("overview separates current position from period performance", async () => 
   assert.match(ui, /overview-summary-groups/);
   assert.match(ui, /tr\("الوضع الحالي"\)/);
   assert.match(ui, /tr\("أداء الفترة"\)/);
-  for (const key of ["currentAccountsBalance","currentInventoryValue","currentReceivable","currentPayable","sales","purchases","expenses","netOperatingResult"]) assert.match(ui, new RegExp(`summary\.${key}`));
+  for (const key of ["currentAccountsBalance","currentInventoryValue","currentReceivable","currentPayable","sales","purchases","expenses","ownerAvailableProfit"]) assert.match(ui, new RegExp(`summary\.${key}`));
   assert.match(reports, /const netOperatingResult=p\.profit-expenses/);
+  assert.match(reports, /ownerAvailableProfit:netOperatingResult-payroll\.reserveChange/);
 });
 
-test("overview KPI details keep only calculation contributors in one signed money column",async()=>{const ui=await source("app/conta-app.tsx");for(const key of ["currentAccountsBalance","currentInventoryValue","currentReceivable","currentPayable","sales","purchases","expenses","netOperatingResult"])assert.match(ui,new RegExp(`openOverviewSummary\\("${key}"\\)`));assert.match(ui,/label:tr\("صافي المبيعات"\),value:sales/);assert.match(ui,/label:tr\("تكلفة المبيعات"\),value:-salesCost/);assert.match(ui,/label:tr\("إجمالي المصاريف"\),value:-expenses/);assert.doesNotMatch(ui,/excludedProfitMeta/);assert.doesNotMatch(ui,/impact:/);assert.doesNotMatch(ui,/الأثر في المجموع/);assert.match(ui,/overview-sales-total/);assert.match(ui,/overview-return-/);});
+test("overview KPI details keep only calculation contributors in one signed money column",async()=>{
+  const ui=await source("app/conta-app.tsx");
+  for(const key of ["currentAccountsBalance","currentInventoryValue","currentReceivable","currentPayable","sales","purchases","expenses","ownerAvailableProfit"])assert.match(ui,new RegExp(`openOverviewSummary\\("${key}"\\)`));
+  const start=ui.indexOf('const openOverviewSummary='),details=ui.slice(start,ui.indexOf('if(type==="overview")',start));
+  assert.match(details,/label:tr\("صافي المبيعات"\),value:reportNumber\(result\.summary\.sales\)/);
+  assert.match(details,/label:tr\("تكلفة المبيعات"\),value:-reportNumber\(result\.summary\.salesCost\)/);
+  assert.match(details,/label:tr\("المصاريف الأخرى"\),value:-\(expenses-workerExpense\)/);
+  assert.match(details,/label:tr\("مصروف أجور العمال"\),value:-workerExpense/);
+  assert.match(details,/label:tr\("تغير حقوق العمال خلال الفترة"\),value:-reserveChange/);
+  assert.match(details,/total:reportNumber\(result\.summary\.ownerAvailableProfit\)/);
+  assert.doesNotMatch(details,/value:-reportNumber\(result\.summary\.currentWorkers(?:Owed|UnpaidWages)\)/);
+  assert.doesNotMatch(ui,/excludedProfitMeta/);assert.doesNotMatch(ui,/impact:/);assert.doesNotMatch(ui,/الأثر في المجموع/);assert.match(ui,/overview-sales-total/);assert.match(ui,/overview-return-/);
+});
 
 test("overview aggregate details link each contributing category to a traceable source",async()=>{
   const ui=await source("app/conta-app.tsx");
@@ -21,16 +34,25 @@ test("overview aggregate details link each contributing category to a traceable 
   assert.match(ui,/overview-purchases-total[^\n]+source:\{kind:"report",reportType:"purchases",period:committedPeriod\}/);
   assert.match(ui,/overview-expenses-total[^\n]+source:\{kind:"report",reportType:"expenses",period:committedPeriod\}/);
   assert.match(ui,/profit-sales-cost[^\n]+source:\{kind:"report",reportType:"sales",period:committedPeriod\}/);
-  assert.match(ui,/overview-party-[^\n]+source:\{kind:"party",partyId:String\(party\.id\)\}/);
+  const start=ui.indexOf('const accountSummaryDetail ='),details=ui.slice(start,ui.indexOf('const openWorkerBalanceSummary',start));
+  assert.match(ui,/reportAccountRoles = \["employee", "customer", "supplier"\]/);
+  assert.match(details,/reportAccountRoles\.map\(role/);
+  assert.match(details,/party\.partyType === role && reportNumber\(receivable \? party\.receivable : party\.payable\) > 0/);
+  assert.match(details,/id: "overview-party-"\+key\+"-"\+String\(party\.id\)/);
+  assert.match(details,/kind: "party" as const, partyId: String\(party\.partyId \?\? party\.id\)/);
+  assert.match(details,/canUseCapability\(data\.principal,"employees\.view"\)[^\n]+kind: "employee" as const, employeeId: String\(party\.employeeId \?\? party\.partyId \?\? party\.id\)/);
+  assert.match(ui,/target\.kind === "employee"[\s\S]*?can\("employees\.view"\) && await navigate\("employees"\)\) setEmployeeSourceId\(target\.employeeId\)/);
 });
 
 
-test("overview party rows expose debt direction independently of customer or supplier role", async () => {
+test("overview party rows expose debt direction independently of employee, customer or supplier role", async () => {
   const ui=await source("app/conta-app.tsx");
-  assert.match(ui,/reportNumber\(p\.payable\)>0\?<MoneyValue value=\{reportNumber\(p\.payable\)\} tone="negative"\/>:"—"/);
-  assert.match(ui,/reportNumber\(p\.receivable\)>0\?<MoneyValue value=\{reportNumber\(p\.receivable\)\} tone="positive"\/>:"—"/);
-  assert.doesNotMatch(ui,/p\.partyType==="supplier"\?<MoneyValue value=\{reportNumber\(p\.payable\)/);
-  assert.doesNotMatch(ui,/p\.partyType==="customer"\?<MoneyValue value=\{reportNumber\(p\.receivable\)/);
+  const start=ui.indexOf('function OverviewAccounts('),accounts=ui.slice(start,ui.indexOf('function handleModalKeyboard',start));
+  assert.match(accounts,/reportAccountRoles\.map\(role/);
+  assert.match(accounts,/reportNumber\(account\.payable\) > 0 \? <MoneyValue value=\{reportNumber\(account\.payable\)\} tone="negative"\/> : "—"/);
+  assert.match(accounts,/reportNumber\(account\.receivable\) > 0 \? <MoneyValue value=\{reportNumber\(account\.receivable\)\} tone="positive"\/> : "—"/);
+  assert.doesNotMatch(accounts,/role\s*===\s*"supplier"\s*\?\s*<MoneyValue/);
+  assert.doesNotMatch(accounts,/role\s*===\s*"customer"\s*\?\s*<MoneyValue/);
 });
 
 test("party aggregate dues never net different parties against each other", async () => {
@@ -47,6 +69,6 @@ test("historical sales adjustments drill down to their exact source document", a
   assert.match(ui,/kind: "document"; documentId: string/);
   assert.match(ui,/target\.kind === "document"[^\n]+openDoc\(target\.documentId\)/);
   assert.match(ui,/returnRows=salesRows\.filter\(row=>row\.kind==="return"\)/);
-  assert.match(ui,/source:\{kind:"document" as const,documentId:String\(row\.documentId\)\}/);
+  assert.match(ui,/overview-return-[^\n]+source:\{kind:"document" as const,documentId:row\.documentId\}/);
   assert.doesNotMatch(ui,/overview-returns-total[^\n]+source:\{kind:"report",reportType:"sales"/);
 });
