@@ -27,7 +27,7 @@
 .perfume-management-page .pm-source-blocked { padding:9px; border:1px solid #d8a23b; border-radius:9px; background:#fff8e8; color:#65460c; line-height:1.6; }
 .perfume-management-page .pm-source-blocked strong { display:block; width:100%; font-weight:600; }
 .perfume-management-page .pm-source-actions { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-@media(max-width:1000px) {
+@media(max-width:1050px) {
   /* A full-width flex basis must be horizontal, rather than wrapping columns. */
   .decant-invoices-hub > .decant-invoice-modebar { flex-direction:row; align-items:stretch; }
   .decant-invoices-hub .decant-invoice-mode-tabs,

@@ -239,7 +239,7 @@ async function main() {
     await cdp.call("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
     await cdp.evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
     assert.equal(await cdp.evaluate("document.documentElement.scrollWidth>innerWidth+1"),false,"No page-level horizontal overflow");
-    if(width<=1000&&await cdp.evaluate('Boolean(document.querySelector(".decant-invoice-modebar"))')) {
+    if(width<=1050&&await cdp.evaluate('Boolean(document.querySelector(".decant-invoice-modebar"))')) {
       const modebar=await cdp.evaluate(`(()=>{
         const bar=document.querySelector(".decant-invoice-modebar").getBoundingClientRect(),tabs=document.querySelector(".decant-invoice-mode-tabs").getBoundingClientRect(),help=document.querySelector(".decant-invoice-mode-help"),box=help.getBoundingClientRect(),range=document.createRange();range.selectNodeContents(help);
         return{width:innerWidth,bar:{left:bar.left,right:bar.right,bottom:bar.bottom},tabsBottom:tabs.bottom,help:{left:box.left,right:box.right,top:box.top,bottom:box.bottom},textInside:[...range.getClientRects()].every(rect=>rect.left>=box.left-1&&rect.right<=box.right+1&&rect.top>=box.top-1&&rect.bottom<=box.bottom+1),contentFits:help.scrollWidth<=help.clientWidth+1&&help.scrollHeight<=help.clientHeight+1};
@@ -398,6 +398,7 @@ async function perfumeScenarios({database,command,screenshot}) {
   assert.equal(openingLayout.overflow,false);
   await screenshot("perfume-opening-form-1280",1280);
   await screenshot("perfume-opening-form-760",760);
+  await screenshot("perfume-opening-form-1024",1024);
   await cdp.evaluate('document.querySelector(".pm-form-actions button[type=submit]").click()');
   let opening;
   await until(async()=>{opening=await database.collection("documents").findOne({sourceProductId:openingSourceId,perfumeStockOperationType:"opening",status:"posted"});return Boolean(opening)},"opening committed through actual UI");
