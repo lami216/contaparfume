@@ -16,12 +16,38 @@ export const CAPABILITIES = [
 ] as const;
 export type Capability = typeof CAPABILITIES[number];
 export type Principal = { principalType:"local"; name:string; permissions:Capability[] } | { principalType:"owner"; name:string; permissions:Capability[] } | { principalType:"user"; userId:string; name:string; username:string; permissions:Capability[] };
-type SessionPayload = { exp:number; principalType:"owner"|"user"; userId?:string };
+type SessionPayload = { exp:number; principalType:"owner"|"user"; userId?:string; desktopRun?:string };
 let cachedSecret:string|undefined;
 function secret(){if(cachedSecret)return cachedSecret;const file=join(process.env.ALKARNA_USER_DATA??join(process.cwd(),".dev-data"),"config","session-secret");try{cachedSecret=readFileSync(file,"utf8").trim()}catch{mkdirSync(dirname(file),{recursive:true});cachedSecret=randomBytes(48).toString("base64url");writeFileSync(file,cachedSecret,{mode:0o600})}return cachedSecret}
 function digest(value:string){return createHmac("sha256",secret()).update(value).digest("base64url")}
-export function createSession(principal:{principalType:"owner"|"user";userId?:string}={principalType:"owner"},now=Date.now()){const payload=Buffer.from(JSON.stringify({...principal,exp:Math.floor(now/1000)+MAX_AGE})).toString("base64url");return `${payload}.${digest(payload)}`}
-function parseSession(token?:string|null,now=Date.now()):SessionPayload|null{if(!token)return null;const [payload,signature,extra]=token.split(".");if(!payload||!signature||extra)return null;const expected=digest(payload);if(signature.length!==expected.length||!timingSafeEqual(Buffer.from(signature),Buffer.from(expected)))return null;try{const value=JSON.parse(Buffer.from(payload,"base64url").toString()) as Partial<SessionPayload>;if(typeof value.exp!=="number"||value.exp<=Math.floor(now/1000))return null;/* Old owner cookies remain valid. */return {exp:value.exp,principalType:value.principalType==="user"?"user":"owner",userId:value.userId}}catch{return null}}
+function desktopSessionBinding() {
+ const token=process.env.ALKARNA_DESKTOP_TOKEN;
+ // Never put the desktop API token itself in a readable cookie payload.
+ return process.env.ALKARNA_DESKTOP==="1"&&token?digest(`desktop-session:${token}`):undefined;
+}
+export function createSession(principal:{principalType:"owner"|"user";userId?:string}={principalType:"owner"},now=Date.now()) {
+ const desktopRun=desktopSessionBinding();
+ const payload=Buffer.from(JSON.stringify({...principal,exp:Math.floor(now/1000)+MAX_AGE,...(desktopRun?{desktopRun}:{})})).toString("base64url");
+ return `${payload}.${digest(payload)}`;
+}
+function parseSession(token?:string|null,now=Date.now()):SessionPayload|null {
+ if(!token)return null;
+ const [payload,signature,extra]=token.split(".");
+ if(!payload||!signature||extra)return null;
+ const expected=Buffer.from(digest(payload)),actual=Buffer.from(signature);
+ if(actual.length!==expected.length||!timingSafeEqual(actual,expected))return null;
+ try {
+  const value=JSON.parse(Buffer.from(payload,"base64url").toString()) as Partial<SessionPayload>;
+  if(typeof value.exp!=="number"||!Number.isFinite(value.exp))return null;
+  if(value.desktopRun!==undefined) {
+   // The desktop launcher supplies a fresh random token and clears the login
+   // cookie on every launch. A session lasts for that launch, including idle time.
+   const currentRun=desktopSessionBinding();
+   if(typeof value.desktopRun!=="string"||!currentRun||value.desktopRun!==currentRun)return null;
+  } else if(value.exp<=Math.floor(now/1000))return null;
+  return {exp:value.exp,principalType:value.principalType==="user"?"user":"owner",userId:value.userId,...(value.desktopRun?{desktopRun:value.desktopRun}:{})};
+ } catch {return null}
+}
 export function verifySession(token?:string|null,now=Date.now()){return parseSession(token,now)!==null}
 function tokenFromRequest(request:Request){const cookie=request.headers.get("cookie")??"";return cookie.split(";").map(v=>v.trim()).find(v=>v.startsWith(`${SESSION_COOKIE}=`))?.slice(SESSION_COOKIE.length+1)}
 export function sessionFromRequest(request:Request){return parseSession(tokenFromRequest(request))}
@@ -30,6 +56,6 @@ export function hasCapability(principal:Principal|null,capability:Capability){re
 export async function requireCapability(request:Request,capability:Capability){const principal=await getPrincipalFromRequest(request);if(!principal)return Response.json({error:"غير مصرح أو انتهت صلاحية المستخدم"},{status:401});if(!hasCapability(principal,capability))return Response.json({error:"ليس لديك صلاحية تنفيذ هذه العملية"},{status:403});return null}
 export function normalizeUsername(value:string){return value.trim().toLocaleLowerCase("en-US")}
 export function validSameOrigin(request:Request){const origin=request.headers.get("origin"),host=request.headers.get("x-forwarded-host")??request.headers.get("host");if(!origin||!host)return false;try{const parsed=new URL(origin);if(process.env.ALKARNA_DESKTOP==="1")return parsed.protocol==="http:"&&parsed.hostname==="127.0.0.1"&&parsed.host===host;const proto=request.headers.get("x-forwarded-proto")??(process.env.NODE_ENV==="production"?"https":"http");return parsed.origin===`${proto}://${host}`}catch{return false}}
-// Keep the signed token expiry as a server-side safety bound, but make the
-// browser cookie session-only so a closed desktop app cannot stay signed in.
+// Web sessions retain their signed expiry; desktop sessions are launch-bound.
+// The browser cookie remains session-only and is removed by the desktop launcher.
 export const sessionCookieOptions="Path=/; HttpOnly; SameSite=Strict";

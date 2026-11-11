@@ -15,15 +15,16 @@ export function perfumeBatchStatus(lot: Pick<PerfumeLot, "stocks" | "settledAt" 
   return perfumeBatchQuantity(lot) > 1e-9 ? "active" : "ended";
 }
 
-/** Groups presentation only; every original row and its independent lot remain intact. */
-export function groupPerfumeBatches<T extends { lot: PerfumeLot }>(rows: readonly T[], showEnded = false): {
+/** Selects one balance view only; grouping never changes the original independent lots. */
+export function groupPerfumeBatches<T extends { lot: PerfumeLot }>(rows: readonly T[], showClosed = false): {
   sourceProductId: string;
   sourceProductName: string;
   batches: T[];
 }[] {
   const groups = new Map<string, { sourceProductId: string; sourceProductName: string; batches: T[] }>();
   for (const row of rows) {
-    if (!showEnded && perfumeBatchQuantity(row.lot) <= 1e-9) continue;
+    const closed = perfumeBatchQuantity(row.lot) <= 1e-9;
+    if (closed !== showClosed) continue;
     const sourceProductId = String(row.lot.sourceProductId ?? "");
     // Missing legacy source identities must never merge unrelated lots by name.
     const key = sourceProductId || `lot:${row.lot.id}`;

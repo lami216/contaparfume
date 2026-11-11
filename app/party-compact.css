@@ -1,0 +1,147 @@
+.parties-workspace .parties-controls {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.parties-workspace .parties-search-row {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.parties-workspace .parties-search-row > .compact-search {
+  min-width: 140px;
+  flex: 0 1 300px;
+}
+
+.parties-workspace .party-create-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 5px 10px;
+  white-space: nowrap;
+}
+
+.parties-workspace .party-create-toggle svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.parties-workspace .parties-create {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(150px, 1fr) minmax(130px, 200px) auto auto;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.parties-workspace .parties-create > input {
+  width: 100%;
+  min-width: 0;
+}
+
+.parties-workspace .parties-create .party-opening-create {
+  display: contents;
+}
+
+.parties-workspace .parties-create .party-opening-toggle {
+  gap: 5px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.parties-workspace .parties-create .party-opening-toggle input {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  flex: 0 0 auto;
+}
+
+.parties-workspace .parties-create .party-opening-fields {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  grid-template-columns: minmax(160px, 220px) minmax(100px, 160px) minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+}
+
+.parties-workspace .parties-create > button {
+  justify-self: end;
+  padding-inline: 12px;
+  white-space: nowrap;
+}
+
+.party-edit-dialog {
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+}
+
+.party-edit-dialog .party-edit-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.report-filters > .party-ledger-filter {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(110px, 140px) minmax(180px, 320px);
+  gap: 6px;
+}
+
+.party-ledger-filter .party-ledger-role-select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  min-height: 34px;
+  padding: 4px 8px;
+}
+
+.party-ledger-filter .combobox {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .parties-workspace .parties-create {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .parties-workspace .parties-create .party-opening-fields {
+    grid-row: auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .parties-workspace .parties-create .party-opening-fields > label:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 460px) {
+  .parties-workspace .parties-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .parties-workspace .party-create-toggle {
+    justify-self: start;
+  }
+
+  .parties-workspace .parties-create,
+  .parties-workspace .parties-create .party-opening-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .parties-workspace .parties-create > button {
+    justify-self: start;
+  }
+
+  .report-filters > .party-ledger-filter {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

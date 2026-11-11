@@ -38,13 +38,13 @@ async function until(check, description, milliseconds = 20000) {
   throw new Error("Timed out waiting for " + description);
 }
 const result = {
-  status: "running", mode: "Actual React employee component and real command/bootstrap routes in an isolated CI profile",
+  status: "running", mode: "Actual React employee, perfume, parties and party-ledger report components with real application routes in an isolated CI profile",
   ciOnly: true, licenseBypass: "test-only CI", screenshots: [], checkpoints: [],
 };
-let database, closeDatabase, server, chrome, cdp;
+let database, closeDatabase, server, chrome, cdp, browserBundle;
 
 async function connectCdp(url) {
-  const socket = new WebSocket(url), pending = new Map(), errors = [];
+  const socket = new WebSocket(url), pending = new Map(), errors = [], consoleMessages = [], network = [];
   let sequence = 0;
   await new Promise((resolve, reject) => {
     socket.addEventListener("open", resolve, { once: true });
@@ -53,6 +53,9 @@ async function connectCdp(url) {
   socket.addEventListener("message", event => {
     const message = JSON.parse(String(event.data));
     if (message.method === "Runtime.exceptionThrown") errors.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text);
+    if (message.method === "Runtime.consoleAPICalled") consoleMessages.push({type:message.params.type,args:message.params.args.map(argument=>argument.value??argument.description)});
+    if (message.method === "Network.responseReceived") network.push({url:message.params.response.url,status:message.params.response.status});
+    if (message.method === "Network.loadingFailed") network.push({requestId:message.params.requestId,error:message.params.errorText});
     const request = pending.get(message.id);
     if (!request) return;
     pending.delete(message.id);
@@ -67,7 +70,7 @@ async function connectCdp(url) {
     socket.send(JSON.stringify({ id, method, params }));
   });
   return {
-    call, errors, close: () => socket.close(),
+    call, errors, consoleMessages, network, close: () => socket.close(),
     async evaluate(expression) {
       const response = await call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
       if (response.exceptionDetails) throw new Error(JSON.stringify(response.exceptionDetails));
@@ -87,6 +90,8 @@ async function main() {
   await database.collection("paymentAccounts").updateOne({ id: account.id }, { $set: { balance: 1000, openingBalance: 1000, isActive: true } });
   const { execute, POST } = await import("../app/api/command/route.ts");
   const { GET } = await import("../app/api/bootstrap/route.ts");
+  const { GET: historyGET } = await import("../app/api/history/route.ts");
+  const { GET: reportsGET } = await import("../app/api/reports/route.ts");
   const bootstrapCheck = await GET(new Request("http://127.0.0.1:3219/api/bootstrap"));
   assert.equal(bootstrapCheck.status, 200, await bootstrapCheck.text());
   const date = new Date().toISOString().slice(0, 10);
@@ -96,35 +101,58 @@ async function main() {
   }));
 
   const entry = `
-    import React,{useCallback,useEffect,useState} from "react";
+    import React,{useCallback,useEffect,useRef,useState} from "react";
     import{createRoot}from"react-dom/client";
     import EmployeesPage from "./app/employees-page";
-    import{LocaleProvider}from"./app/i18n/provider";
-    import{ConfirmationProvider}from"./app/app-confirm";
+    import DecantInvoicesPage from "./app/decant-invoices-page";
+    import{Parties,PartyPage,Reports}from"./app/conta-app";
+    import{LocaleProvider,useI18n}from"./app/i18n/provider";
+    import{ConfirmationProvider,useAppConfirm}from"./app/app-confirm";
+    import{requestEditorReplacement}from"./app/editor-replacement";
+    import{finishSuccessfulCommand}from"./app/command-lifecycle";
+    import{tr}from"./app/i18n/messages";
     function Shell(){
-      const[data,setData]=useState(null),[sourceId,setSourceId]=useState(${JSON.stringify(employeeId)});
-      const register=useCallback(()=>{},[]);
-      useEffect(()=>{fetch("/api/bootstrap").then(r=>r.json()).then(setData)},[]);
-      const run=async body=>{
-        window.__payrollBusy=true;
+      const[data,setData]=useState(null),[sourceId,setSourceId]=useState(${JSON.stringify(employeeId)}),[view,setView]=useState("employees");
+      const[selectedPartyId,setSelectedPartyId]=useState(null),editorGuard=useRef(null),pending=useRef(false);
+      const{setLocale}=useI18n(),confirmAction=useAppConfirm();
+      const register=useCallback(guard=>{editorGuard.current=guard},[]);
+      const prepare=()=>requestEditorReplacement({hasPendingCommands:()=>pending.current,getGuard:()=>editorGuard.current,confirmDiscard:()=>confirmAction({message:tr("لديك تعديلات غير محفوظة. هل تريد تجاهلها والانتقال؟")}),onPending:()=>{window.__smokePendingBlocked=true}});
+      const refresh=async()=>{const response=await fetch("/api/bootstrap"),value=await response.json();if(!response.ok)throw new Error(value.error||"Bootstrap failed");setData(value)};
+      useEffect(()=>{void refresh().catch(error=>{window.__smokeError=error.stack;console.error(error)})},[]);
+      useEffect(()=>{
+        window.__smokeSetView=async next=>{if(!await prepare())return false;await refresh();setView(next);document.getElementById("root").className="app-shell section-"+(next==="perfume"?"decantInvoices":next==="party-ledger"?"reports":next==="party-detail"?"customers":next);return true};
+        window.__smokeSetLocale=setLocale;
+        return()=>{delete window.__smokeSetView;delete window.__smokeSetLocale};
+      },[setLocale]);
+      const run=async(body,_message,afterSuccess)=>{
+        window.__payrollBusy=true;pending.current=true;
         try{
           const response=await fetch("/api/command",{method:"POST",headers:{"content-type":"application/json","Idempotency-Key":crypto.randomUUID()},body:JSON.stringify(body)});
           const value=await response.json();if(!response.ok)throw new Error(value.error);
-          const fresh=await fetch("/api/bootstrap");setData(await fresh.json());
+          await finishSuccessfulCommand(afterSuccess,refresh);
           window.__lastPayrollResult=value;return value.id;
-        }finally{window.__payrollBusy=false}
+        }finally{window.__payrollBusy=false;pending.current=false}
       };
-      return data?<EmployeesPage data={data} run={run} openDoc={id=>{window.__openedPayrollDocument=id}} sourceId={sourceId} clearSource={()=>setSourceId(null)} registerEditorGuard={register}/>:<p>Loading</p>;
+      if(!data)return <p>Loading</p>;
+      const openDoc=id=>{window.__openedPayrollDocument=id};
+      if(view==="customers"||view==="suppliers")return <Parties key={view} partyType={view==="customers"?"customer":"supplier"} data={data} run={run} openParty={party=>{window.__openedParty=party.id;setSelectedPartyId(party.id);setView("party-detail")}} canEdit canDelete registerEditorGuard={register} prepareEditorReplacement={prepare}/>;
+      if(view==="party-detail"){const party=data.parties.find(row=>row.id===selectedPartyId);return party?<PartyPage key={party.id} party={party} data={data} run={run} openDoc={openDoc} editRequest={null} clearEditRequest={()=>{}} registerEditorGuard={register} prepareEditorReplacement={prepare}/>:<p>Missing synthetic party</p>}
+      if(view==="party-ledger")return <Reports data={data} openDoc={openDoc} openSource={target=>{window.__openedReportSource=target}} type="party-ledger" sourceRequest={null} clearSourceRequest={()=>{}}/>;
+      return view==="perfume"?<DecantInvoicesPage data={data} run={run} openDoc={id=>{window.__openedPerfumeDocument=id}} requestPrint={id=>{window.__printedPerfumeDocument=id}}/>:<EmployeesPage data={data} run={run} openDoc={id=>{window.__openedPayrollDocument=id}} sourceId={sourceId} clearSource={()=>setSourceId(null)} registerEditorGuard={register}/>;
     }
     createRoot(document.getElementById("root")).render(<LocaleProvider initialLocale="ar"><ConfirmationProvider><Shell/></ConfirmationProvider></LocaleProvider>);
   `;
   const bundled = await build({
     absWorkingDir: source, stdin: { contents: entry, resolveDir: source, loader: "tsx" },
     bundle: true, platform: "browser", format: "iife", write: false, jsx: "automatic",
+    plugins:[{name:"ci-only-component-exports",setup(builder){builder.onLoad({filter:/[\\/]app[\\/]conta-app\.tsx$/},args=>({contents:fs.readFileSync(args.path,"utf8")+"\nexport { Parties, PartyPage, Reports };\n",loader:"tsx",resolveDir:path.dirname(args.path)}))}}],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
   });
   const script = bundled.outputFiles[0].contents;
-  const css = fs.readFileSync(path.join(source, "app", "globals.css"), "utf8").replace(/^[ \t]*@import[^\r\n]*;[ \t]*(?:\r?\n|$)/gm, "");
+  browserBundle=script;
+  const styles=[...fs.readFileSync(path.join(source,"app","layout.tsx"),"utf8").matchAll(/^import "\.\/([^"\r\n]+\.css)";/gm)].map(match=>match[1]);
+  assert(styles.includes("globals.css")&&styles.includes("perfume-context.css"),"Use the actual application theme imports");
+  const css = styles.map(name=>fs.readFileSync(path.join(source,"app",name),"utf8")).join("\n").replace(/^[ \t]*@import[^\r\n]*;[ \t]*(?:\r?\n|$)/gm, "");
   server = http.createServer(async (request, response) => {
     try {
       if (request.url === "/app.js") { response.writeHead(200, { "content-type": "text/javascript" }); response.end(script); return; }
@@ -147,6 +175,8 @@ async function main() {
         ...(request.method === "POST" ? { body: Buffer.concat(chunks) } : {}),
       });
       const value = request.url === "/api/bootstrap" ? await GET(webRequest) :
+        request.url.startsWith("/api/history?") ? await historyGET(webRequest) :
+        request.url.startsWith("/api/reports?") ? await reportsGET(webRequest) :
         request.url === "/api/command" ? await POST(webRequest) : new Response("Not found", { status: 404 });
       response.writeHead(value.status, Object.fromEntries(value.headers));
       response.end(Buffer.from(await value.arrayBuffer()));
@@ -170,6 +200,7 @@ async function main() {
   cdp = await connectCdp(targets.find(target => target.type === "page").webSocketDebuggerUrl);
   await cdp.call("Page.enable");
   await cdp.call("Runtime.enable");
+  await cdp.call("Network.enable");
   await cdp.call("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
   await cdp.call("Page.navigate", { url: base });
   await until(() => cdp.evaluate('Boolean(document.querySelector(".employee-payment-panel"))'), "employee account");
@@ -207,6 +238,13 @@ async function main() {
   async function screenshot(name, width) {
     await cdp.call("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
     await cdp.evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
+    assert.equal(await cdp.evaluate("document.documentElement.scrollWidth>innerWidth+1"),false,"No page-level horizontal overflow");
+    const capture = await cdp.call("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+    fs.writeFileSync(path.join(output, name + ".png"), Buffer.from(capture.data, "base64"));
+    result.screenshots.push(name + ".png");
+  }
+  async function employeeScreenshot(name,width) {
+    await screenshot(name,width);
     const layout = await cdp.evaluate(`(()=>{
       const box=selector=>{const r=document.querySelector(selector).getBoundingClientRect();return{x:r.x,right:r.right,y:r.y,bottom:r.bottom}};
       return{list:box(".employees-list"),history:box(".employees-history"),account:box(".employees-account"),overflow:document.documentElement.scrollWidth>innerWidth+1};
@@ -216,9 +254,6 @@ async function main() {
       assert(layout.history.y >= layout.list.bottom - 1);
       assert(layout.history.right <= layout.account.x + 1 || layout.account.right <= layout.history.x + 1);
     }
-    const capture = await cdp.call("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
-    fs.writeFileSync(path.join(output, name + ".png"), Buffer.from(capture.data, "base64"));
-    result.screenshots.push(name + ".png");
   }
   await expectState(100, 1000);
   await cdp.evaluate('document.querySelector(".employee-payment-panel select").focus()');
@@ -233,7 +268,7 @@ async function main() {
   await expectState(-50, 850);
   assert(await cdp.evaluate('document.querySelector(".employee-balance").textContent.includes("مستحق على العامل")'));
   const withdrawal = (await state()).documents.find(document => document.kind === "employee-payment");
-  await screenshot("withdrawal-1280", 1280);
+  await employeeScreenshot("withdrawal-1280", 1280);
   result.checkpoints.push("Actual UI withdrawal150 exceeds accrued100, cash850 and signed worker balance-50");
   await fill("نوع الحركة", "deposit");
   await fill("المبلغ", 30);
@@ -242,7 +277,7 @@ async function main() {
   await expectState(-20, 880);
   const deposit = (await state()).documents.find(document => document.employeePaymentDirection === "deposit");
   assert(deposit);
-  await screenshot("deposit-760", 760);
+  await employeeScreenshot("deposit-760", 760);
   result.checkpoints.push("Actual UI deposit30 increases cash and worker balance");
   await fill("المبلغ", 7);
   await cdp.evaluate("window.__payrollUi.action(" + JSON.stringify(deposit.number) + ',"تعديل")');
@@ -270,13 +305,116 @@ async function main() {
     const saved = (await state()).documents.find(row => row.id === document.id);
     assert.equal(saved.status, "voided");
   }
-  await screenshot("after-voids-1280", 1280);
+  await employeeScreenshot("after-voids-1280", 1280);
   result.checkpoints.push("Both void actions restore their original effects once, leaving accrual100 and cash1000");
   const final = await state();
   assert.equal(final.documents.filter(document => document.kind === "employee-accrual" && document.status === "posted").length, 1);
   assert.equal(final.documents.filter(document => document.kind === "employee-payment" && document.status === "posted").length, 0);
+  const command=async body=>{
+    const response=await fetch(base+"/api/command",{method:"POST",headers:{"content-type":"application/json",Origin:base,"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify(body)}),value=await response.json();
+    assert.equal(response.status,200,JSON.stringify(value));return value.id;
+  };
+  await perfumeScenarios({database,command,screenshot});
+  await cdp.evaluate('window.__smokeSetLocale("ar")');
+  await until(()=>cdp.evaluate('document.documentElement.lang==="ar"'),"Arabic party scenario locale");
+  const {runPartiesReportScenarios}=await import("./parties-ui-scenarios.mjs");
+  result.partyReports=await runPartiesReportScenarios({cdp,origin:base,command,database,screenshot});
+  result.checkpoints.push(...result.partyReports.checkpoints);
   assert.deepEqual(cdp.errors, []);
   result.status = "passed";
+}
+
+async function perfumeScenarios({database,command,screenshot}) {
+  const warehouse=await database.collection("warehouses").findOne({isArchived:{$ne:true}});
+  assert(warehouse,"Synthetic profile has a warehouse");
+  const warehouseId=String(warehouse._id??warehouse.id);
+  const sourceId=await command({type:"product.create",name:"عطر اختبار الدفعات",pieceCost:1000,piecePrice:1500,openingStock:2,openingWarehouseId:warehouseId});
+  const oldConversion=await command({type:"perfume-split.post",sourceProductId:sourceId,warehouseId,volumeMl:100,salePrice:150,priceBasisMl:10});
+  const old=await database.collection("documents").findOne({id:oldConversion});
+  await command({type:"perfume-lot-consume.post",decantProductId:old.decantProductId,lotId:old.perfumeLotId,warehouseId,quantity:100,reasonCode:"samples",reason:"Synthetic exhausted batch"});
+  const newConversion=await command({type:"perfume-split.post",sourceProductId:sourceId,warehouseId,volumeMl:100,salePrice:150,priceBasisMl:10});
+  const current=await database.collection("documents").findOne({id:newConversion});
+  const openingSourceId=await command({type:"product.create",name:"عطر افتتاحي تجريبي",pieceCost:1000,piecePrice:1500,openingStock:0});
+  const beforeBrowsing=await Promise.all(["products","documents","stockMovements","financialMovements","paymentAccounts"].map(name=>database.collection(name).find().toArray()));
+  await cdp.call("Emulation.setDeviceMetricsOverride",{width:1280,height:900,deviceScaleFactor:1,mobile:false});
+  await cdp.evaluate('window.__smokeSetView("perfume")');
+  await until(()=>cdp.evaluate('Boolean(document.querySelector(".decant-invoices-hub"))'),"real perfume invoice hub");
+  await cdp.evaluate('document.querySelectorAll(".decant-invoice-mode-tabs [role=tab]")[2].click()');
+  await until(()=>cdp.evaluate('Boolean(document.querySelector(".pm-register .pm-check input[type=checkbox]"))'),"batch view control");
+  const batchIds=()=>cdp.evaluate('Array.from(document.querySelectorAll(".pm-register:not(.pm-stock-register) tbody td[title]")).map(td=>td.title.split(" · ").at(-1))');
+  await until(async()=>JSON.stringify(await batchIds())===JSON.stringify([current.perfumeLotId]),"open batches only");
+  await screenshot("perfume-open-batches-1280",1280);
+  await cdp.evaluate('document.querySelector(".pm-register .pm-check input[type=checkbox]").click()');
+  await until(async()=>JSON.stringify(await batchIds())===JSON.stringify([old.perfumeLotId]),"closed batches only");
+  await screenshot("perfume-closed-batches-1280",1280);
+  await cdp.evaluate('document.querySelector(".pm-register .pm-check input[type=checkbox]").click()');
+  await until(async()=>JSON.stringify(await batchIds())===JSON.stringify([current.perfumeLotId]),"return to open batches only");
+  assert.deepEqual(await Promise.all(["products","documents","stockMovements","financialMovements","paymentAccounts"].map(name=>database.collection(name).find().toArray())),beforeBrowsing,"Batch filtering is read-only");
+  result.checkpoints.push("Real batch checkbox switches exclusively between an exhausted lot and the latest open100ml lot without changing data");
+
+  await cdp.evaluate('document.querySelectorAll(".decant-invoice-mode-tabs [role=tab]")[3].click()');
+  await until(()=>cdp.evaluate('Boolean(document.querySelector(".pm-opening-grid"))'),"compact opening form");
+  await cdp.evaluate(`
+    window.__perfumeUi={
+      fill(label,value){
+        const row=[...document.querySelectorAll(".pm-fields label")].find(element=>element.firstChild.textContent.trim()===label);
+        if(!row)throw new Error("Missing perfume field "+label);
+        const field=row.querySelector("input,select");
+        const prototype=field.tagName==="SELECT"?HTMLSelectElement.prototype:HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(prototype,"value").set.call(field,value);
+        field.dispatchEvent(new Event("input",{bubbles:true}));field.dispatchEvent(new Event("change",{bubbles:true}));
+      },
+      search(value){
+        const input=document.querySelector(".pm-editor .perfume-product-search input");input.focus();
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(input,value);
+        input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}));
+      }
+    };
+  `);
+  await cdp.evaluate('window.__perfumeUi.search("عطر افتتاحي تجريبي")');
+  await until(()=>cdp.evaluate('Array.from(document.querySelectorAll(".pm-editor .perfume-product-results [role=option]")).some(button=>button.textContent.includes("عطر افتتاحي تجريبي"))'),"opening perfume search");
+  await cdp.evaluate('Array.from(document.querySelectorAll(".pm-editor .perfume-product-results [role=option]")).find(button=>button.textContent.includes("عطر افتتاحي تجريبي")).click()');
+  for(const [label,value] of [["حجم العطر الأصلي بالمل",100],["المتبقي الفعلي بالمل",40],["سعر البيع للتقسيمة",150]]) {
+    await cdp.evaluate("window.__perfumeUi.fill("+JSON.stringify(label)+","+JSON.stringify(String(value))+")");
+  }
+  await until(()=>cdp.evaluate('document.querySelector(".pm-opening-value input").value.includes("400")'),"automatic opening value400");
+  const openingLayout=await cdp.evaluate(`(()=>{
+    const fields=[...document.querySelectorAll(".pm-opening-grid label")].map(label=>{const r=label.getBoundingClientRect();return{y:r.y,right:r.right,x:r.x,width:r.width}});
+    return{fields,overflow:document.documentElement.scrollWidth>innerWidth+1};
+  })()`);
+  assert.equal(openingLayout.fields.length,4);
+  assert(Math.abs(openingLayout.fields[0].y-openingLayout.fields[1].y)<2,"Original and remaining volumes share a compact row");
+  assert(Math.abs(openingLayout.fields[2].y-openingLayout.fields[3].y)<2,"Sale price and computed value share a compact row");
+  assert.equal(openingLayout.overflow,false);
+  await screenshot("perfume-opening-form-1280",1280);
+  await screenshot("perfume-opening-form-760",760);
+  await cdp.evaluate('document.querySelector(".pm-form-actions button[type=submit]").click()');
+  let opening;
+  await until(async()=>{opening=await database.collection("documents").findOne({sourceProductId:openingSourceId,perfumeStockOperationType:"opening",status:"posted"});return Boolean(opening)},"opening committed through actual UI");
+  assert.equal(opening.stockDelta,40);
+  assert.equal(opening.bookValueAfter,400);
+  assert.equal(opening.openingBottleCost,1000);
+  assert.equal((await database.collection("products").findOne({id:openingSourceId})).openingStock,0);
+  const accountBefore=beforeBrowsing[4].find(account=>account.code==="cash"),accountAfter=await database.collection("paymentAccounts").findOne({id:accountBefore.id});
+  assert.equal(accountAfter.balance,accountBefore.balance,"Old-opened declaration does not move cash");
+  const transitionSelector='.pm-stock-register tbody tr .pm-stock-transition';
+  await until(()=>cdp.evaluate('Boolean(document.querySelector('+JSON.stringify(transitionSelector)+'))'),"opening history through real history API");
+  const historyBeforeLocale=await Promise.all(["products","documents","stockMovements","financialMovements","paymentAccounts"].map(name=>database.collection(name).find().toArray()));
+  for(const [locale,width] of [["ar",1280],["ar",760],["fr",1280],["fr",760]]) {
+    await cdp.evaluate("window.__smokeSetLocale("+JSON.stringify(locale)+")");
+    await until(()=>cdp.evaluate("document.documentElement.lang==="+JSON.stringify(locale)),"perfume locale "+locale);
+    await cdp.call("Emulation.setDeviceMetricsOverride",{width,height:900,deviceScaleFactor:1,mobile:false});
+    const transition=await cdp.evaluate(`(()=>{
+      const element=document.querySelector(${JSON.stringify(transitionSelector)}),values=element.querySelectorAll("bdi"),before=values[0].getBoundingClientRect(),after=values[1].getBoundingClientRect();
+      return{before:values[0].textContent,after:values[1].textContent,beforeX:before.x,afterRight:after.right,arrow:element.children[1].textContent,dir:document.documentElement.dir};
+    })()`);
+    assert.equal(transition.before,"0");assert.equal(transition.after,"40");
+    assert(transition.beforeX>transition.afterRight,"Before0 remains physically RIGHT of after40 in "+locale);
+    assert.equal(transition.arrow,"←");assert.equal(transition.dir,locale==="ar"?"rtl":"ltr");
+    await screenshot("perfume-opening-history-"+locale+"-"+width,width);
+  }
+  assert.deepEqual(await Promise.all(["products","documents","stockMovements","financialMovements","paymentAccounts"].map(name=>database.collection(name).find().toArray())),historyBeforeLocale,"Locale/layout changes preserve all business records");
+  result.checkpoints.push("Actual opening UI saves40of100ml at cost1000/value400 without cash, then shows before0 RIGHT/left-arrow/after40 LEFT at1280 and760 in Arabic and French");
 }
 
 try {
@@ -285,6 +423,9 @@ try {
   result.status = "failed";
   result.error = error.stack;
   result.browserErrors = cdp?.errors ?? [];
+  result.browserConsole = cdp?.consoleMessages ?? [];
+  result.browserNetwork = cdp?.network ?? [];
+  if(browserBundle)fs.writeFileSync(path.join(output,"bundle.js"),browserBundle);
   if (cdp) {
     try {
       const screenshot = await cdp.call("Page.captureScreenshot", { format: "png" });

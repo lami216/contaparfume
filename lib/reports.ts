@@ -24,7 +24,7 @@ const REPORT_SORT_KEYS: Record<ReportType, Set<string>> = {
   stock:new Set(["occurredAt","product","warehouse","unit","movementType","before","change","after","documentNumber"]),
   profit:new Set(["number","occurredAt","product","quantity","revenue","cost","profit","margin","invoiceCount"]),
   debts:new Set(["name","accountType","phone","balance","lastMovement"]),
-  "party-ledger":new Set(["occurredAt","movementType","documentNumber","description","debit","credit","paymentMethod"]),
+  "party-ledger":new Set(["occurredAt","movementType","documentNumber","description","debit","credit","runningBalance","paymentMethod"]),
   financial:new Set(["occurredAt","paymentMethod","movementType","incoming","outgoing","party","documentNumber"]),
   expenses:new Set(["occurredAt","title","expenseCategory","paymentMethod","total","number"]),
 };

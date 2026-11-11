@@ -1,4 +1,6 @@
 export const arMessages = {
+  "إضافة عميل جديد": "إضافة عميل جديد",
+  "إضافة مورد جديد": "إضافة مورد جديد",
   "اختر العامل أولاً": "اختر العامل أولاً",
   "حقوق العمال غير المصروفة": "حقوق العمال غير المصروفة",
   "مصروف أجور العمال": "مصروف أجور العمال",
@@ -102,7 +104,8 @@ export const arMessages = {
   "ac.reason.sale": "بيانات البيع تحتاج مراجعة",
   "ac.reason.proven": "يوجد سند سابق مؤكد يمكن اعتماده",
   "pc.liquidLoss": "خسارة السائل",
-  "pc.showEnded": "إظهار الدفعات المنتهية",
+  "pc.showEnded": "الدفعات المنتهية فقط",
+  "pc.noClosedBatches": "لا توجد دفعات منتهية لعرضها",
   "pc.exhausted": "نفد رصيدها",
   "pc.batchDetails": "عرض الدفعات",
   "pc.collapseBatches": "طي الدفعات",
@@ -1473,6 +1476,8 @@ export type MessageKey = keyof typeof arMessages;
 export type TranslationParams = Record<string, string | number>;
 
 export const frMessages: Record<MessageKey, string> = {
+  "إضافة عميل جديد": "Ajouter un client",
+  "إضافة مورد جديد": "Ajouter un fournisseur",
   "اختر العامل أولاً": "Choisissez d’abord le salarié",
   "حقوق العمال غير المصروفة": "Salaires dus non retirés",
   "مصروف أجور العمال": "Charge salariale réglée",
@@ -1576,7 +1581,8 @@ export const frMessages: Record<MessageKey, string> = {
   "ac.reason.sale": "Données de vente à vérifier",
   "ac.reason.proven": "Un document antérieur confirmé peut être validé",
   "pc.liquidLoss": "Perte de liquide",
-  "pc.showEnded": "Afficher les lots terminés",
+  "pc.showEnded": "Lots terminés uniquement",
+  "pc.noClosedBatches": "Aucun lot terminé à afficher",
   "pc.exhausted": "Stock épuisé",
   "pc.batchDetails": "Voir les lots",
   "pc.collapseBatches": "Replier les lots",

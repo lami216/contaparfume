@@ -30,7 +30,7 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
       - run: npx tsc --noEmit
-      - name: Exercise worker account UI on isolated synthetic data
+      - name: Exercise worker, perfume, party and report UI on isolated synthetic data
         run: node --import tsx --test scripts/payroll-ui-smoke.mjs
       - name: Upload worker UI evidence
         if: always()

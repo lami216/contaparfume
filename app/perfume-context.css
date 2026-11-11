@@ -28,3 +28,43 @@
 .perfume-management-page .pm-source-blocked strong { display:block; width:100%; font-weight:600; }
 .perfume-management-page .pm-source-actions { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
 @media(max-width:1000px) { .decant-invoices-hub .decant-invoice-mode-help { flex-basis:100%; } }
+
+/* Keep the physical before/after order stable in both application languages. */
+.perfume-management-page .pm-stock-transition {
+  display:inline-flex; flex-direction:row-reverse; direction:ltr; unicode-bidi:isolate;
+  align-items:center; justify-content:center; gap:7px; white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.perfume-management-page .pm-stock-transition > * { flex:0 0 auto; }
+.perfume-management-page .pm-opening-grid {
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px;
+  min-width:0; align-items:start;
+}
+.perfume-management-page .pm-opening-valuation {
+  display:grid; gap:3px; padding:6px 8px; border:1px solid var(--border);
+  border-radius:5px; background:var(--section-soft); font-size:10px; line-height:1.5;
+}
+.perfume-management-page .pm-opening-valuation > span { overflow-wrap:anywhere; }
+.perfume-management-page .pm-opening-value input { text-overflow:ellipsis; }
+.perfume-management-page .pm-kind-tabs > .selection-option {
+  flex:1 1 85px; min-width:0; height:auto; min-height:28px;
+  white-space:normal; overflow-wrap:anywhere; line-height:1.4; padding:4px 6px;
+}
+.perfume-management-page .pm-form-actions > button {
+  max-width:100%; height:auto; min-height:28px; white-space:normal;
+  overflow-wrap:anywhere; line-height:1.4;
+}
+.perfume-management-page .pm-register .pm-check { white-space:normal; }
+.perfume-management-page .pm-stock-register th:first-child { width:145px; }
+.perfume-management-page .pm-stock-register .pm-row-actions .pm-icon-action {
+  display:inline-flex; align-items:center; justify-content:center; flex:0 0 26px;
+  width:26px; height:26px; min-height:26px; padding:4px;
+}
+.perfume-management-page .pm-stock-register .pm-icon-action svg { width:14px; height:14px; flex:none; }
+.perfume-management-page .pm-source-actions > span { min-width:0; overflow-wrap:anywhere; }
+.perfume-management-page .pm-source-actions > button {
+  max-width:100%; height:auto; min-height:28px; white-space:normal; overflow-wrap:anywhere;
+}
+@media(max-width:420px) {
+  .perfume-management-page .pm-opening-grid { grid-template-columns:minmax(0,1fr); }
+}

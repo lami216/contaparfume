@@ -1,5 +1,12 @@
 export type ApiPayload = Record<string, unknown>;
 
+/** Only a genuine authentication failure sends the user back to sign in. */
+export function redirectExpiredSession(response: Response): void {
+  if (response.status === 401 && typeof window !== "undefined" && window.location.pathname !== "/login") {
+    window.location.assign("/login");
+  }
+}
+
 const statusMessage = (status: number) => {
   if (status === 413) return "حجم الملف تجاوز الحد المسموح به في خادم الويب.";
   if (status === 404) return "مسار الاستيراد غير متاح في النسخة الحالية.";
@@ -12,6 +19,7 @@ const statusMessage = (status: number) => {
 
 /** Parses API responses without ever exposing proxy HTML or JSON parser errors. */
 export async function readApiResponse(response: Response): Promise<ApiPayload> {
+  redirectExpiredSession(response);
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
   const body = await response.text();
   let payload: ApiPayload = {};
