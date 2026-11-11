@@ -32,7 +32,12 @@
 
 .parties-workspace .parties-create {
   grid-column: 1 / -1;
-  grid-template-columns: minmax(150px, 1fr) minmax(130px, 200px) auto auto;
+  grid-template-columns: minmax(150px, 300px) minmax(130px, 180px) max-content max-content;
+  width: 100%;
+  max-width: 800px;
+  min-width: 0;
+  justify-self: start;
+  justify-content: start;
   align-items: center;
   gap: 8px;
   border-top: 1px solid var(--line);

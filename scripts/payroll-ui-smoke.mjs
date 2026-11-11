@@ -239,6 +239,16 @@ async function main() {
     await cdp.call("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
     await cdp.evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
     assert.equal(await cdp.evaluate("document.documentElement.scrollWidth>innerWidth+1"),false,"No page-level horizontal overflow");
+    if(width<=1000&&await cdp.evaluate('Boolean(document.querySelector(".decant-invoice-modebar"))')) {
+      const modebar=await cdp.evaluate(`(()=>{
+        const bar=document.querySelector(".decant-invoice-modebar").getBoundingClientRect(),tabs=document.querySelector(".decant-invoice-mode-tabs").getBoundingClientRect(),help=document.querySelector(".decant-invoice-mode-help"),box=help.getBoundingClientRect(),range=document.createRange();range.selectNodeContents(help);
+        return{width:innerWidth,bar:{left:bar.left,right:bar.right,bottom:bar.bottom},tabsBottom:tabs.bottom,help:{left:box.left,right:box.right,top:box.top,bottom:box.bottom},textInside:[...range.getClientRects()].every(rect=>rect.left>=box.left-1&&rect.right<=box.right+1&&rect.top>=box.top-1&&rect.bottom<=box.bottom+1),contentFits:help.scrollWidth<=help.clientWidth+1&&help.scrollHeight<=help.clientHeight+1};
+      })()`);
+      assert(modebar.help.top>=modebar.tabsBottom-1,"Narrow perfume mode help occupies its own row below all tabs");
+      assert(modebar.help.left>=Math.max(0,modebar.bar.left)-1&&modebar.help.right<=Math.min(width,modebar.bar.right)+1&&modebar.help.bottom<=modebar.bar.bottom+1,"Mode help stays inside its bar and viewport");
+      assert(modebar.textInside&&modebar.contentFits,"Mode help text wraps completely without clipping");
+      (result.modebarLayouts??=[]).push({name,...modebar});
+    }
     const capture = await cdp.call("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
     fs.writeFileSync(path.join(output, name + ".png"), Buffer.from(capture.data, "base64"));
     result.screenshots.push(name + ".png");

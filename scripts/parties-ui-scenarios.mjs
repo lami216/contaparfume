@@ -72,7 +72,8 @@ export async function runPartiesReportScenarios({ cdp, command, database, screen
       const inputs=[...form.querySelectorAll(":scope > input")].map(input=>input.getBoundingClientRect());
       const box=form.getBoundingClientRect();
       return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth+1,
-        nameTop:inputs[0].top,phoneTop:inputs[1].top,formHeight:box.height,
+        nameTop:inputs[0].top,phoneTop:inputs[1].top,nameWidth:inputs[0].width,phoneWidth:inputs[1].width,
+        formHeight:box.height,formWidth:box.width,
         contained:[...form.querySelectorAll("input,select,button")].every(control=>{
           const rect=control.getBoundingClientRect();return rect.left>=-1&&rect.right<=innerWidth+1;
         })};
@@ -81,6 +82,11 @@ export async function runPartiesReportScenarios({ cdp, command, database, screen
     assert.equal(layout.contained, true);
     assert(Math.abs(layout.nameTop - layout.phoneTop) <= 1, "Name and phone share a compact row");
     assert(layout.formHeight < 300, "Opening fields remain compact");
+    if (width === 1280) {
+      assert(layout.nameWidth <= 350, "Desktop name input stays compact");
+      assert(layout.phoneWidth <= 190, "Desktop phone input stays compact");
+      assert(layout.formWidth <= 820, "Desktop create form does not stretch across the page");
+    }
     layouts.push(layout);
   }
   await evaluate('document.querySelector(".parties-create").requestSubmit()');

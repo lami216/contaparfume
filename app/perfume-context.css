@@ -27,7 +27,15 @@
 .perfume-management-page .pm-source-blocked { padding:9px; border:1px solid #d8a23b; border-radius:9px; background:#fff8e8; color:#65460c; line-height:1.6; }
 .perfume-management-page .pm-source-blocked strong { display:block; width:100%; font-weight:600; }
 .perfume-management-page .pm-source-actions { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-@media(max-width:1000px) { .decant-invoices-hub .decant-invoice-mode-help { flex-basis:100%; } }
+@media(max-width:1000px) {
+  /* A full-width flex basis must be horizontal, rather than wrapping columns. */
+  .decant-invoices-hub > .decant-invoice-modebar { flex-direction:row; align-items:stretch; }
+  .decant-invoices-hub .decant-invoice-mode-tabs,
+  .decant-invoices-hub .decant-invoice-mode-help {
+    box-sizing:border-box; flex:0 0 100%; width:100%; max-width:100%; min-width:0;
+  }
+  .decant-invoices-hub .decant-invoice-mode-help { white-space:normal; overflow-wrap:anywhere; }
+}
 
 /* Keep the physical before/after order stable in both application languages. */
 .perfume-management-page .pm-stock-transition {
