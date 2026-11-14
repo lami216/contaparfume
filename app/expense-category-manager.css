@@ -25,6 +25,12 @@
   gap: 8px;
   overflow: auto;
 }
+.modal-card.expense-category-manager {
+  height: auto;
+  min-height: 0;
+  align-self: center;
+  border-radius: 9px;
+}
 .expense-category-manager .modal-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .expense-category-manager h3 { margin: 0; font-size: 15px; }
 .expense-category-new { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; }
@@ -42,8 +48,9 @@
 .expense-category-manager-editor small { grid-column: 1 / -1; font-size: 11px; color: var(--text-muted); }
 .expense-category-manager .erp-table-wrap { min-height: 80px; max-height: 50vh; overflow: auto; }
 .expense-category-manager .erp-table { min-width: 430px; }
-.report-expense-kind { display: flex; gap: 6px; align-items: center; }
-.report-expense-kind select { min-width: 120px; }
+.report-expense-kind { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.report-expense-kind select { min-width: 155px; }
+.report-expense-category { white-space: nowrap; }
 @container (max-width: 610px) {
   .expense-payment-row:has(.expense-category-create) { grid-template-columns: 112px minmax(0, 148px) 112px; }
   .expense-category-create { grid-column: 1 / 3; grid-row: 2; }

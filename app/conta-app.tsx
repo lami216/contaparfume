@@ -1992,6 +1992,13 @@ function Reports({ data, openDoc, openSource, type, sourceRequest, clearSourceRe
     }));
     setSummaryDetail({ title: tr("مصروف أجور العمال"), total: reportNumber(result.summary.workersExpense ?? result.summary.workersPaid), tone: "negative", rows });
   };
+  const openOtherExpenseSummary = () => {
+    if (!result) return;
+    const rows = (result.overviewDetails?.expenses ?? []).filter(row=>row.kind==="expense").map(row=>({
+      id: row.documentId, label: String(row.number), meta: formatDate(row.occurredAt), value: reportNumber(row.value), source: { kind: "document" as const, documentId: row.documentId },
+    }));
+    setSummaryDetail({title:tr("المصاريف الأخرى"),total:rows.reduce((sum,row)=>sum+row.value,0),tone:"negative",rows});
+  };
   const openOverviewSummary=(key:"currentAccountsBalance"|"currentInventoryValue"|"currentReceivable"|"currentPayable"|"sales"|"purchases"|"expenses"|"ownerAvailableProfit")=>{
     if(!result)return;
     const details=result.overviewDetails;
@@ -2005,8 +2012,8 @@ function Reports({ data, openDoc, openSource, type, sourceRequest, clearSourceRe
     if(key==="purchases")return setSummaryDetail({title:tr("إجمالي المشتريات"),total:reportNumber(result.summary.purchases),rows:[{id:"overview-purchases-total",label:tr("شراء"),value:reportNumber(result.summary.purchases),source:{kind:"report",reportType:"purchases",period:committedPeriod}}]});
     if(key==="expenses"){
       const workerExpense = reportNumber(result.summary.workersExpense ?? result.summary.workersPaid);
-      return setSummaryDetail({title:tr("إجمالي المصاريف"),total:reportNumber(result.summary.expenses),rows:[
-        {id:"overview-other-expenses",label:tr("المصاريف الأخرى"),value:reportNumber(result.summary.expenses)-workerExpense,source:{kind:"report",reportType:"expenses",period:committedPeriod}},
+      return setSummaryDetail({title:tr("إجمالي المصاريف"),total:reportNumber(result.summary.expenses),tone:"negative",rows:[
+        {id:"overview-other-expenses",label:tr("المصاريف الأخرى"),value:reportNumber(result.summary.expenses)-workerExpense,openDetail:openOtherExpenseSummary},
         {id:"overview-worker-expenses",label:tr("مصروف أجور العمال"),value:workerExpense,openDetail:openWorkerExpenseSummary},
       ]});
     }

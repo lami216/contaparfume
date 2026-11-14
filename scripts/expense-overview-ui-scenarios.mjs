@@ -78,8 +78,8 @@ export async function runExpenseOverviewScenarios({cdp,origin,command,database,s
   assert.deepEqual(await moneySnapshot(),beforeMetadata,"Category identity and recurrence changes never repost expense money");
   for(const width of [1280,760]){
     await screenshot("expense-category-manager-"+width,width);
-    const layout=await evaluate(`(()=>{const card=document.querySelector(".expense-category-manager"),box=card.getBoundingClientRect();return{width:innerWidth,left:box.left,right:box.right,overflow:document.documentElement.scrollWidth>innerWidth+1,controlsInside:[...card.querySelectorAll("input,select,button")].filter(element=>element.getClientRects().length).every(element=>{const rect=element.getBoundingClientRect();return rect.left>=box.left-1&&rect.right<=box.right+1})}})()`);
-    assert.equal(layout.overflow,false);assert.equal(layout.controlsInside,true);assert(layout.left>=-1&&layout.right<=width+1);
+    const layout=await evaluate(`(()=>{const card=document.querySelector(".expense-category-manager"),box=card.getBoundingClientRect();return{width:innerWidth,left:box.left,right:box.right,height:box.height,overflow:document.documentElement.scrollWidth>innerWidth+1,controlsInside:[...card.querySelectorAll("input,select,button")].filter(element=>element.getClientRects().length).every(element=>{const rect=element.getBoundingClientRect();return rect.left>=box.left-1&&rect.right<=box.right+1})}})()`);
+    assert.equal(layout.overflow,false);assert.equal(layout.controlsInside,true);assert(layout.left>=-1&&layout.right<=width+1);assert(layout.height<500,"A short category list stays a compact dialog at both widths");
     layouts.push(layout);
   }
   await click(row(legacyId)+' button[aria-label="حذف فئة قديمة مصححة"]');
@@ -172,6 +172,10 @@ export async function runExpenseOverviewScenarios({cdp,origin,command,database,s
   const contributionText=await evaluate('document.querySelector(".summary-breakdown-modal").textContent');
   assert(contributionText.includes("المصاريف الأخرى")&&contributionText.includes("مصروف أجور العمال"));
   await screenshot("overview-expense-contributors-1280",1280);
+  await evaluate('(()=>{const row=[...document.querySelectorAll(".summary-breakdown-modal tbody tr")].find(row=>row.textContent.includes("المصاريف الأخرى"));row.querySelector("button").click()})()');
+  await until(()=>evaluate('document.querySelector(".summary-breakdown-modal h2")?.textContent==="المصاريف الأخرى"'),"ordinary expense sources");
+  assert.equal(await evaluate('document.querySelectorAll(".summary-breakdown-modal tbody tr").length'),3,"The150 ordinary expense detail excludes worker wages");
+  await screenshot("overview-ordinary-expense-sources-1280",1280);
   await click('.summary-breakdown-modal button[aria-label="إغلاق"]');
   checkpoints.push("Overview accounts use three compact collapsed ERP headers and opening/closing them leaves all balances unchanged; current wages no longer sit in period performance");
   await fill('.overview-toolbar input[type="date"]:first-of-type',"2000-01-01");

@@ -52,6 +52,12 @@
   text-align: start;
 }
 .report-group-table > tbody[hidden] { display: none; }
+.report-group-table .summary-breakdown-label {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
 .report-group-table tfoot th { background: #fff; color: var(--ink, #172427); }
 .report-ledger-identity { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; }
 @media print {
