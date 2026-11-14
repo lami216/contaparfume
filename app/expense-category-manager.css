@@ -50,7 +50,13 @@
 .expense-category-manager .erp-table { min-width: 430px; }
 .report-expense-kind { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
 .report-expense-kind select { min-width: 155px; }
-.report-expense-category { white-space: nowrap; }
+.report-expense-category { white-space: nowrap; flex-shrink: 0; }
+.report-expense-category select { min-width: 145px; }
+.report-toolbar:has(.report-expense-kind) { flex-wrap: wrap; }
+.report-toolbar .report-filters:has(.report-expense-kind) {
+  flex: 1 1 640px;
+  flex-wrap: wrap;
+}
 @container (max-width: 610px) {
   .expense-payment-row:has(.expense-category-create) { grid-template-columns: 112px minmax(0, 148px) 112px; }
   .expense-category-create { grid-column: 1 / 3; grid-row: 2; }

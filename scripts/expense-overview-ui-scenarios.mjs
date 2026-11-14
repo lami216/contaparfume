@@ -122,7 +122,11 @@ export async function runExpenseOverviewScenarios({cdp,origin,command,database,s
   let report=await showAll("expenses");
   assert.deepEqual([report.summary.total,report.summary.recurringTotal,report.summary.nonrecurringTotal],[170,30,140]);
   assert.equal(report.rows.find(row=>row.expenseCategoryId===legacyId).expenseCategory,"فئة قديمة مصححة");
-  for(const width of [1280,760])await screenshot("expense-recurrence-report-"+width,width);
+  for(const width of [1280,760]){
+    await screenshot("expense-recurrence-report-"+width,width);
+    const filterLayout=await evaluate('(()=>{const category=document.querySelector(".report-expense-category select").getBoundingClientRect(),kind=document.querySelector(".report-expense-kind select").getBoundingClientRect();return{categoryWidth:category.width,kindWidth:kind.width,overflow:document.documentElement.scrollWidth>innerWidth+1}})()');
+    assert.equal(filterLayout.overflow,false);assert(filterLayout.categoryWidth>=140&&filterLayout.kindWidth>=150,"Both expense category filters stay readable rather than collapsing");
+  }
   assert.equal(await evaluate('document.querySelectorAll(".reports-workspace .report-summary-area .report-kpi").length'),2);
   await fill(".report-expense-kind select","recurring");
   report=await showAll("expenses");
