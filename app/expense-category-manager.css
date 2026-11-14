@@ -1,0 +1,56 @@
+.expense-category-row .expense-category-manage {
+  width: 28px;
+  min-width: 28px;
+  height: 34px;
+  padding: 0;
+}
+.expense-category-manage svg { width: 16px; height: 16px; }
+.expense-payment-row:has(.expense-category-create) {
+  grid-template-columns: 112px 148px minmax(220px, 1fr) 112px;
+}
+.expense-category-create {
+  grid-column: 3;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: minmax(70px, 1fr) minmax(80px, 110px) max-content;
+  align-items: end;
+}
+.expense-payment-row:has(.expense-category-create) .expense-edit-actions > .blocked-action { grid-row: 1; }
+.expense-category-create select { width: 100%; min-width: 0; height: 34px; }
+.expense-category-manager {
+  width: min(680px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+.expense-category-manager .modal-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.expense-category-manager h3 { margin: 0; font-size: 15px; }
+.expense-category-new { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; }
+.expense-category-manager svg { width: 15px; height: 15px; }
+.expense-category-manager-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 150px) auto;
+  align-items: end;
+  gap: 8px;
+  padding-block: 8px;
+  border-block: 1px solid var(--line);
+}
+.expense-category-manager-editor label { min-width: 0; display: grid; gap: 4px; }
+.expense-category-manager-editor :is(input, select) { width: 100%; min-width: 0; height: 34px; }
+.expense-category-manager-editor small { grid-column: 1 / -1; font-size: 11px; color: var(--text-muted); }
+.expense-category-manager .erp-table-wrap { min-height: 80px; max-height: 50vh; overflow: auto; }
+.expense-category-manager .erp-table { min-width: 430px; }
+.report-expense-kind { display: flex; gap: 6px; align-items: center; }
+.report-expense-kind select { min-width: 120px; }
+@container (max-width: 610px) {
+  .expense-payment-row:has(.expense-category-create) { grid-template-columns: 112px minmax(0, 148px) 112px; }
+  .expense-category-create { grid-column: 1 / 3; grid-row: 2; }
+  .expense-payment-row:has(.expense-category-create) .expense-edit-actions > .blocked-action { grid-row: 2; }
+  .expense-payment-row:has(.expense-category-create) :is(.expense-cancel, .expense-delete) { grid-row: 3; }
+}
+@media (max-width: 480px) {
+  .expense-category-manager-editor { grid-template-columns: minmax(0, 1fr) minmax(110px, 140px); }
+  .expense-category-manager-editor .party-row-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}

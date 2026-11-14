@@ -32,7 +32,8 @@ test("overview aggregate details link each contributing category to a traceable 
   const ui=await source("app/conta-app.tsx");
   assert.match(ui,/overview-sales-total[^\n]+source:\{kind:"report",reportType:"sales",period:committedPeriod\}/);
   assert.match(ui,/overview-purchases-total[^\n]+source:\{kind:"report",reportType:"purchases",period:committedPeriod\}/);
-  assert.match(ui,/overview-expenses-total[^\n]+source:\{kind:"report",reportType:"expenses",period:committedPeriod\}/);
+  assert.match(ui,/overview-other-expenses[^\n]+value:reportNumber\(result\.summary\.expenses\)-workerExpense,source:\{kind:"report",reportType:"expenses",period:committedPeriod\}/);
+  assert.match(ui,/overview-worker-expenses[^\n]+value:workerExpense,openDetail:openWorkerExpenseSummary/);
   assert.match(ui,/profit-sales-cost[^\n]+source:\{kind:"report",reportType:"sales",period:committedPeriod\}/);
   const start=ui.indexOf('const accountSummaryDetail ='),details=ui.slice(start,ui.indexOf('const openWorkerBalanceSummary',start));
   assert.match(ui,/reportAccountRoles = \["employee", "customer", "supplier"\]/);

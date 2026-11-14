@@ -10,7 +10,7 @@ import { handlePerfumeManagementCommand } from "../../perfume-management-command
 import { execute as executeBaseCommand } from "./base-route.ts";
 import { execute as executeCoreCommand } from "./core-route.ts";
 import { restoreLegacySaleAllocations } from "../../perfume-split-reversal.ts";
-import {createExpenseCategory} from "../../../lib/expense-categories.ts";
+import {createExpenseCategory,updateExpenseCategory,deleteExpenseCategory} from "../../../lib/expense-categories.ts";
 import { assertPerfumeCategoryCanBeDeleted, ensurePerfumeSystemCategories, perfumeSystemCategoryKind } from "../../../lib/perfume-system-categories.ts";
 
 import { postPartyOpening, updatePartyOpening, voidPartyOpening } from "../../../lib/party-opening.ts";
@@ -38,6 +38,8 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     await postPartyOpening(db,session,{...(body.opening as Input),partyId});return partyId;
   }
   if(type==="expense-category.create")return createExpenseCategory(db,session,body);
+  if(type==="expense-category.update")return updateExpenseCategory(db,session,body);
+  if(type==="expense-category.delete")return deleteExpenseCategory(db,session,body);
   if(["sale.post","sale.update","purchase.post","purchase.update"].includes(type)){
     const productIds=(Array.isArray(body.lines)?body.lines:[]).map(raw=>text((raw as Input).productId));
     const forbidden=type.startsWith("sale")?["decant","bottle"]:["decant","bottle","partial"];
@@ -124,7 +126,7 @@ async function executeAdmittedPost(request: Request, admission: CommandAdmission
       "opening-stock-correction.update":"warehouses.adjust.edit","opening-stock-correction.void":"warehouses.adjust.delete","opening-stock-initial.void":"warehouses.adjust.delete",
       "party-cash.post":text(body.partyType)==="supplier"?"suppliers.pay":"customers.collect","party-cash.update":"customers.collect.edit","party-cash.void":"customers.collect.delete","legacy-party-document.void":"customers.collect.delete",
       "expense.post":"expenses.create","expense.update":"expenses.edit","expense.void":"expenses.delete",
-      "expense-category.create":"expenses.create",
+      "expense-category.create":"expenses.create","expense-category.update":"expenses.edit","expense-category.delete":"expenses.delete",
       "payment-account.create":"banks.create","payment-account.update":"banks.edit","payment-account.delete":"banks.delete","payment-account.restore":"banks.edit",
       "account-adjustment.post":"banks.deposit_withdraw","account-adjustment.update":"banks.deposit_withdraw.edit","account-adjustment.void":"banks.deposit_withdraw.delete",
       "account-transfer.post":"banks.transfer","account-transfer.update":"banks.transfer.edit","account-transfer.void":"banks.transfer.delete",

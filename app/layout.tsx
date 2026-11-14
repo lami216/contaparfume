@@ -12,6 +12,7 @@ import "./perfume-layout-safety.css";
 import "./perfume-context.css";
 import "./payroll-reports.css";
 import "./party-compact.css";
+import "./expense-category-manager.css";
 
 export async function generateMetadata(): Promise<Metadata> {
  const locale=normalizeLocale((await cookies()).get(LOCALE_COOKIE)?.value);

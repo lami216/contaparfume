@@ -1,4 +1,5 @@
 import { payrollExpenseEntries, payrollSummary } from "./payroll.ts";
+import { expenseCategoryKind } from "./expense-categories.ts";
 import { buildEmployeeLedger, employeeAccountRow } from "./employee-ledger.ts";
 import { productsWithCurrentCosts } from "./product-cost.ts";
 import { latestReportCost, reportCostNumber, reportNetLines, type HistoricalReportCost } from "./report-commerce.ts";
@@ -26,7 +27,7 @@ const REPORT_SORT_KEYS: Record<ReportType, Set<string>> = {
   debts:new Set(["name","accountType","phone","balance","lastMovement"]),
   "party-ledger":new Set(["occurredAt","movementType","documentNumber","description","debit","credit","runningBalance","paymentMethod"]),
   financial:new Set(["occurredAt","paymentMethod","movementType","incoming","outgoing","party","documentNumber"]),
-  expenses:new Set(["occurredAt","title","expenseCategory","paymentMethod","total","number"]),
+  expenses:new Set(["occurredAt","title","expenseCategory","expenseCategoryKind","paymentMethod","total","number"]),
 };
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const text = (value: string | null) => (value ?? "").trim();
@@ -47,7 +48,7 @@ export function parseReportFilters(url: URL): ReportFilters {
   const pick = <T extends string>(key: string, allowed: T[], fallback?: T) => { const value = text(url.searchParams.get(key)); if (!value) return fallback; if (!allowed.includes(value as T)) throw new Error(`الفلتر ${key} غير صالح`); return value as T; };
   const sortKey=text(url.searchParams.get("sortKey"))||undefined;
   if(sortKey&&!REPORT_SORT_KEYS[type].has(sortKey))throw new Error("حقل ترتيب التقرير غير صالح");
-  return { type, from: from || undefined, to: to || undefined, allTime, unpaged, partyId: text(url.searchParams.get("partyId")) || undefined, partyType: pick("partyType", ["employee", "customer", "supplier"]), productId: text(url.searchParams.get("productId")) || undefined, categoryId: text(url.searchParams.get("categoryId")) || undefined, paymentAccountId: text(url.searchParams.get("paymentAccountId")) || undefined, movementType: text(url.searchParams.get("movementType")) || undefined, direction: pick("direction", ["in", "out"]), groupBy: pick("groupBy", ["invoice", "product"], "invoice"), sortBy: pick("sortBy", ["quantity", "sales", "name", "profit"], "quantity"), sortKey, sortDirection:sortKey?pick("sortDirection",["asc","desc"],"asc"):undefined, debtSide: pick("debtSide", ["receivable", "payable", "clear"]), expenseCategoryId:type==="expenses"?(text(url.searchParams.get("expenseCategoryId"))||undefined):undefined, search: text(url.searchParams.get("search")) || undefined, page, pageSize };
+  return { type, from: from || undefined, to: to || undefined, allTime, unpaged, partyId: text(url.searchParams.get("partyId")) || undefined, partyType: pick("partyType", ["employee", "customer", "supplier"]), productId: text(url.searchParams.get("productId")) || undefined, categoryId: text(url.searchParams.get("categoryId")) || undefined, paymentAccountId: text(url.searchParams.get("paymentAccountId")) || undefined, movementType: text(url.searchParams.get("movementType")) || undefined, direction: pick("direction", ["in", "out"]), groupBy: pick("groupBy", ["invoice", "product"], "invoice"), sortBy: pick("sortBy", ["quantity", "sales", "name", "profit"], "quantity"), sortKey, sortDirection:sortKey?pick("sortDirection",["asc","desc"],"asc"):undefined, debtSide: pick("debtSide", ["receivable", "payable", "clear"]), expenseCategoryId:type==="expenses"?(text(url.searchParams.get("expenseCategoryId"))||undefined):undefined, expenseCategoryKind:type==="expenses"?pick("expenseCategoryKind",["recurring","nonrecurring"]):undefined, search: text(url.searchParams.get("search")) || undefined, page, pageSize };
 }
 
 /** Stored timestamps are canonical ISO strings, so lexical boundaries are exact and
@@ -230,18 +231,52 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
     const allRows:ReportRow[]=hasProductFilter?sales.ordered.flatMap(document=>factsByDocument.get(String(document.id))??[]):sales.ordered.map(document=>{const p=profitSummary(factsByDocument.get(String(document.id))??[]);return{id:String(document.id),documentId:String(document.id),number:displayDocumentNumber(document),occurredAt:String(document.occurredAt),party:String(document.partyName??"بيع مباشر"),partyId:String(document.partyId??""),paymentMethod:String(document.paymentMethod??""),total:p.revenue,cost:p.cost,profit:p.profit,margin:p.margin,costKnown:p.costKnown,unknownRevenue:p.unknownRevenue,paid:n(document.paidTotal),due:n(document.dueTotal)}});
     return{report:f.type,from:f.from!,to:f.to!,summary:{count:sales.totalRows,grossSales:sales.all.reduce((sum,document)=>sum+netValue(document),0),netSales:totals.revenue,cost:totals.cost,profit:totals.profit,margin:totals.margin,costKnown:totals.costKnown,unknownRevenue:totals.unknownRevenue,paid:sales.all.reduce((sum,document)=>sum+n(document.paidTotal),0),due:sales.all.reduce((sum,document)=>sum+n(document.dueTotal),0)},rows:pageReportRows(sortReportRows(allRows,f),f),meta:pagination(allRows.length,f)};
   }
-  if (f.type === "purchases" || f.type === "expenses") {
-    const original=await directDocuments(db,f,f.type==="purchases"?PURCHASE_KINDS:"expense",categoryScope);
-    const all=f.type==="purchases"?[...original.all,...legacyReturns.filter(purchaseReturn)]:[...original.all,...salaryExpenses],ordered=[...all].sort((a,b)=>String(b.occurredAt).localeCompare(String(a.occurredAt)));
+  if (f.type === "expenses") {
+    const [original, categories] = await Promise.all([
+      directDocuments(db, f, "expense", categoryScope),
+      // Archived definitions still classify historical expenses. Never reclassify
+      // by a saved name, which may have been renamed or reused by another category.
+      db.collection("expenseCategories").find().toArray(),
+    ]);
+    const byId = new Map(categories.map(category => [String(category.id), category]));
+    const classified = [...original.all, ...salaryExpenses].map(document => {
+      const payroll = document.kind === "employee-payment" || document.kind === "employee-accrual";
+      const categoryId = payroll ? "" : String(document.expenseCategoryId ?? "");
+      const category = categoryId ? byId.get(categoryId) : undefined;
+      return { document, categoryId, categoryName: String(category?.name ?? (payroll ? "" : document.expenseCategoryName) ?? ""),
+        categoryKind: expenseCategoryKind(category) };
+    }).filter(row => !f.expenseCategoryKind || row.categoryKind === f.expenseCategoryKind);
+    const partyIds = [...new Set(classified.map(({ document }) => String(document.partyId ?? "")).filter(Boolean))];
+    const partyNames = new Map((partyIds.length ? await db.collection("parties").find({ id: { $in: partyIds } }).project({ id: 1, name: 1 }).toArray() : []).map(party => [String(party.id), String(party.name)]));
+    const ordered = classified.sort((a, b) => String(b.document.occurredAt).localeCompare(String(a.document.occurredAt)));
+    const allRows: ReportRow[] = ordered.map(({ document, categoryId, categoryName, categoryKind }) => ({
+      id: String(document.id), documentId: String(document.id), number: displayDocumentNumber(document),
+      occurredAt: String(document.occurredAt), party: String(partyNames.get(String(document.partyId)) ?? document.partyName ?? ""), partyId: String(document.partyId ?? ""),
+      employeeId: document.employeeId ? String(document.employeeId) : undefined, paymentMethod: String(document.paymentMethod ?? ""),
+      title: String(document.title ?? document.employeeName ?? ""), expenseCategory: categoryName,
+      expenseCategoryId: categoryId, expenseCategoryKind: categoryKind,
+      total: netValue(document), paid: n(document.paidTotal), due: n(document.dueTotal),
+    }));
+    const recurringTotal = allRows.filter(row => row.expenseCategoryKind === "recurring").reduce((sum, row) => sum + n(row.total), 0);
+    const nonrecurringTotal = allRows.filter(row => row.expenseCategoryKind === "nonrecurring").reduce((sum, row) => sum + n(row.total), 0);
+    return { report: f.type, from: f.from!, to: f.to!, summary: {
+      count: allRows.length, returnCount: 0, total: recurringTotal + nonrecurringTotal, recurringTotal, nonrecurringTotal,
+      quantity: classified.reduce((sum, { document }) => sum + ((document.lines ?? []) as Document[]).filter(line => lineMatches(line, f, categoryScope)).reduce((value, line) => value + n(line.quantity), 0), 0),
+      paid: allRows.reduce((sum, row) => sum + n(row.paid), 0), due: allRows.reduce((sum, row) => sum + n(row.due), 0),
+    }, rows: pageReportRows(sortReportRows(allRows, f), f), meta: pagination(allRows.length, f) };
+  }
+  if (f.type === "purchases") {
+    const original=await directDocuments(db,f,PURCHASE_KINDS,categoryScope);
+    const all=[...original.all,...legacyReturns.filter(purchaseReturn)],ordered=[...all].sort((a,b)=>String(b.occurredAt).localeCompare(String(a.occurredAt)));
     const productIds=[...new Set(all.flatMap(document=>((document.lines??[]) as Document[]).map(line=>String(line.productId??"")).filter(Boolean)))];
     const identities=new Map((await db.collection("products").find({id:{$in:productIds}}).project({id:1,name:1,sku:1}).toArray()).map(product=>[String(product.id),product]));
     const partyIds=[...new Set(all.map(document=>String(document.partyId??"")).filter(Boolean))],partyNames=new Map((partyIds.length?await db.collection("parties").find({id:{$in:partyIds}}).project({id:1,name:1}).toArray():[]).map(party=>[String(party.id),String(party.name)]));
     const allRows:ReportRow[]=ordered.flatMap<ReportRow>(document=>{
       const selected=(reportNetLines(document) as Document[]).filter(line=>lineMatches(line,f,categoryScope)),party=String(partyNames.get(String(document.partyId))??document.partyName??""),sign=purchaseSign(document);
-      if(f.type==="purchases"&&hasProductFilter)return selected.map(line=>({id:String(document.id)+"-"+String(line.id??line.productId),documentId:String(document.id),number:displayDocumentNumber(document),occurredAt:String(document.occurredAt),party,partyId:String(document.partyId??""),product:String(identities.get(String(line.productId))?.name??line.description??"").trim()||"منتج غير متاح",productMissing:!String(identities.get(String(line.productId))?.name??line.description??"").trim(),sku:String(identities.get(String(line.productId))?.sku??line.sku??"—")||"—",quantity:sign*n(line.quantity),unitPrice:n(line.unitPrice),total:sign*n(line.lineTotal)}));
+      if(hasProductFilter)return selected.map(line=>({id:String(document.id)+"-"+String(line.id??line.productId),documentId:String(document.id),number:displayDocumentNumber(document),occurredAt:String(document.occurredAt),party,partyId:String(document.partyId??""),product:String(identities.get(String(line.productId))?.name??line.description??"").trim()||"منتج غير متاح",productMissing:!String(identities.get(String(line.productId))?.name??line.description??"").trim(),sku:String(identities.get(String(line.productId))?.sku??line.sku??"—")||"—",quantity:sign*n(line.quantity),unitPrice:n(line.unitPrice),total:sign*n(line.lineTotal)}));
       return[{id:String(document.id),documentId:String(document.id),number:displayDocumentNumber(document),occurredAt:String(document.occurredAt),party,partyId:String(document.partyId??""),employeeId:document.employeeId?String(document.employeeId):undefined,paymentMethod:String(document.paymentMethod??""),title:String(document.title??document.employeeName??""),expenseCategory:String(document.expenseCategoryName??""),expenseCategoryId:String(document.expenseCategoryId??""),total:sign*n(document.total),paid:sign*n(document.paidTotal),due:sign*n(document.dueTotal)}];
     });
-    return{report:f.type,from:f.from!,to:f.to!,summary:{count:f.type==="expenses"?all.length:original.totalRows,returnCount:f.type==="purchases"?all.length-original.totalRows:0,total:all.reduce((sum,document)=>sum+purchaseSign(document)*netValue(document),0),quantity:all.reduce((sum,document)=>sum+purchaseSign(document)*((document.lines??[]) as Document[]).filter(line=>lineMatches(line,f,categoryScope)).reduce((lineSum,line)=>lineSum+n(line.quantity),0),0),paid:all.reduce((sum,document)=>sum+purchaseSign(document)*n(document.paidTotal),0),due:all.reduce((sum,document)=>sum+purchaseSign(document)*n(document.dueTotal),0)},rows:pageReportRows(sortReportRows(allRows,f),f),meta:pagination(allRows.length,f)};
+    return{report:f.type,from:f.from!,to:f.to!,summary:{count:original.totalRows,returnCount:all.length-original.totalRows,total:all.reduce((sum,document)=>sum+purchaseSign(document)*netValue(document),0),quantity:all.reduce((sum,document)=>sum+purchaseSign(document)*((document.lines??[]) as Document[]).filter(line=>lineMatches(line,f,categoryScope)).reduce((lineSum,line)=>lineSum+n(line.quantity),0),0),paid:all.reduce((sum,document)=>sum+purchaseSign(document)*n(document.paidTotal),0),due:all.reduce((sum,document)=>sum+purchaseSign(document)*n(document.dueTotal),0)},rows:pageReportRows(sortReportRows(allRows,f),f),meta:pagination(allRows.length,f)};
   }
   if (f.type === "stock") {
     const query:Document=matchDate(f);if(constraint)query.productId=constraint;

@@ -56,7 +56,12 @@ export function validateInvariants(b: ContaBackup) {
   validatePayrollSnapshot(b.collections.employees??[], b.collections.documents, b.collections.financialMovements, b.collections.auditEvents);
   const products=unique(b.collections.products,"id","معرف المنتج"),categories=unique(b.collections.productCategories??[],"id","معرف الفئة"),warehouses=new Set(b.collections.warehouses.map(w=>String(w._id??w.id))),accounts=unique(b.collections.paymentAccounts,"id","معرف الحساب");
   const expenseCategories=unique(b.collections.expenseCategories??[],"id","معرف فئة المصروف");
-  for(const category of b.collections.expenseCategories??[])if(typeof category.name!=="string"||!category.name.trim()||category.name.length>80)throw new Error("اسم فئة المصروف غير صالح");
+  for(const category of b.collections.expenseCategories??[]){
+    if(typeof category.name!=="string"||!category.name.trim()||category.name.length>80)throw new Error("اسم فئة المصروف غير صالح");
+    if(category.kind!==undefined&&category.kind!=="recurring"&&category.kind!=="nonrecurring")throw new Error("نوع فئة المصروف غير صالح");
+    if(category.isArchived!==undefined&&typeof category.isArchived!=="boolean")throw new Error("حالة فئة المصروف غير صالحة");
+    if(category.revision!==undefined&&(!Number.isSafeInteger(category.revision)||category.revision<0))throw new Error("إصدار فئة المصروف غير صالح");
+  }
   const accountKeys=new Set([...accounts,...b.collections.paymentAccounts.map(account=>String(account.code??"")).filter(Boolean)]);
   const parties=new Set(b.collections.parties.map(party=>String(party.id??party._id??"")).filter(Boolean));
   if(b.collections.warehouses.filter(w=>w.isSalesDefault===true).length!==1)throw new Error("يجب أن تحتوي النسخة على مخزن بيع افتراضي واحد");

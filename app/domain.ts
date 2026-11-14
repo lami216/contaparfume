@@ -59,7 +59,7 @@ export interface ProductCategory {
   systemKind?: "perfume-decants" | "perfume-bottles" | "perfume-fragrances";
   createdAt?: string;
 }
-export interface ExpenseCategory {id:string;name:string;createdAt?:string}
+export interface ExpenseCategory {id:string;name:string;kind?:"recurring"|"nonrecurring";isArchived?:boolean;revision?:number;createdAt?:string;updatedAt?:string}
 export interface Product {
   id: string;
   name: string;

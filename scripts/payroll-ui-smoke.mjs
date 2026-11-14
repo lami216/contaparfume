@@ -105,7 +105,7 @@ async function main() {
     import{createRoot}from"react-dom/client";
     import EmployeesPage from "./app/employees-page";
     import DecantInvoicesPage from "./app/decant-invoices-page";
-    import{Parties,PartyPage,Reports}from"./app/conta-app";
+    import{Parties,PartyPage,Reports,Expenses}from"./app/conta-app";
     import{LocaleProvider,useI18n}from"./app/i18n/provider";
     import{ConfirmationProvider,useAppConfirm}from"./app/app-confirm";
     import{requestEditorReplacement}from"./app/editor-replacement";
@@ -120,7 +120,7 @@ async function main() {
       const refresh=async()=>{const response=await fetch("/api/bootstrap"),value=await response.json();if(!response.ok)throw new Error(value.error||"Bootstrap failed");setData(value)};
       useEffect(()=>{void refresh().catch(error=>{window.__smokeError=error.stack;console.error(error)})},[]);
       useEffect(()=>{
-        window.__smokeSetView=async next=>{if(!await prepare())return false;await refresh();setView(next);document.getElementById("root").className="app-shell section-"+(next==="perfume"?"decantInvoices":next==="party-ledger"?"reports":next==="party-detail"?"customers":next);return true};
+        window.__smokeSetView=async next=>{if(!await prepare())return false;await refresh();setView(next);document.getElementById("root").className="app-shell section-"+(next==="perfume"?"decantInvoices":["party-ledger","expense-report","overview"].includes(next)?"reports":next==="party-detail"?"customers":next);return true};
         window.__smokeSetLocale=setLocale;
         return()=>{delete window.__smokeSetView;delete window.__smokeSetLocale};
       },[setLocale]);
@@ -138,6 +138,8 @@ async function main() {
       if(view==="customers"||view==="suppliers")return <Parties key={view} partyType={view==="customers"?"customer":"supplier"} data={data} run={run} openParty={party=>{window.__openedParty=party.id;setSelectedPartyId(party.id);setView("party-detail")}} canEdit canDelete registerEditorGuard={register} prepareEditorReplacement={prepare}/>;
       if(view==="party-detail"){const party=data.parties.find(row=>row.id===selectedPartyId);return party?<PartyPage key={party.id} party={party} data={data} run={run} openDoc={openDoc} editRequest={null} clearEditRequest={()=>{}} registerEditorGuard={register} prepareEditorReplacement={prepare}/>:<p>Missing synthetic party</p>}
       if(view==="party-ledger")return <Reports data={data} openDoc={openDoc} openSource={target=>{window.__openedReportSource=target}} type="party-ledger" sourceRequest={null} clearSourceRequest={()=>{}}/>;
+      if(view==="expenses")return <Expenses data={data} run={run} openDoc={openDoc} editRequest={null} clearEditRequest={()=>{}} registerEditorGuard={register} canEdit canDelete/>;
+      if(view==="expense-report"||view==="overview")return <Reports key={view} data={data} openDoc={openDoc} openSource={target=>{window.__openedReportSource=target}} type={view==="overview"?"overview":"expenses"} sourceRequest={null} clearSourceRequest={()=>{}}/>;
       return view==="perfume"?<DecantInvoicesPage data={data} run={run} openDoc={id=>{window.__openedPerfumeDocument=id}} requestPrint={id=>{window.__printedPerfumeDocument=id}}/>:<EmployeesPage data={data} run={run} openDoc={id=>{window.__openedPayrollDocument=id}} sourceId={sourceId} clearSource={()=>setSourceId(null)} registerEditorGuard={register}/>;
     }
     createRoot(document.getElementById("root")).render(<LocaleProvider initialLocale="ar"><ConfirmationProvider><Shell/></ConfirmationProvider></LocaleProvider>);
@@ -145,7 +147,7 @@ async function main() {
   const bundled = await build({
     absWorkingDir: source, stdin: { contents: entry, resolveDir: source, loader: "tsx" },
     bundle: true, platform: "browser", format: "iife", write: false, jsx: "automatic",
-    plugins:[{name:"ci-only-component-exports",setup(builder){builder.onLoad({filter:/[\\/]app[\\/]conta-app\.tsx$/},args=>({contents:fs.readFileSync(args.path,"utf8")+"\nexport { Parties, PartyPage, Reports };\n",loader:"tsx",resolveDir:path.dirname(args.path)}))}}],
+    plugins:[{name:"ci-only-component-exports",setup(builder){builder.onLoad({filter:/[\\/]app[\\/]conta-app\.tsx$/},args=>({contents:fs.readFileSync(args.path,"utf8")+"\nexport { Parties, PartyPage, Reports, Expenses };\n",loader:"tsx",resolveDir:path.dirname(args.path)}))}}],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
   });
   const script = bundled.outputFiles[0].contents;
@@ -330,6 +332,9 @@ async function main() {
   const {runPartiesReportScenarios}=await import("./parties-ui-scenarios.mjs");
   result.partyReports=await runPartiesReportScenarios({cdp,origin:base,command,database,screenshot});
   result.checkpoints.push(...result.partyReports.checkpoints);
+  const {runExpenseOverviewScenarios}=await import("./expense-overview-ui-scenarios.mjs");
+  result.expenseOverview=await runExpenseOverviewScenarios({cdp,origin:base,command,database,screenshot});
+  result.checkpoints.push(...result.expenseOverview.checkpoints);
   assert.deepEqual(cdp.errors, []);
   result.status = "passed";
 }
