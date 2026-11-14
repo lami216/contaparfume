@@ -55,6 +55,7 @@ export async function updateExpenseCategory(db:SqliteDatabase,session:SqliteSess
   const result=await db.collection("expenseCategories").updateOne(match,{$set:{name,normalizedName,kind,revision:revision+1,updatedAt:new Date()}},{session});
   if(!result.matchedCount)throw error("تغيرت فئة المصروف؛ أعد تحميل الصفحة ثم حاول مجددًا",409);
   const after=await db.collection("expenseCategories").findOne({id:category.id},{session});
+  if(!after)throw error("تغيرت فئة المصروف؛ أعد تحميل الصفحة ثم حاول مجددًا",409);
   await categoryAudit(db,session,"expense-category.update",category,after);
   return String(category.id);
 }
@@ -68,6 +69,7 @@ export async function deleteExpenseCategory(db:SqliteDatabase,session:SqliteSess
     const result=await db.collection("expenseCategories").updateOne(match,{$set:{isArchived:true,archivedAt:new Date(),updatedAt:new Date(),revision:revision+1}},{session});
     if(!result.matchedCount)throw error("تغيرت فئة المصروف؛ أعد تحميل الصفحة ثم حاول مجددًا",409);
     const after=await db.collection("expenseCategories").findOne({id:category.id},{session});
+    if(!after)throw error("تغيرت فئة المصروف؛ أعد تحميل الصفحة ثم حاول مجددًا",409);
     await categoryAudit(db,session,"expense-category.delete",category,after,"archived");
     return{id:String(category.id),disposition:"archived" as const};
   }

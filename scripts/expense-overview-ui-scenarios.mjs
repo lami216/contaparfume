@@ -40,6 +40,13 @@ export async function runExpenseOverviewScenarios({cdp,origin,command,database,s
   await until(()=>evaluate('Boolean(document.querySelector(".expense-category-create"))'),"inline category form");
   await fill(".expense-category-create input","صيانة تجريبية");
   await fill(".expense-category-create .expense-category-kind-select","nonrecurring");
+  for(const width of [1920,760]){
+    await screenshot("expense-category-inline-"+width,width);
+    const layout=await evaluate(`(()=>{const form=document.querySelector(".expense-form-body"),category=form.querySelector(".expense-category-row select").getBoundingClientRect(),newKind=form.querySelector(".expense-category-create select").getBoundingClientRect(),save=form.querySelector('button[type="submit"]').getBoundingClientRect();return{kind:"inline",width:innerWidth,categoryBottom:category.bottom,newKindBottom:newKind.bottom,saveBottom:save.bottom,overflow:document.documentElement.scrollWidth>innerWidth+1,contained:[...form.querySelectorAll("input,select,button")].filter(element=>element.getClientRects().length).every(element=>{const rect=element.getBoundingClientRect();return rect.left>=-1&&rect.right<=innerWidth+1})}})()`);
+    assert.equal(layout.overflow,false);assert.equal(layout.contained,true);
+    if(width===1920){assert(Math.abs(layout.categoryBottom-layout.newKindBottom)<3);assert(Math.abs(layout.categoryBottom-layout.saveBottom)<3,"Wide category creation stays beside payment and expense save");}
+    layouts.push(layout);
+  }
   await textClick(".expense-category-create button","حفظ");
   let selectedCategory;
   await until(async()=>{selectedCategory=await database.collection("expenseCategories").findOne({name:"صيانة تجريبية"});return selectedCategory?.kind==="nonrecurring"},"new nonrecurring category");
@@ -141,12 +148,18 @@ export async function runExpenseOverviewScenarios({cdp,origin,command,database,s
   assert.equal(await evaluate('[...document.querySelectorAll('+JSON.stringify(groupSelector)+')].every(button=>button.getAttribute("aria-expanded")==="false")'),true);
   assert.equal(await evaluate('[...document.querySelectorAll(".overview-account-table tbody[hidden]")].every(body=>getComputedStyle(body).display==="none")'),true,"Collapsed accounts are actually hidden");
   assert.equal(await evaluate('[...document.querySelectorAll(".overview-account-table .invoice-group-row")].every(row=>row.getBoundingClientRect().height<=40)'),true,"Group headings keep the compact invoice section style");
+  const footerBeforePrint=await evaluate('document.querySelector(".overview-account-table tfoot").textContent');
+  await cdp.call("Emulation.setEmulatedMedia",{media:"print"});
+  assert.equal(await evaluate('[...document.querySelectorAll(".overview-account-table tbody[hidden]")].every(body=>getComputedStyle(body).display==="table-row-group")'),true,"Printing reveals every collapsed account group");
+  assert.equal(await evaluate('document.querySelector(".overview-account-table tfoot").textContent'),footerBeforePrint);
+  await screenshot("overview-account-print-1280",1280);
+  await cdp.call("Emulation.setEmulatedMedia",{media:""});
   await click(groupSelector);
   assert.equal(await evaluate('document.querySelector('+JSON.stringify(groupSelector)+').getAttribute("aria-expanded")'),"true");
   await screenshot("overview-workers-expanded-1280",1280);
   await click(groupSelector);
   assert.deepEqual(await moneySnapshot(),beforeMetadata,"Folding and reading reports leave accounting untouched");
-  await evaluate('(()=>{const button=[...document.querySelectorAll(".overview-current-position button")].find(button=>button.textContent.includes("إجمالي المستحق علينا"));if(!button)throw Error("Missing payable summary");button.click()})()');
+  await evaluate('(()=>{const button=[...document.querySelectorAll(".overview-current-status button")].find(button=>button.textContent.includes("إجمالي المستحق علينا"));if(!button)throw Error("Missing payable summary");button.click()})()');
   await until(()=>evaluate('document.querySelectorAll(".summary-breakdown-modal .report-group-toggle").length===3'),"compact payable groups");
   await screenshot("overview-payable-groups-1280",1280);
   assert.equal(await evaluate('[...document.querySelectorAll(".summary-breakdown-modal .report-group-toggle")].every(button=>button.getAttribute("aria-expanded")==="false")'),true);
