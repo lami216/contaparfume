@@ -26,6 +26,7 @@ jobs:
       # better-sqlite3 13 already ships the N-API binary used by this app. Avoid
       # an unnecessary node-gyp rebuild, then install Electron explicitly.
       - run: npm ci --ignore-scripts
+        id: dependencies
       - run: node node_modules/electron/install.js
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
@@ -41,6 +42,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
       - run: npm test
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
       - run: npm run lint
       - run: npm run build
       - run: npm run test:production-legacy

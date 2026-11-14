@@ -135,7 +135,7 @@ export async function runExpenseOverviewScenarios({cdp,origin,command,database,s
   assert.deepEqual([report.summary.total,report.summary.recurringTotal,report.summary.nonrecurringTotal],[100,0,100]);
   checkpoints.push("Real report recurrence/category filters include archived history, old uncategorized expenses and recognized wages; both footer totals always reconcile");
 
-  await setView("overview",".overview-summary-groups");
+  await setView("overview",".overview-toolbar");
   const overview=await showAll("overview");
   assert.equal(overview.summary.expenses,170);
   assert.equal(overview.summary.currentWorkersOwed,80);
