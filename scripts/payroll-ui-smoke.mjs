@@ -38,7 +38,7 @@ async function until(check, description, milliseconds = 20000) {
   throw new Error("Timed out waiting for " + description);
 }
 const result = {
-  status: "running", mode: "Actual React employee, perfume, parties and party-ledger report components with real application routes in an isolated CI profile",
+  status: "running", mode: "Actual React employee, perfume, parties, reports and ordinary sale/purchase components with real application routes in an isolated CI profile",
   ciOnly: true, licenseBypass: "test-only CI", screenshots: [], checkpoints: [],
 };
 let database, closeDatabase, server, chrome, cdp, browserBundle;
@@ -105,7 +105,7 @@ async function main() {
     import{createRoot}from"react-dom/client";
     import EmployeesPage from "./app/employees-page";
     import DecantInvoicesPage from "./app/decant-invoices-page";
-    import{Parties,PartyPage,Reports,Expenses}from"./app/conta-app";
+    import{Parties,PartyPage,Reports,Expenses,Pos,Purchases}from"./app/conta-app";
     import{LocaleProvider,useI18n}from"./app/i18n/provider";
     import{ConfirmationProvider,useAppConfirm}from"./app/app-confirm";
     import{requestEditorReplacement}from"./app/editor-replacement";
@@ -120,11 +120,12 @@ async function main() {
       const refresh=async()=>{const response=await fetch("/api/bootstrap"),value=await response.json();if(!response.ok)throw new Error(value.error||"Bootstrap failed");setData(value)};
       useEffect(()=>{void refresh().catch(error=>{window.__smokeError=error.stack;console.error(error)})},[]);
       useEffect(()=>{
-        window.__smokeSetView=async next=>{if(!await prepare())return false;await refresh();setView(next);document.getElementById("root").className="app-shell section-"+(next==="perfume"?"decantInvoices":["party-ledger","expense-report","overview"].includes(next)?"reports":next==="party-detail"?"customers":next);return true};
+        window.__smokeSetView=async next=>{if(!await prepare())return false;await refresh();setView(next);document.getElementById("root").className="app-shell section-"+(next==="perfume"?"decantInvoices":["party-ledger","expense-report","overview"].includes(next)?"reports":next==="party-detail"?"customers":next==="sale"?"pos":next==="purchase"?"purchases":next);return true};
         window.__smokeSetLocale=setLocale;
         return()=>{delete window.__smokeSetView;delete window.__smokeSetLocale};
       },[setLocale]);
       const run=async(body,_message,afterSuccess)=>{
+        window.__smokeCommandCount=(window.__smokeCommandCount||0)+1;
         window.__payrollBusy=true;pending.current=true;
         try{
           const response=await fetch("/api/command",{method:"POST",headers:{"content-type":"application/json","Idempotency-Key":crypto.randomUUID()},body:JSON.stringify(body)});
@@ -140,6 +141,8 @@ async function main() {
       if(view==="party-ledger")return <Reports data={data} openDoc={openDoc} openSource={target=>{window.__openedReportSource=target}} type="party-ledger" sourceRequest={null} clearSourceRequest={()=>{}}/>;
       if(view==="expenses")return <Expenses data={data} run={run} openDoc={openDoc} editRequest={null} clearEditRequest={()=>{}} registerEditorGuard={register} canEdit canDelete/>;
       if(view==="expense-report"||view==="overview")return <Reports key={view} data={data} openDoc={openDoc} openSource={target=>{window.__openedReportSource=target}} type={view==="overview"?"overview":"expenses"} sourceRequest={null} clearSourceRequest={()=>{}}/>;
+      if(view==="sale")return <Pos data={data} run={run} openDoc={openDoc} editRequest={null} clearEditRequest={()=>{}} requestPrint={id=>{window.__printedInvoice=id}} openStockAdjustment={()=>{throw new Error("Unexpected inventory editor in invoice smoke")}} registerEditorGuard={register} prepareEditorReplacement={prepare}/>;
+      if(view==="purchase")return <Purchases data={data} run={run} openDoc={openDoc} editRequest={null} clearEditRequest={()=>{}} requestPrint={id=>{window.__printedInvoice=id}} registerEditorGuard={register} prepareEditorReplacement={prepare}/>;
       return view==="perfume"?<DecantInvoicesPage data={data} run={run} openDoc={id=>{window.__openedPerfumeDocument=id}} requestPrint={id=>{window.__printedPerfumeDocument=id}}/>:<EmployeesPage data={data} run={run} openDoc={id=>{window.__openedPayrollDocument=id}} sourceId={sourceId} clearSource={()=>setSourceId(null)} registerEditorGuard={register}/>;
     }
     createRoot(document.getElementById("root")).render(<LocaleProvider initialLocale="ar"><ConfirmationProvider><Shell/></ConfirmationProvider></LocaleProvider>);
@@ -147,7 +150,7 @@ async function main() {
   const bundled = await build({
     absWorkingDir: source, stdin: { contents: entry, resolveDir: source, loader: "tsx" },
     bundle: true, platform: "browser", format: "iife", write: false, jsx: "automatic",
-    plugins:[{name:"ci-only-component-exports",setup(builder){builder.onLoad({filter:/[\\/]app[\\/]conta-app\.tsx$/},args=>({contents:fs.readFileSync(args.path,"utf8")+"\nexport { Parties, PartyPage, Reports, Expenses };\n",loader:"tsx",resolveDir:path.dirname(args.path)}))}}],
+    plugins:[{name:"ci-only-component-exports",setup(builder){builder.onLoad({filter:/[\\/]app[\\/]conta-app\.tsx$/},args=>({contents:fs.readFileSync(args.path,"utf8")+"\nexport { Parties, PartyPage, Reports, Expenses, Pos, Purchases };\n",loader:"tsx",resolveDir:path.dirname(args.path)}))}}],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
   });
   const script = bundled.outputFiles[0].contents;
@@ -335,6 +338,9 @@ async function main() {
   const {runExpenseOverviewScenarios}=await import("./expense-overview-ui-scenarios.mjs");
   result.expenseOverview=await runExpenseOverviewScenarios({cdp,origin:base,command,database,screenshot});
   result.checkpoints.push(...result.expenseOverview.checkpoints);
+  const {runInvoiceTotalsScenarios}=await import("./invoice-totals-ui-scenarios.mjs");
+  result.invoiceTotals=await runInvoiceTotalsScenarios({cdp,origin:base,command,database,screenshot});
+  result.checkpoints.push(...result.invoiceTotals.checkpoints);
   assert.deepEqual(cdp.errors, []);
   result.status = "passed";
 }

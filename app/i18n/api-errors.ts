@@ -1,6 +1,12 @@
 import type { Locale } from "./locale";
 
 const exactFrench: Record<string, string> = {
+  "مجموع السطر غير صالح": "Le total de la ligne est invalide.",
+  "مجموع السطر لا يطابق الكمية وسعر الوحدة": "Le total de la ligne ne correspond pas à la quantité et au prix unitaire.",
+  "إجمالي الفاتورة غير صالح": "Le total de la facture est invalide.",
+  "نمط مجموع سطر الفاتورة غير صالح": "Le mode de calcul du total de la ligne est invalide.",
+  "قيم سطر الفاتورة الدقيق غير صالحة": "Les valeurs de la ligne à total précis sont invalides.",
+  "إجمالي الفاتورة لا يطابق مجموع سطورها": "Le total de la facture ne correspond pas à la somme de ses lignes.",
   "أُلغي طلب العملية قبل الحفظ؛ أعد المحاولة إذا لزم الأمر": "La demande a été annulée avant l’enregistrement. Réessayez si nécessaire.",
   "تعذر بدء العملية في الوقت المحدد؛ أعد المحاولة": "L’opération n’a pas pu démarrer à temps. Veuillez réessayer.",
   "تعذر التحقق من الطلب في الوقت المحدد؛ أعد المحاولة": "La vérification de la demande a expiré. Veuillez réessayer.",

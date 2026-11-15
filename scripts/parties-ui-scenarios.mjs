@@ -49,7 +49,7 @@ export async function runPartiesReportScenarios({ cdp, command, database, screen
   assert((await evaluate('document.querySelector(".party-create-toggle").textContent')).includes("إضافة عميل جديد"));
   await click(".party-create-toggle");
   await until(() => evaluate('Boolean(document.querySelector(".parties-create"))'), "revealed customer form");
-  assert.equal(await evaluate('document.querySelector(".parties-create .party-opening-toggle input").checked'), false);
+  assert.equal(await evaluate('document.querySelector(".parties-create .party-opening-toggle").getAttribute("aria-expanded")'), "false");
   assert.equal(await evaluate('document.querySelector(".parties-create .party-opening-fields")===null'), true);
   await fill('.parties-create > input:first-of-type', "عميل فحص القائمة");
   await fill('.parties-create > input:nth-of-type(2)', "00000001");
@@ -60,8 +60,9 @@ export async function runPartiesReportScenarios({ cdp, command, database, screen
   assert.equal(await database.collection("parties").countDocuments({ name: "عميل فحص القائمة" }), 0);
   checkpoints.push("Creation stays collapsed initially and canceling discard preserves its unsaved name and phone");
 
-  await click(".parties-create .party-opening-toggle input");
+  await click(".parties-create .party-opening-toggle");
   await until(() => evaluate('Boolean(document.querySelector(".parties-create .party-opening-fields"))'), "optional opening fields");
+  assert.equal(await evaluate('document.querySelector(".parties-create .party-opening-toggle").getAttribute("aria-expanded")'), "true");
   await fill('.parties-create .party-opening-fields select', "receivable");
   await fill('.parties-create .party-opening-fields input[type=number]', "25");
   const layouts = [];
@@ -114,22 +115,39 @@ export async function runPartiesReportScenarios({ cdp, command, database, screen
     const row=[...document.querySelectorAll(".party-grid tbody tr")].find(row=>row.querySelector(".name-cell")?.textContent==="عميل فحص القائمة المعدل");
     row.querySelector(".party-row-actions button").click();
   })()`);
-  await until(() => evaluate('Boolean(document.querySelector(".party-opening-panel"))'), "party source account");
-  await click(".party-opening-summary button.soft");
+  await until(() => evaluate('Boolean(document.querySelector(".party-history"))'), "party source account");
+  assert.equal(await evaluate('document.querySelector(".party-opening-panel,.party-opening-summary,.party-opening-add")===null'), true, "A posted opening has no permanent editor or duplicate opening action");
+  const openingHistoryAction = action => evaluate(`(()=>{
+    const row=[...document.querySelectorAll(".party-history tbody tr")].find(row=>row.children[2]?.textContent.trim()===${JSON.stringify(String(opening.number))});
+    const button=row?.querySelector(${JSON.stringify(action === "edit" ? ".lifecycle-row-actions button.soft" : ".lifecycle-row-actions .compact-delete")});
+    if(!button||button.disabled)throw Error("Opening history action unavailable: "+${JSON.stringify(action)});button.click();
+  })()`);
+  await fill('.party-payment-panel input.num', "7");
+  await openingHistoryAction("edit");
+  await until(() => evaluate('Boolean(document.querySelector(".app-confirm-dialog"))'), "dirty payment replacement confirmation");
+  await click(".app-confirm-actions button:last-child");
+  assert.equal(await evaluate('document.querySelector(".party-payment-panel input.num").value'), "7");
+  assert.equal(await evaluate('document.querySelector(".party-opening-panel")===null'), true);
+  await openingHistoryAction("edit");
+  await until(() => evaluate('Boolean(document.querySelector(".app-confirm-dialog"))'), "confirmed opening source replacement");
+  await click(".app-confirm-actions button:first-child");
   await until(() => evaluate('Boolean(document.querySelector(".party-opening-panel form"))'), "opening source edit");
   await fill('.party-opening-panel input[type=number]', "30");
   await evaluate('document.querySelector(".party-opening-panel form").requestSubmit()');
   await until(() => evaluate('Boolean(document.querySelector(".app-confirm-dialog"))'), "opening edit confirmation");
   await click(".app-confirm-actions button:first-child");
   await until(async () => (await database.collection("parties").findOne({ id: created.id }))?.net === 30 &&
-    await evaluate('!window.__payrollBusy && !document.querySelector(".party-opening-panel form")'), "opening balance edited");
-  await click(".party-opening-panel .compact-delete");
+    await evaluate('!window.__payrollBusy && !document.querySelector(".party-opening-panel")'), "opening balance edited and editor hidden");
+  await screenshot("party-opening-after-save-1280",1280);
+  await openingHistoryAction("void");
   await until(() => evaluate('Boolean(document.querySelector(".app-confirm-dialog"))'), "opening void confirmation");
   await click(".app-confirm-actions button:first-child");
   await until(async () => (await database.collection("documents").findOne({ id: opening.id }))?.status === "voided" &&
     await evaluate('!window.__payrollBusy'), "opening balance voided");
   assert.equal((await database.collection("parties").findOne({ id: created.id })).net, 0);
-  checkpoints.push("Opening balance source edits25 to30 and void restores zero without a cash posting");
+  await until(() => evaluate('Boolean(document.querySelector(".party-opening-add")) && !document.querySelector(".party-opening-panel,.party-opening-summary")'), "single compact opening action after void");
+  await screenshot("party-opening-after-void-760",760);
+  checkpoints.push("Opening debt is button-only when absent; history edit25→30 hides after save, history void restores zero, and canceling replacement preserves payment draft7");
 
   await setView("suppliers");
   assert.equal(await evaluate('document.querySelector(".parties-create")===null'), true);

@@ -1,4 +1,11 @@
 export const arMessages = {
+  "مجموع السطر": "مجموع السطر",
+  "partyOpening.void": "إلغاء رصيد البداية",
+  "partyOpening.voidPreview": "هل تريد إلغاء رصيد البداية؟ الرصيد الحالي: {before}، وبعد الإلغاء: {after}.",
+  "تم إلغاء رصيد البداية": "تم إلغاء رصيد البداية",
+  "مجموع السطر غير صالح": "مجموع السطر غير صالح",
+  "مجموع السطر لا يطابق الكمية وسعر الوحدة": "مجموع السطر لا يطابق الكمية وسعر الوحدة",
+  "إجمالي الفاتورة غير صالح": "إجمالي الفاتورة غير صالح",
   "إدارة فئات المصاريف": "إدارة فئات المصاريف",
   "نوع الفئة": "نوع الفئة",
   "متكررة": "متكررة",
@@ -1496,6 +1503,13 @@ export type MessageKey = keyof typeof arMessages;
 export type TranslationParams = Record<string, string | number>;
 
 export const frMessages: Record<MessageKey, string> = {
+  "مجموع السطر": "Total de la ligne",
+  "partyOpening.void": "Annuler le solde initial",
+  "partyOpening.voidPreview": "Annuler le solde initial ? Solde actuel : {before}. Solde après annulation : {after}.",
+  "تم إلغاء رصيد البداية": "Solde initial annulé",
+  "مجموع السطر غير صالح": "Le total de la ligne est invalide.",
+  "مجموع السطر لا يطابق الكمية وسعر الوحدة": "Le total de la ligne ne correspond pas à la quantité et au prix unitaire.",
+  "إجمالي الفاتورة غير صالح": "Le total de la facture est invalide.",
   "إدارة فئات المصاريف": "Gérer les catégories de dépenses",
   "نوع الفئة": "Type de catégorie",
   "متكررة": "Récurrente",

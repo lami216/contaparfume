@@ -8,6 +8,7 @@ import { resolvePartyType } from "../app/domain.ts";
 import { backupBuildInfo, type BackupApplication, type BackupBuild } from "./build-info.ts";
 import { ensurePerfumeSystemCategories } from "./perfume-system-categories.ts";
 import { repairLegacyPayrollResume, validatePayrollSnapshot, type PayrollEmployee } from "./payroll.ts";
+import { invoiceAmountNumber, resolveInvoiceLineTotal, sumInvoiceLineTotals } from "../app/invoice-line-amount.ts";
 
 export const BACKUP_SCHEMA_VERSION = 1;
 export const BACKUP_COLLECTIONS = ["employees", "parties", "warehouses", "products", "productCategories", "expenseCategories", "documents", "stockMovements", "financialMovements", "paymentAccounts", "recurringExpenses", "accountTransfers", "counters", "auditEvents", "appSettings", "users", "importMappings"] as const;
@@ -84,7 +85,23 @@ export function validateInvariants(b: ContaBackup) {
     if(d.partyId&&!parties.has(String(d.partyId)))throw new Error("فاتورة تشير إلى طرف غير موجود");
     if(d.paymentMethod&&d.paymentMethod!=="note"&&!accountKeys.has(String(d.paymentMethod)))throw new Error("فاتورة تشير إلى حساب غير موجود");
     if(d.kind==="sale"&&d.businessDate&&d.dailySequence!=null){const sequence=`${d.businessDate}:${d.dailySequence}`;if(saleSequences.has(sequence))throw new Error("تسلسل البيع اليومي مكرر");saleSequences.add(sequence)}
-    for(const l of Array.isArray(d.lines)?d.lines:[])if(l.productId&&!products.has(String(l.productId)))throw new Error("فاتورة تشير إلى منتج غير موجود");
+    const documentLines: Document[] = Array.isArray(d.lines) ? d.lines : [];
+    let hasExactLine = false;
+    for(const l of documentLines){
+      if(l.productId&&!products.has(String(l.productId)))throw new Error("فاتورة تشير إلى منتج غير موجود");
+      // This policy is opt-in. Older rounded/imported rows keep their original
+      // amounts and cost snapshots; only newly tagged ordinary invoice rows use it.
+      if(l.lineTotalMode===undefined)continue;
+      if(l.lineTotalMode!=="exact"||!["sale","purchase"].includes(d.kind))throw new Error("نمط مجموع سطر الفاتورة غير صالح");
+      const quantity=invoiceAmountNumber(l.quantity),unitPrice=invoiceAmountNumber(l.unitPrice);
+      if(quantity===null||unitPrice===null)throw new Error("قيم سطر الفاتورة الدقيق غير صالحة");
+      resolveInvoiceLineTotal(quantity,unitPrice,l.lineTotal,true);
+      hasExactLine=true;
+    }
+    if(hasExactLine){
+      const values=documentLines.map(line=>invoiceAmountNumber(line.lineTotal)),total=invoiceAmountNumber(d.total);
+      if(total===null||values.some(value=>value===null)||sumInvoiceLineTotals(values as number[],true)!==total)throw new Error("إجمالي الفاتورة لا يطابق مجموع سطورها");
+    }
   }
   for(const movement of b.collections.stockMovements){if(openingIds.has(movement.documentId))throw new Error("رصيد بداية الديون لا يحرك المخزون");if(movement.productId&&!products.has(String(movement.productId)))throw new Error("حركة مخزون تشير إلى منتج غير موجود");if(movement.warehouseId&&!warehouses.has(String(movement.warehouseId)))throw new Error("حركة مخزون تشير إلى مخزن غير موجود")}
   for(const movement of b.collections.financialMovements){if(openingIds.has(movement.documentId))throw new Error("رصيد بداية الديون لا يحرك الصندوق");if(movement.paymentMethod&&!accountKeys.has(String(movement.paymentMethod)))throw new Error("حركة مالية تشير إلى حساب غير موجود");if(movement.partyId&&!parties.has(String(movement.partyId)))throw new Error("حركة مالية تشير إلى طرف غير موجود")}

@@ -120,6 +120,7 @@ export interface DocumentLine {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  lineTotalMode?: "exact";
   costAtSale?: number | null;
   grossProfit?: number | null;
   perfumeAllocations?: PerfumeAllocation[];
