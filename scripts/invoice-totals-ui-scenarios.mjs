@@ -24,11 +24,21 @@ export async function runInvoiceTotalsScenarios({ cdp, origin, command, database
     await click(".app-confirm-actions button:" + (accept ? "first" : "last") + "-child");
     await until(() => evaluate('!document.querySelector(".app-confirm-dialog")'), "closed invoice confirmation");
   };
-  const warehouse = await database.collection("warehouses").findOne({ isArchived: { $ne: true } });
-  const warehouseId = String(warehouse._id ?? warehouse.id);
+  const readBootstrap = async () => {
+    const response = await fetch(origin + "/api/bootstrap"), value = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(value));
+    return value;
+  };
+  const beforeFixtures = await readBootstrap();
+  const warehouse = beforeFixtures.warehouses.find(row => !row.isArchived && row.isSalesDefault);
+  assert(warehouse, "The same bootstrap consumed by POS identifies its default sales warehouse");
+  const warehouseId = String(warehouse.id);
   const cash = await database.collection("paymentAccounts").findOne({ code: "cash" });
   const saleProductId = await command({ type: "product.create", name: "عطر فحص إجمالي البيع الدقيق", pieceCost: 100, piecePrice: 150, openingStock: 20, openingWarehouseId: warehouseId });
   const purchaseProductId = await command({ type: "product.create", name: "عطر فحص إجمالي الشراء الدقيق", pieceCost: 100, piecePrice: 180, openingStock: 0 });
+  const seeded = await readBootstrap();
+  assert.equal(seeded.warehouses.find(row => !row.isArchived && row.isSalesDefault)?.id, warehouseId, "Fixture follows the real POS default, not collection insertion order");
+  assert.equal(seeded.products.find(row => row.id === saleProductId)?.stocks?.[warehouseId], 20, "The UI bootstrap contains all20 opening units in its actual sales warehouse");
   const accountBalances = async () => (await database.collection("paymentAccounts").find().toArray()).map(row => [row.id, row.balance]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   const allBalancesBefore = await accountBalances();
   const cashBalance = async () => Number((await database.collection("paymentAccounts").findOne({ id: cash.id })).balance);
@@ -57,9 +67,19 @@ export async function runInvoiceTotalsScenarios({ cdp, origin, command, database
       await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(workspace)}))`), kind + " workspace");
       assert.equal(await evaluate('document.getElementById("root").className'), "app-shell section-" + (kind === "sale" ? "pos" : "purchases"));
     };
+    const selectPurchaseWarehouse = async () => {
+      if (kind !== "purchase") return;
+      const trigger = workspace + " .purchase-details > label .combobox-trigger";
+      await click(trigger);
+      await until(() => evaluate(`[...document.querySelectorAll(".combobox-popover [role=option]")].some(option=>option.getAttribute("title")===${JSON.stringify(warehouse.name)})`), "purchase receiving warehouse choices");
+      await evaluate(`(()=>{const option=[...document.querySelectorAll(".combobox-popover [role=option]")].find(option=>option.getAttribute("title")===${JSON.stringify(warehouse.name)});option.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,cancelable:true}))})()`);
+      await until(() => evaluate(`document.querySelector(${JSON.stringify(trigger)})?.getAttribute("aria-expanded")==="false" && document.querySelector(${JSON.stringify(trigger + " span")})?.textContent===${JSON.stringify(warehouse.name)}`), "actual purchase warehouse selected");
+    };
     const addProduct = async () => {
+      await selectPurchaseWarehouse();
       await fill(workspace + ' .search-panel input[aria-label="بحث المنتج"]', name);
       await until(() => evaluate(`Boolean(document.getElementById(${JSON.stringify("product-result-" + productId)}))`), "invoice product search " + kind);
+      assert.equal(await evaluate(`document.getElementById(${JSON.stringify("product-result-" + productId)}).querySelector("button").disabled`), false, kind + " product is selectable in the real UI warehouse");
       await evaluate(`document.getElementById(${JSON.stringify("product-result-" + productId)}).click()`);
       await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(total)}))`), "added invoice product " + kind);
     };
