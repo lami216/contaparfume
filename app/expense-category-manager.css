@@ -20,6 +20,15 @@
 .expense-payment-row .expense-cancel { grid-column: 2; grid-row: 2; }
 .expense-payment-row .expense-delete { grid-column: 3; grid-row: 2; }
 .expense-payment-row :is(input, select) { max-width: 100%; min-width: 0; }
+.expense-form-body .expense-payment-row :is(.expense-save, .expense-cancel, .expense-delete),
+.expense-form-body .expense-category-create > button {
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  min-height: 34px;
+  line-height: 1.2;
+  white-space: normal;
+}
 .expense-payment-row:has(.expense-category-create) {
   grid-template-columns: 128px minmax(180px, 220px) minmax(290px, 1fr) 112px;
 }
