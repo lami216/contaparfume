@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { captureControlLayouts } from "./ui-control-bounds.mjs";
 
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
@@ -90,6 +91,10 @@ export async function runPartiesReportScenarios({ cdp, command, database, screen
     }
     layouts.push(layout);
   }
+  layouts.push(...await captureControlLayouts({ cdp, screenshot, scope: ".parties-create", name: "party-create-controls-ar", widths: [1280, 760, 480] }));
+  await evaluate('window.__smokeSetLocale("fr")');
+  layouts.push(...await captureControlLayouts({ cdp, screenshot, scope: ".parties-create", name: "party-create-controls-fr", widths: [480] }));
+  await evaluate('window.__smokeSetLocale("ar")');
   await evaluate('document.querySelector(".parties-create").requestSubmit()');
   await until(async () => {
     const party = await database.collection("parties").findOne({ name: "عميل فحص القائمة" });
@@ -148,6 +153,10 @@ export async function runPartiesReportScenarios({ cdp, command, database, screen
   await until(() => evaluate('Boolean(document.querySelector(".party-opening-add")) && !document.querySelector(".party-opening-panel,.party-opening-summary")'), "single compact opening action after void");
   await screenshot("party-opening-after-void-760",760);
   checkpoints.push("Opening debt is button-only when absent; history edit25→30 hides after save, history void restores zero, and canceling replacement preserves payment draft7");
+  const { runPartyCashScenarios } = await import("./party-cash-ui-scenarios.mjs");
+  const partyCash = await runPartyCashScenarios({ cdp, database, partyId: created.id, screenshot });
+  layouts.push(...partyCash.layouts);
+  checkpoints.push(...partyCash.checkpoints);
 
   await setView("suppliers");
   assert.equal(await evaluate('document.querySelector(".parties-create")===null'), true);
@@ -203,9 +212,17 @@ export async function runPartiesReportScenarios({ cdp, command, database, screen
     assert(Math.abs(layout.roleTop - layout.nameTop) <= 1, "One role dropdown stays beside the contextual name picker");
     assert(layout.roleWidth <= 180, "Role dropdown stays compact");
   }
+  layouts.push(...await captureControlLayouts({ cdp, screenshot, scope: ".party-ledger-filter,.report-toolbar", name: "party-ledger-filters-ar" }));
+  await evaluate('window.__smokeSetLocale("fr")');
+  layouts.push(...await captureControlLayouts({ cdp, screenshot, scope: ".party-ledger-filter,.report-toolbar", name: "party-ledger-filters-fr", widths: [480] }));
+  await evaluate('window.__smokeSetLocale("ar")');
   assert.deepEqual(await accounts(), cashBefore, "All account balances remain unchanged throughout party and report scenarios");
-  assert.deepEqual(await database.collection("financialMovements").find().toArray(), financialBefore, "Opening debt and its corrections create no cash movements");
+  const financialAfter = await database.collection("financialMovements").find().toArray();
+  assert.deepEqual(financialAfter.filter(row => !partyCash.documentIds.includes(row.documentId)), financialBefore, "All unrelated financial history remains unchanged");
+  const cashTrace = financialAfter.filter(row => partyCash.documentIds.includes(row.documentId));
+  assert(cashTrace.length >= 8, "Both real payments retain their posting/edit/void audit movements");
+  assert.equal(cashTrace.reduce((sum, row) => sum + (row.direction === "in" ? 1 : -1) * row.amount, 0), 0, "Posted/reversed payment history has zero net cash after both voids");
   assert.deepEqual(await database.collection("stockMovements").find().toArray(), stockBefore, "Party and ledger forms create no stock movements");
   checkpoints.push("Employee, customer and supplier ledger contexts select their own registered names and clear stale results");
-  return { checkpoints, layouts, accountBalancesUnchanged: true, customerId: created.id, supplierId, workerId: worker.id };
+  return { checkpoints, layouts, partyCash, accountBalancesUnchanged: true, customerId: created.id, supplierId, workerId: worker.id };
 }

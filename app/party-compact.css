@@ -94,6 +94,90 @@
   gap: 6px;
 }
 
+.party-detail .party-detail-top {
+  min-width: 0;
+  grid-template-columns: minmax(220px, .85fr) minmax(0, 1.65fr);
+}
+
+.party-detail .party-detail-top:has(> .party-account-summary:only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.party-detail .party-detail-top > .erp-fieldset,
+.party-detail .party-payment-row > *,
+.party-detail .party-payment-row label,
+.party-detail .party-identity,
+.party-detail .party-identity-field {
+  min-width: 0;
+}
+
+.party-detail .party-identity-field strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.party-detail .party-payment-panel {
+  container-type: inline-size;
+  container-name: party-payment;
+}
+
+.party-detail .party-payment-row {
+  grid-template-columns: minmax(160px, 220px) minmax(100px, 140px) minmax(80px, 105px) minmax(100px, 1fr) minmax(100px, 150px) !important;
+  gap: 6px;
+}
+
+.party-detail .party-payment-row :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.party-detail .party-cash-direction {
+  height: auto;
+  min-height: 34px;
+}
+
+.party-detail .party-cash-direction button {
+  height: auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+
+.party-detail .party-payment-row .party-row-actions {
+  min-width: 0;
+  flex-wrap: wrap;
+  white-space: normal;
+}
+
+.party-detail .party-payment-row .party-row-actions button {
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+}
+
+@container party-payment (max-width: 620px) {
+  .party-detail .party-payment-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .party-detail .party-payment-row .party-cash-direction,
+  .party-detail .party-payment-row .party-row-actions {
+    grid-column: 1 / -1;
+  }
+
+  .party-detail .party-payment-row .party-row-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 1099px) {
+  .party-detail .party-detail-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .party-detail .party-opening-launch {
   margin-block: 4px;
 }

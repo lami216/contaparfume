@@ -6,6 +6,7 @@ import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { build } from "esbuild";
+import { assertControlBounds, captureControlLayouts } from "./ui-control-bounds.mjs";
 
 if (process.env.CI !== "true" || process.env.GITHUB_ACTIONS !== "true" || process.platform !== "win32") {
   throw new Error("This smoke check runs only in GitHub Actions on Windows.");
@@ -260,6 +261,7 @@ async function main() {
   }
   async function employeeScreenshot(name,width) {
     await screenshot(name,width);
+    (result.employeeLayouts??=[]).push(await assertControlBounds({cdp,scope:".employees-toolbar,.employee-card,.employee-payment-panel,.employees-history .employee-actions",name}));
     const layout = await cdp.evaluate(`(()=>{
       const box=selector=>{const r=document.querySelector(selector).getBoundingClientRect();return{x:r.x,right:r.right,y:r.y,bottom:r.bottom}};
       return{list:box(".employees-list"),history:box(".employees-history"),account:box(".employees-account"),overflow:document.documentElement.scrollWidth>innerWidth+1};
@@ -284,6 +286,8 @@ async function main() {
   assert(await cdp.evaluate('document.querySelector(".employee-balance").textContent.includes("مستحق على العامل")'));
   const withdrawal = (await state()).documents.find(document => document.kind === "employee-payment");
   await employeeScreenshot("withdrawal-1280", 1280);
+  await employeeScreenshot("withdrawal-760", 760);
+  await employeeScreenshot("withdrawal-480", 480);
   result.checkpoints.push("Actual UI withdrawal150 exceeds accrued100, cash850 and signed worker balance-50");
   await fill("نوع الحركة", "deposit");
   await fill("المبلغ", 30);
@@ -293,6 +297,12 @@ async function main() {
   const deposit = (await state()).documents.find(document => document.employeePaymentDirection === "deposit");
   assert(deposit);
   await employeeScreenshot("deposit-760", 760);
+  await employeeScreenshot("deposit-480", 480);
+  await cdp.evaluate('window.__smokeSetLocale("fr")');
+  await until(()=>cdp.evaluate('document.documentElement.lang==="fr"'),"French worker movement locale");
+  await employeeScreenshot("deposit-fr-480", 480);
+  await cdp.evaluate('window.__smokeSetLocale("ar")');
+  await until(()=>cdp.evaluate('document.documentElement.lang==="ar"'),"Arabic worker actions restored");
   result.checkpoints.push("Actual UI deposit30 increases cash and worker balance");
   await fill("المبلغ", 7);
   await cdp.evaluate("window.__payrollUi.action(" + JSON.stringify(deposit.number) + ',"تعديل")');
@@ -307,6 +317,10 @@ async function main() {
   result.checkpoints.push("Canceling the unsaved-editor dialog keeps the draft and cash, confirming opens the history edit");
   await fill("المبلغ", 50);
   await fill("سبب التعديل", "CI correction");
+  (result.employeeLayouts??=[]).push(...await captureControlLayouts({cdp,screenshot,scope:".employee-payment-panel",name:"worker-movement-edit-ar"}));
+  await cdp.evaluate('window.__smokeSetLocale("fr")');
+  (result.employeeLayouts??=[]).push(...await captureControlLayouts({cdp,screenshot,scope:".employee-payment-panel",name:"worker-movement-edit-fr",widths:[480]}));
+  await cdp.evaluate('window.__smokeSetLocale("ar")');
   await cdp.evaluate("window.__payrollUi.submit()");
   await expectState(0, 900);
   const edit = (await state()).documents.find(document => document.id === deposit.id);
@@ -325,6 +339,9 @@ async function main() {
   const final = await state();
   assert.equal(final.documents.filter(document => document.kind === "employee-accrual" && document.status === "posted").length, 1);
   assert.equal(final.documents.filter(document => document.kind === "employee-payment" && document.status === "posted").length, 0);
+  const {runWorkerProfileScenarios}=await import("./worker-profile-ui-scenarios.mjs");
+  result.workerProfiles=await runWorkerProfileScenarios({cdp,database,employeeId,screenshot});
+  result.checkpoints.push(...result.workerProfiles.checkpoints);
   const command=async body=>{
     const response=await fetch(base+"/api/command",{method:"POST",headers:{"content-type":"application/json",Origin:base,"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify(body)}),value=await response.json();
     assert.equal(response.status,200,JSON.stringify(value));return value.id;

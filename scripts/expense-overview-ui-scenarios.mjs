@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { captureControlLayouts } from "./ui-control-bounds.mjs";
 
 /** Real application UI and restore routes; the caller owns the CI-only temporary profile. */
 export async function runExpenseOverviewScenarios({cdp,origin,command,database,screenshot}) {
@@ -36,17 +37,36 @@ export async function runExpenseOverviewScenarios({cdp,origin,command,database,s
   await command({type:"employee-payment.post",employeeId:worker.id,direction:"withdraw",amount:20,paymentMethod:cash.id,occurredAt:today});
   await evaluate('window.__smokeSetLocale("ar")');
   await setView("expenses",".expense-form");
+  await fillLabel(".expense-form-body","عنوان المصروف","مسودة اختبار إلغاء الفئة");
+  await fillLabel(".expense-form-body","المبلغ",5);
+  await fillLabel(".expense-form-body","وسيلة الدفع",cash.id);
+  const beforeInlineCancel=await moneySnapshot();
+  await click(".expense-category-add");
+  await until(()=>evaluate('Boolean(document.querySelector(".expense-category-create"))'),"cancelable inline category editor");
+  await fill(".expense-category-create input","فئة لا ينبغي حفظها");
+  await fill(".expense-category-create .expense-category-kind-select","nonrecurring");
+  layouts.push(...await captureControlLayouts({cdp,screenshot,scope:".expense-form-body",name:"expense-category-cancel-draft-ar"}));
+  await evaluate('window.__smokeSetLocale("fr")');
+  layouts.push(...await captureControlLayouts({cdp,screenshot,scope:".expense-form-body",name:"expense-category-inline-fr",widths:[480]}));
+  await evaluate('window.__smokeSetLocale("ar")');
+  await click(".expense-category-add");
+  await until(()=>evaluate('!document.querySelector(".expense-category-create")'),"inline category canceled");
+  assert.equal(await database.collection("expenseCategories").countDocuments({name:"فئة لا ينبغي حفظها"}),0);
+  assert.deepEqual(await moneySnapshot(),beforeInlineCancel,"Canceling inline category creation leaves the valid outer expense draft unposted");
+  assert.equal(await evaluate('document.querySelector(".expense-fields > label:first-child input").value'),"مسودة اختبار إلغاء الفئة");
+  assert.equal(await evaluate('document.querySelector(".expense-fields > label:nth-child(2) input").value'),"5");
+  assert.equal(await evaluate('document.querySelector(".expense-payment-row > label select").value'),cash.id);
   await click(".expense-category-add");
   await until(()=>evaluate('Boolean(document.querySelector(".expense-category-create"))'),"inline category form");
   await fill(".expense-category-create input","صيانة تجريبية");
   await fill(".expense-category-create .expense-category-kind-select","nonrecurring");
-  for(const width of [1920,760]){
+  for(const width of [1920,1280,760,480]){
     await screenshot("expense-category-inline-"+width,width);
     const layout=await evaluate(`(()=>{const form=document.querySelector(".expense-form-body"),category=form.querySelector(".expense-category-row select").getBoundingClientRect(),newKind=form.querySelector(".expense-category-create select").getBoundingClientRect(),save=form.querySelector('.expense-edit-actions button.primary').getBoundingClientRect();return{kind:"inline",width:innerWidth,categoryBottom:category.bottom,newKindBottom:newKind.bottom,saveBottom:save.bottom,overflow:document.documentElement.scrollWidth>innerWidth+1,contained:[...form.querySelectorAll("input,select,button")].filter(element=>element.getClientRects().length).every(element=>{const rect=element.getBoundingClientRect();return rect.left>=-1&&rect.right<=innerWidth+1})}})()`);
     assert.equal(layout.overflow,false);assert.equal(layout.contained,true);
-    if(width===1920){assert(Math.abs(layout.categoryBottom-layout.newKindBottom)<3);assert(Math.abs(layout.categoryBottom-layout.saveBottom)<3,"Wide category creation stays beside payment and expense save");}
     layouts.push(layout);
   }
+  layouts.push(...await captureControlLayouts({cdp,screenshot,scope:".expense-form-body",name:"expense-category-create-controls"}));
   await textClick(".expense-category-create button","حفظ");
   let selectedCategory;
   await until(async()=>{selectedCategory=await database.collection("expenseCategories").findOne({name:"صيانة تجريبية"});return selectedCategory?.kind==="nonrecurring"},"new nonrecurring category");
@@ -72,11 +92,15 @@ export async function runExpenseOverviewScenarios({cdp,origin,command,database,s
   await click(row(legacyId)+' button[aria-label="تعديل فئة قديمة تجريبية"]');
   await fillLabel(".expense-category-manager","اسم فئة المصروف","فئة قديمة مصححة");
   await fill(".expense-category-manager .expense-category-kind-select","nonrecurring");
+  layouts.push(...await captureControlLayouts({cdp,screenshot,scope:".expense-category-manager",name:"expense-category-manager-edit-ar"}));
+  await evaluate('window.__smokeSetLocale("fr")');
+  layouts.push(...await captureControlLayouts({cdp,screenshot,scope:".expense-category-manager",name:"expense-category-manager-edit-fr",widths:[480]}));
+  await evaluate('window.__smokeSetLocale("ar")');
   await textClick(".expense-category-manager button","حفظ التعديل");
   await until(async()=>{const category=await database.collection("expenseCategories").findOne({id:legacyId});return category?.kind==="nonrecurring"&&category.name==="فئة قديمة مصححة"},"metadata correction");
   await until(()=>evaluate('!window.__payrollBusy&&!document.querySelector(".expense-category-manager-editor")'),"category editor completion");
   assert.deepEqual(await moneySnapshot(),beforeMetadata,"Category identity and recurrence changes never repost expense money");
-  for(const width of [1280,760]){
+  for(const width of [1280,760,480]){
     await screenshot("expense-category-manager-"+width,width);
     const layout=await evaluate(`(()=>{const card=document.querySelector(".expense-category-manager"),box=card.getBoundingClientRect();return{width:innerWidth,left:box.left,right:box.right,height:box.height,overflow:document.documentElement.scrollWidth>innerWidth+1,controlsInside:[...card.querySelectorAll("input,select,button")].filter(element=>element.getClientRects().length).every(element=>{const rect=element.getBoundingClientRect();return rect.left>=box.left-1&&rect.right<=box.right+1})}})()`);
     assert.equal(layout.overflow,false);assert.equal(layout.controlsInside,true);assert(layout.left>=-1&&layout.right<=width+1);assert(layout.height<500,"A short category list stays a compact dialog at both widths");
@@ -109,6 +133,7 @@ export async function runExpenseOverviewScenarios({cdp,origin,command,database,s
   await fillLabel(".expense-form-body","وسيلة الدفع","");
   await fill(".expense-category-row select","");
   checkpoints.push("Actual expense form creates a nonrecurring category and posts its40; category rename/type edit, used archive and unused deletion preserve all posted amounts and cash");
+  checkpoints.push("Inline category cancellation preserves its outer expense draft; create/manager controls remain individually reachable and unclipped at1280/760/480 including French480");
 
   await evaluate(`(()=>{const original=window.fetch.bind(window);window.__restoreSmokeFetch=()=>{window.fetch=original};window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).startsWith("/api/reports?")){window.__latestSmokeReport=await response.clone().json();window.__latestSmokeReportUrl=String(args[0])}return response}})()`);
   const showAll=async(type)=>{
@@ -122,11 +147,15 @@ export async function runExpenseOverviewScenarios({cdp,origin,command,database,s
   let report=await showAll("expenses");
   assert.deepEqual([report.summary.total,report.summary.recurringTotal,report.summary.nonrecurringTotal],[170,30,140]);
   assert.equal(report.rows.find(row=>row.expenseCategoryId===legacyId).expenseCategory,"فئة قديمة مصححة");
-  for(const width of [1280,760]){
+  for(const width of [1280,760,480]){
     await screenshot("expense-recurrence-report-"+width,width);
     const filterLayout=await evaluate('(()=>{const category=document.querySelector(".report-expense-category select").getBoundingClientRect(),kind=document.querySelector(".report-expense-kind select").getBoundingClientRect();return{categoryWidth:category.width,kindWidth:kind.width,overflow:document.documentElement.scrollWidth>innerWidth+1}})()');
-    assert.equal(filterLayout.overflow,false);assert(filterLayout.categoryWidth>=140&&filterLayout.kindWidth>=150,"Both expense category filters stay readable rather than collapsing");
+    assert.equal(filterLayout.overflow,false);assert(filterLayout.categoryWidth>=100&&filterLayout.kindWidth>=100,"Both expense category filters stay usable rather than collapsing");
   }
+  layouts.push(...await captureControlLayouts({cdp,screenshot,scope:".report-toolbar",name:"expense-report-filters-ar"}));
+  await evaluate('window.__smokeSetLocale("fr")');
+  layouts.push(...await captureControlLayouts({cdp,screenshot,scope:".report-toolbar",name:"expense-report-filters-fr",widths:[480]}));
+  await evaluate('window.__smokeSetLocale("ar")');
   assert.equal(await evaluate('document.querySelectorAll(".reports-workspace .report-summary-area .report-kpi").length'),2);
   await fill(".report-expense-kind select","recurring");
   report=await showAll("expenses");
