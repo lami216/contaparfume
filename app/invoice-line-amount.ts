@@ -60,8 +60,8 @@ export function sumInvoiceLineTotals(values: number[], exact: boolean, allowEmpt
   if (exact) {
     if (values.some(value=>invoiceAmountNumber(value)===null)) throw new InvoiceLineAmountError("إجمالي الفاتورة غير صالح");
     const texts=values.map(invoiceAmountText),decimals=Math.max(0,...texts.map(text=>text.split(".")[1]?.length??0));
-    const scaled=texts.reduce((sum,text)=>{const [whole,fraction=""]=text.split(".");return sum+BigInt(whole+fraction.padEnd(decimals,"0"));},0n);
-    if(scaled>BigInt(MAX_INVOICE_LINE_AMOUNT)*10n**BigInt(decimals))throw new InvoiceLineAmountError("إجمالي الفاتورة غير صالح");
+    const scaled=texts.reduce((sum,text)=>{const [whole,fraction=""]=text.split(".");return sum+BigInt(whole+fraction.padEnd(decimals,"0"));},BigInt(0));
+    if(scaled>BigInt(MAX_INVOICE_LINE_AMOUNT)*BigInt(10)**BigInt(decimals))throw new InvoiceLineAmountError("إجمالي الفاتورة غير صالح");
     const digits=scaled.toString().padStart(decimals+1,"0");
     total=Number(decimals?digits.slice(0,-decimals)+"."+digits.slice(-decimals):digits);
   }
