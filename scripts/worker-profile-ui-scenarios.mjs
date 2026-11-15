@@ -13,6 +13,12 @@ export async function runWorkerProfileScenarios({ cdp, database, employeeId, scr
   };
   const fill = (selector, value) => evaluate(`(()=>{const field=document.querySelector(${JSON.stringify(selector)});if(!field)throw Error("Missing employee field "+${JSON.stringify(selector)});const prototype=field.tagName==="SELECT"?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(prototype,"value").set.call(field,${JSON.stringify(String(value))});field.dispatchEvent(new Event("input",{bubbles:true}));field.dispatchEvent(new Event("change",{bubbles:true}))})()`);
   const click = selector => evaluate(`(()=>{const button=document.querySelector(${JSON.stringify(selector)});if(!button||button.disabled)throw Error("Missing employee action "+${JSON.stringify(selector)});button.click()})()`);
+  const assertCompactProfileGap = async name => {
+    const layout = await evaluate('(()=>{const list=document.querySelector(".employees-list").getBoundingClientRect(),profile=document.querySelector(".employee-profile-panel").getBoundingClientRect();return{width:innerWidth,locale:document.documentElement.lang,listBottom:list.bottom,profileTop:profile.top,gap:profile.top-list.bottom}})()');
+    assert.equal(layout.width,480,"Compact profile gap is measured in the stacked layout");
+    assert(layout.gap>=-2&&layout.gap<=32,name+" has an artificial list/profile gap: "+JSON.stringify(layout));
+    layouts.push({name,...layout});
+  };
   const original = await database.collection("employees").findOne({ id: employeeId });
   const accountsBefore = (await database.collection("paymentAccounts").find().toArray()).map(row => [row.id, row.balance]).sort();
   const financialBefore = await database.collection("financialMovements").find().toArray();
@@ -26,8 +32,10 @@ export async function runWorkerProfileScenarios({ cdp, database, employeeId, scr
   await fill(field(3), 70);
   await fill(field(4), future);
   layouts.push(...await captureControlLayouts({ cdp, screenshot, scope: ".employees-toolbar,.employee-profile-panel", name: "worker-create-ar" }));
+  await assertCompactProfileGap("worker-create-ar-480-gap");
   await evaluate('window.__smokeSetLocale("fr")');
   layouts.push(...await captureControlLayouts({ cdp, screenshot, scope: ".employees-toolbar,.employee-profile-panel", name: "worker-create-fr", widths: [480] }));
+  await assertCompactProfileGap("worker-create-fr-480-gap");
   await evaluate('window.__smokeSetLocale("ar")');
   await evaluate('document.querySelector(".employee-profile-form").requestSubmit()');
   let created;
@@ -43,8 +51,10 @@ export async function runWorkerProfileScenarios({ cdp, database, employeeId, scr
   await fill(field(1), "عامل النموذج بعد التعديل");
   await fill(field(2), "00000010");
   layouts.push(...await captureControlLayouts({ cdp, screenshot, scope: ".employee-profile-panel", name: "worker-profile-edit-ar", widths: [760, 480] }));
+  await assertCompactProfileGap("worker-profile-edit-ar-480-gap");
   await evaluate('window.__smokeSetLocale("fr")');
   layouts.push(...await captureControlLayouts({ cdp, screenshot, scope: ".employee-profile-panel", name: "worker-profile-edit-fr", widths: [480] }));
+  await assertCompactProfileGap("worker-profile-edit-fr-480-gap");
   await evaluate('window.__smokeSetLocale("ar")');
   await evaluate('document.querySelector(".employee-profile-form").requestSubmit()');
   await until(async () => {

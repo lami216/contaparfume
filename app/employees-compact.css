@@ -10,6 +10,7 @@
   grid-template-areas: "error error" "list account" "history account";
   grid-template-rows: auto auto minmax(0, 1fr);
   align-items: start;
+  align-content: start;
   gap: 6px;
   padding: 0;
   overflow: auto;
