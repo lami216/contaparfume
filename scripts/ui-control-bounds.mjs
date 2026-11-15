@@ -8,13 +8,22 @@ export async function assertControlBounds({ cdp, scope, name }) {
     const roots=[...document.querySelectorAll(${JSON.stringify(scope)})].filter(element=>element.getClientRects().length);
     const controls=[...new Set(roots.flatMap(root=>[...root.querySelectorAll("input:not([type=hidden]),select,textarea,button")]))].filter(element=>element.getClientRects().length&&getComputedStyle(element).visibility!=="hidden");
     if(!roots.length||!controls.length)throw Error("No visible controls in "+${JSON.stringify(scope)});
-    const rect=element=>{const box=element.getBoundingClientRect();return{left:box.left,right:box.right,top:box.top,bottom:box.bottom,width:box.width,height:box.height}};
+    const visibleRect=element=>{
+      const box=element.getBoundingClientRect();
+      const visible={left:Math.max(0,box.left),right:Math.min(innerWidth,box.right),top:Math.max(0,box.top),bottom:Math.min(innerHeight,box.bottom)};
+      for(let ancestor=element.parentElement;ancestor;ancestor=ancestor.parentElement){
+        const style=getComputedStyle(ancestor),clip=ancestor.getBoundingClientRect(),left=clip.left+ancestor.clientLeft,top=clip.top+ancestor.clientTop;
+        if(/^(hidden|clip|auto|scroll)$/.test(style.overflowX)){visible.left=Math.max(visible.left,left);visible.right=Math.min(visible.right,left+ancestor.clientWidth)}
+        if(/^(hidden|clip|auto|scroll)$/.test(style.overflowY)){visible.top=Math.max(visible.top,top);visible.bottom=Math.min(visible.bottom,top+ancestor.clientHeight)}
+      }
+      return visible;
+    };
     const label=element=>(element.getAttribute("aria-label")||element.getAttribute("title")||element.closest("label")?.textContent||element.textContent||element.type||element.tagName).trim().slice(0,100);
     window.__smokeBoundControls=controls;
     const overlap=[];
     for(let a=0;a<controls.length;a++)for(let b=a+1;b<controls.length;b++){
       if(controls[a].contains(controls[b])||controls[b].contains(controls[a]))continue;
-      const x=rect(controls[a]),y=rect(controls[b]);
+      const x=visibleRect(controls[a]),y=visibleRect(controls[b]);
       if(Math.min(x.right,y.right)-Math.max(x.left,y.left)>2&&Math.min(x.bottom,y.bottom)-Math.max(x.top,y.top)>2)overlap.push([label(controls[a]),label(controls[b])]);
     }
     return{width:innerWidth,locale:document.documentElement.lang,count:controls.length,overlap};
