@@ -97,7 +97,8 @@ test('historical scheduled and new expenses all remain included in the simplifie
   const report = await buildReport(h.db,filter({expenseCategoryId:category}));
   assert.deepEqual([report.summary.total,report.summary.count],[600,3]);
   assert.equal(report.rows.length,3);
-  assert.equal(Object.hasOwn(report.summary,'recurringTotal'),false);
+  assert.equal(report.summary.recurringTotal,600);
+  assert.equal(report.summary.nonrecurringTotal,0);
   assert.equal(Object.hasOwn(report.summary,'oneOffTotal'),false);
   assert(report.rows.every(row=>!Object.hasOwn(row,'recurring')));
   for(const retiredType of ['once','recurring']){

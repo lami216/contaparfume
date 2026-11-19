@@ -54,22 +54,25 @@
 }
 
 .parties-workspace .parties-create .party-opening-toggle {
+  display: inline-flex;
+  align-items: center;
   gap: 5px;
   margin: 0;
-  white-space: nowrap;
+  min-height: 32px;
+  padding: 4px 8px;
+  white-space: normal;
 }
 
-.parties-workspace .parties-create .party-opening-toggle input {
-  width: 16px;
-  height: 16px;
-  min-height: 16px;
-  flex: 0 0 auto;
+.parties-workspace .parties-create .party-opening-create-fields {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
 }
 
 .parties-workspace .parties-create .party-opening-fields {
-  grid-column: 1 / -1;
-  grid-row: 2;
-  grid-template-columns: minmax(160px, 220px) minmax(100px, 160px) minmax(0, 1fr);
+  max-width: 420px;
+  grid-template-columns: minmax(110px, 160px) minmax(100px, 140px) max-content;
+  align-items: end;
   gap: 8px;
   margin: 0;
 }
@@ -89,6 +92,169 @@
 .party-edit-dialog .party-edit-actions {
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.party-detail .party-detail-top {
+  min-width: 0;
+  grid-template-columns: minmax(220px, .85fr) minmax(0, 1.65fr);
+}
+
+.party-detail .party-detail-top:has(> .party-account-summary:only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.party-detail .party-detail-top > .erp-fieldset,
+.party-detail .party-payment-row > *,
+.party-detail .party-payment-row label,
+.party-detail .party-identity,
+.party-detail .party-identity-field {
+  min-width: 0;
+}
+
+.party-detail .party-identity-field strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.party-detail .party-payment-panel {
+  container-type: inline-size;
+  container-name: party-payment;
+}
+
+.party-detail .party-payment-row {
+  grid-template-columns: minmax(160px, 220px) minmax(100px, 140px) minmax(80px, 105px) minmax(100px, 1fr) minmax(100px, 150px) !important;
+  gap: 6px;
+}
+
+.party-detail .party-payment-row :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.party-detail .party-cash-direction {
+  height: auto;
+  min-height: 34px;
+}
+
+.party-detail .party-cash-direction button {
+  height: auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+
+.party-detail .party-payment-row .party-row-actions {
+  min-width: 0;
+  flex-wrap: wrap;
+  white-space: normal;
+}
+
+.party-detail .party-payment-row .party-row-actions button {
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+}
+
+@container party-payment (max-width: 620px) {
+  .party-detail .party-payment-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .party-detail .party-payment-row .party-cash-direction,
+  .party-detail .party-payment-row .party-row-actions {
+    grid-column: 1 / -1;
+  }
+
+  .party-detail .party-payment-row .party-row-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 1099px) {
+  .party-detail .party-detail-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.party-detail .party-opening-launch {
+  margin-block: 4px;
+}
+
+.party-detail .party-opening-add {
+  min-height: 32px;
+  padding: 4px 9px;
+}
+
+.party-detail .party-opening-panel.party-opening-editor {
+  width: 100%;
+  min-width: 0;
+  margin: 6px 0;
+  padding: 8px 0;
+  border: 0;
+  border-block: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+.party-opening-editor form {
+  display: grid;
+  gap: 6px;
+}
+
+.party-opening-editor-title {
+  font-size: .9rem;
+}
+
+.party-opening-editor .party-opening-fields {
+  max-width: 420px;
+  grid-template-columns: minmax(110px, 160px) minmax(100px, 140px) max-content;
+  align-items: end;
+  gap: 7px;
+  margin: 0;
+}
+
+.party-opening-editor .party-opening-fields label {
+  font-size: .85rem;
+  gap: 3px;
+}
+
+.party-opening-editor .party-opening-fields :is(input, select) {
+  min-height: 32px;
+  height: 32px;
+  padding: 4px 8px;
+}
+
+.party-opening-fields > .party-opening-note {
+  grid-column: 1 / -1;
+}
+
+.party-opening-fields .party-opening-note-toggle {
+  align-self: end;
+  min-height: 32px;
+  padding: 4px 8px;
+}
+
+.party-opening-editor .party-opening-preview {
+  width: fit-content;
+  max-width: 100%;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 4px 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: .82rem;
+}
+
+.party-opening-editor .party-row-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.party-opening-editor .party-row-actions button {
+  min-height: 32px;
+  padding: 4px 9px;
 }
 
 .report-filters > .party-ledger-filter {
@@ -117,12 +283,17 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
-  .parties-workspace .parties-create .party-opening-fields {
+  .parties-workspace .parties-create .party-opening-create-fields {
     grid-row: auto;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
-  .parties-workspace .parties-create .party-opening-fields > label:last-child {
+  .parties-workspace .parties-create .party-opening-fields,
+  .party-opening-editor .party-opening-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) max-content;
+  }
+
+  .parties-workspace .parties-create .party-opening-fields > .party-opening-note,
+  .party-opening-editor .party-opening-fields > .party-opening-note {
     grid-column: 1 / -1;
   }
 }
@@ -137,7 +308,8 @@
   }
 
   .parties-workspace .parties-create,
-  .parties-workspace .parties-create .party-opening-fields {
+  .parties-workspace .parties-create .party-opening-fields,
+  .party-opening-editor .party-opening-fields {
     grid-template-columns: minmax(0, 1fr);
   }
 

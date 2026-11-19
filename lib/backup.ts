@@ -8,6 +8,7 @@ import { resolvePartyType } from "../app/domain.ts";
 import { backupBuildInfo, type BackupApplication, type BackupBuild } from "./build-info.ts";
 import { ensurePerfumeSystemCategories } from "./perfume-system-categories.ts";
 import { repairLegacyPayrollResume, validatePayrollSnapshot, type PayrollEmployee } from "./payroll.ts";
+import { invoiceAmountNumber, resolveInvoiceLineTotal, sumInvoiceLineTotals } from "../app/invoice-line-amount.ts";
 
 export const BACKUP_SCHEMA_VERSION = 1;
 export const BACKUP_COLLECTIONS = ["employees", "parties", "warehouses", "products", "productCategories", "expenseCategories", "documents", "stockMovements", "financialMovements", "paymentAccounts", "recurringExpenses", "accountTransfers", "counters", "auditEvents", "appSettings", "users", "importMappings"] as const;
@@ -56,7 +57,12 @@ export function validateInvariants(b: ContaBackup) {
   validatePayrollSnapshot(b.collections.employees??[], b.collections.documents, b.collections.financialMovements, b.collections.auditEvents);
   const products=unique(b.collections.products,"id","معرف المنتج"),categories=unique(b.collections.productCategories??[],"id","معرف الفئة"),warehouses=new Set(b.collections.warehouses.map(w=>String(w._id??w.id))),accounts=unique(b.collections.paymentAccounts,"id","معرف الحساب");
   const expenseCategories=unique(b.collections.expenseCategories??[],"id","معرف فئة المصروف");
-  for(const category of b.collections.expenseCategories??[])if(typeof category.name!=="string"||!category.name.trim()||category.name.length>80)throw new Error("اسم فئة المصروف غير صالح");
+  for(const category of b.collections.expenseCategories??[]){
+    if(typeof category.name!=="string"||!category.name.trim()||category.name.length>80)throw new Error("اسم فئة المصروف غير صالح");
+    if(category.kind!==undefined&&category.kind!=="recurring"&&category.kind!=="nonrecurring")throw new Error("نوع فئة المصروف غير صالح");
+    if(category.isArchived!==undefined&&typeof category.isArchived!=="boolean")throw new Error("حالة فئة المصروف غير صالحة");
+    if(category.revision!==undefined&&(!Number.isSafeInteger(category.revision)||category.revision<0))throw new Error("إصدار فئة المصروف غير صالح");
+  }
   const accountKeys=new Set([...accounts,...b.collections.paymentAccounts.map(account=>String(account.code??"")).filter(Boolean)]);
   const parties=new Set(b.collections.parties.map(party=>String(party.id??party._id??"")).filter(Boolean));
   if(b.collections.warehouses.filter(w=>w.isSalesDefault===true).length!==1)throw new Error("يجب أن تحتوي النسخة على مخزن بيع افتراضي واحد");
@@ -72,14 +78,30 @@ export function validateInvariants(b: ContaBackup) {
       if(!d.partyId||d.partyOpeningVersion!==1||!["receivable","payable"].includes(d.partyOpeningDirection)||!Number.isFinite(d.partyOpeningAmount)||d.partyOpeningAmount<=0||d.total!==d.partyOpeningAmount||d.partyOpeningContribution!==contribution||d.partyBalanceDelta!==contribution||d.paymentMethod||d.cashAmount!==0||d.paidTotal!==0||d.dueTotal!==0||(d.lines??[]).length)throw new Error("رصيد بداية الديون غير صالح");
       if(d.status==="posted"){if(openingParties.has(d.partyId))throw new Error("رصيد بداية مكرر للطرف نفسه");openingParties.add(d.partyId);}
     }
-    if(["employee-accrual","employee-payment"].includes(d.kind)){if(!employees.has(String(d.employeeId))||!Number.isFinite(d.total)||d.total<=0)throw new Error("سند عامل غير صالح");if(d.kind==="employee-payment"&&(!Array.isArray(d.allocations)||d.allocations.some((a:Document)=>!accruals.has(String(a.accrualId))||!Number.isFinite(a.amount)||a.amount<=0)))throw new Error("توزيع صرف العامل غير صالح");}
+    if(["employee-accrual","employee-payment","employee-closure"].includes(d.kind)){if(!employees.has(String(d.employeeId))||!Number.isFinite(d.total)||d.total<=0)throw new Error("سند عامل غير صالح");if(d.kind==="employee-payment"&&(!Array.isArray(d.allocations)||d.allocations.some((a:Document)=>!accruals.has(String(a.accrualId))||!Number.isFinite(a.amount)||a.amount<=0)))throw new Error("توزيع صرف العامل غير صالح");}
     if(d.kind==="expense"&&d.expenseCategoryId&&!expenseCategories.has(String(d.expenseCategoryId)))throw new Error("مصروف يشير إلى فئة غير موجودة");
     if(d.warehouseId&&!warehouses.has(String(d.warehouseId)))throw new Error("فاتورة تشير إلى مخزن غير موجود");
     if(d.destinationWarehouseId&&!warehouses.has(String(d.destinationWarehouseId)))throw new Error("فاتورة تشير إلى مخزن وجهة غير موجود");
     if(d.partyId&&!parties.has(String(d.partyId)))throw new Error("فاتورة تشير إلى طرف غير موجود");
     if(d.paymentMethod&&d.paymentMethod!=="note"&&!accountKeys.has(String(d.paymentMethod)))throw new Error("فاتورة تشير إلى حساب غير موجود");
     if(d.kind==="sale"&&d.businessDate&&d.dailySequence!=null){const sequence=`${d.businessDate}:${d.dailySequence}`;if(saleSequences.has(sequence))throw new Error("تسلسل البيع اليومي مكرر");saleSequences.add(sequence)}
-    for(const l of Array.isArray(d.lines)?d.lines:[])if(l.productId&&!products.has(String(l.productId)))throw new Error("فاتورة تشير إلى منتج غير موجود");
+    const documentLines: Document[] = Array.isArray(d.lines) ? d.lines : [];
+    let hasExactLine = false;
+    for(const l of documentLines){
+      if(l.productId&&!products.has(String(l.productId)))throw new Error("فاتورة تشير إلى منتج غير موجود");
+      // This policy is opt-in. Older rounded/imported rows keep their original
+      // amounts and cost snapshots; only newly tagged ordinary invoice rows use it.
+      if(l.lineTotalMode===undefined)continue;
+      if(l.lineTotalMode!=="exact"||!["sale","purchase"].includes(d.kind))throw new Error("نمط مجموع سطر الفاتورة غير صالح");
+      const quantity=invoiceAmountNumber(l.quantity),unitPrice=invoiceAmountNumber(l.unitPrice);
+      if(quantity===null||unitPrice===null)throw new Error("قيم سطر الفاتورة الدقيق غير صالحة");
+      resolveInvoiceLineTotal(quantity,unitPrice,l.lineTotal,true);
+      hasExactLine=true;
+    }
+    if(hasExactLine){
+      const values=documentLines.map(line=>invoiceAmountNumber(line.lineTotal)),total=invoiceAmountNumber(d.total);
+      if(total===null||values.some(value=>value===null)||sumInvoiceLineTotals(values as number[],true)!==total)throw new Error("إجمالي الفاتورة لا يطابق مجموع سطورها");
+    }
   }
   for(const movement of b.collections.stockMovements){if(openingIds.has(movement.documentId))throw new Error("رصيد بداية الديون لا يحرك المخزون");if(movement.productId&&!products.has(String(movement.productId)))throw new Error("حركة مخزون تشير إلى منتج غير موجود");if(movement.warehouseId&&!warehouses.has(String(movement.warehouseId)))throw new Error("حركة مخزون تشير إلى مخزن غير موجود")}
   for(const movement of b.collections.financialMovements){if(openingIds.has(movement.documentId))throw new Error("رصيد بداية الديون لا يحرك الصندوق");if(movement.paymentMethod&&!accountKeys.has(String(movement.paymentMethod)))throw new Error("حركة مالية تشير إلى حساب غير موجود");if(movement.partyId&&!parties.has(String(movement.partyId)))throw new Error("حركة مالية تشير إلى طرف غير موجود")}

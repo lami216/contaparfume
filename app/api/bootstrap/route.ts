@@ -4,7 +4,7 @@ import { getDatabase } from "../../../lib/sqlite";
 import { resolvePartyType } from "../../domain";
 import { log } from "../../../lib/log";
 import { getPrincipalFromRequest, hasCapability, type Capability } from "../../../lib/auth";
-import { peekNextDocumentSequence } from "../../../lib/document-sequences";
+import { peekNextDocumentSequence, ensureStockSettlementNumberingReady, displayStockMovementDocumentNumber } from "../../../lib/document-sequences";
 import { calculatePartyFinancialSummaries } from "../../party-metrics";
 import { productsWithCurrentCosts } from "../../../lib/product-cost.ts";
 import { getInvoiceBranding } from "../../../lib/invoice-branding";
@@ -19,6 +19,7 @@ export async function GET(request: Request) {const licenseDenied=await requireVa
   const principal=await getPrincipalFromRequest(request);if(!principal)return Response.json({error:"غير مصرح"},{status:401});
   try {
     const db = await getDatabase();
+    await ensureStockSettlementNumberingReady(db);
     const { fragranceCategoryId } = await db.transaction(async session => { await accrueDueEmployees(db,session); return ensurePerfumeSystemCategories(db, session); });
 
     const [parties, warehouses, products, categories, documents, movements, financialMovements, paymentAccounts, accountTransfers, productCounter, nextSale, nextPurchase, nextExpense, nextDecantSale, nextDecantPurchase, branding, currency] = await Promise.all([
@@ -41,7 +42,7 @@ export async function GET(request: Request) {const licenseDenied=await requireVa
     const productHints=new Map(products.map(product=>[String(product.id),product]));
     const cleanMovements = collapseLegacyStockEditMovements(clean(movements as Array<Record<string, unknown>>).map((input:Record<string,unknown>)=>{
       const movement=presentVolumeMovement(input,productHints.get(String(input.productId)));
-      return {...movement,type:classifyStockMovementType(movement.type,documentHints.get(String(movement.documentId??"")))};
+      return {...movement,documentReference:movement.documentNumber,documentNumber:displayStockMovementDocumentNumber(movement,documentHints.get(String(movement.documentId??""))),type:classifyStockMovementType(movement.type,documentHints.get(String(movement.documentId??"")))};
     }));
     const effectiveFinancialMovements=(financialMovements as Array<Record<string,unknown>>).filter(isEffectiveFinancialMovement);
     const partyMetricDocuments=(documents as Array<Record<string,unknown>>).filter(document=>["sale","decant-sale","return","purchase","decant-purchase"].includes(String(document.kind)));
@@ -75,6 +76,6 @@ export async function GET(request: Request) {const licenseDenied=await requireVa
     const visiblePartyIds=new Set(cleanParties.filter(party=>(resolvePartyType(party)==="customer"&&hasCapability(principal,"customers.view"))||(resolvePartyType(party)==="supplier"&&hasCapability(principal,"suppliers.view"))).map(party=>String(party.id)));
     const partyFinancialSummaries=partyAdmin?calculatePartyFinancialSummaries(partyMetricDocuments as never[],effectivePartyMetricMovements as never[]).filter(summary=>visiblePartyIds.has(summary.partyId)):[];
     const effectiveTransfers=(accountTransfers as Array<Record<string,unknown>>).filter(transfer=>transfer.status!=="voided");
-    return Response.json({ branding, currency, employees:hasCapability(principal,"employees.view")?clean(await db.collection("employees").find().sort({name:1}).toArray()):[], perfumeDefaults, principal:{principalType:principal.principalType,name:principal.name,permissions:principal.permissions}, parties:exposedParties, warehouses:clean(warehouses), products:exposedProducts, categories:cleanCategories, expenseCategories:clean(await db.collection("expenseCategories").find().sort({name:1}).toArray()), documents:allowedDocuments, movements:hasCapability(principal,"warehouses.inventory.view")?cleanMovements:[], financialMovements:bankAccess?clean(effectiveFinancialMovements):[], partyFinancialSummaries, paymentAccounts:selectorAccounts, accountTransfers:bankAccess?clean(effectiveTransfers):[], nextProductCode, nextDocumentSequences:{sale:nextSale,purchase:nextPurchase,expense:nextExpense,decantSale:nextDecantSale,decantPurchase:nextDecantPurchase} });
+    return Response.json({ branding, currency, employees:hasCapability(principal,"employees.view")?clean(await db.collection("employees").find({isDeleted:{$ne:true}}).sort({name:1}).toArray()):[], perfumeDefaults, principal:{principalType:principal.principalType,name:principal.name,permissions:principal.permissions}, parties:exposedParties, warehouses:clean(warehouses), products:exposedProducts, categories:cleanCategories, expenseCategories:clean(await db.collection("expenseCategories").find().sort({name:1}).toArray()), documents:allowedDocuments, movements:hasCapability(principal,"warehouses.inventory.view")?cleanMovements:[], financialMovements:bankAccess?clean(effectiveFinancialMovements):[], partyFinancialSummaries, paymentAccounts:selectorAccounts, accountTransfers:bankAccess?clean(effectiveTransfers):[], nextProductCode, nextDocumentSequences:{sale:nextSale,purchase:nextPurchase,expense:nextExpense,decantSale:nextDecantSale,decantPurchase:nextDecantPurchase} });
   } catch (error) { log("error", "api.bootstrap.failed", { error }); return Response.json({ error: "تعذر تحميل البيانات" }, { status: 500 }); }
 }

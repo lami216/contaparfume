@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { captureControlLayouts } from "./ui-control-bounds.mjs";
 
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
@@ -49,7 +50,7 @@ export async function runPartiesReportScenarios({ cdp, command, database, screen
   assert((await evaluate('document.querySelector(".party-create-toggle").textContent')).includes("إضافة عميل جديد"));
   await click(".party-create-toggle");
   await until(() => evaluate('Boolean(document.querySelector(".parties-create"))'), "revealed customer form");
-  assert.equal(await evaluate('document.querySelector(".parties-create .party-opening-toggle input").checked'), false);
+  assert.equal(await evaluate('document.querySelector(".parties-create .party-opening-toggle").getAttribute("aria-expanded")'), "false");
   assert.equal(await evaluate('document.querySelector(".parties-create .party-opening-fields")===null'), true);
   await fill('.parties-create > input:first-of-type', "عميل فحص القائمة");
   await fill('.parties-create > input:nth-of-type(2)', "00000001");
@@ -60,8 +61,9 @@ export async function runPartiesReportScenarios({ cdp, command, database, screen
   assert.equal(await database.collection("parties").countDocuments({ name: "عميل فحص القائمة" }), 0);
   checkpoints.push("Creation stays collapsed initially and canceling discard preserves its unsaved name and phone");
 
-  await click(".parties-create .party-opening-toggle input");
+  await click(".parties-create .party-opening-toggle");
   await until(() => evaluate('Boolean(document.querySelector(".parties-create .party-opening-fields"))'), "optional opening fields");
+  assert.equal(await evaluate('document.querySelector(".parties-create .party-opening-toggle").getAttribute("aria-expanded")'), "true");
   await fill('.parties-create .party-opening-fields select', "receivable");
   await fill('.parties-create .party-opening-fields input[type=number]', "25");
   const layouts = [];
@@ -89,6 +91,10 @@ export async function runPartiesReportScenarios({ cdp, command, database, screen
     }
     layouts.push(layout);
   }
+  layouts.push(...await captureControlLayouts({ cdp, screenshot, scope: ".parties-create", name: "party-create-controls-ar", widths: [1280, 760, 480] }));
+  await evaluate('window.__smokeSetLocale("fr")');
+  layouts.push(...await captureControlLayouts({ cdp, screenshot, scope: ".parties-create", name: "party-create-controls-fr", widths: [480] }));
+  await evaluate('window.__smokeSetLocale("ar")');
   await evaluate('document.querySelector(".parties-create").requestSubmit()');
   await until(async () => {
     const party = await database.collection("parties").findOne({ name: "عميل فحص القائمة" });
@@ -114,22 +120,43 @@ export async function runPartiesReportScenarios({ cdp, command, database, screen
     const row=[...document.querySelectorAll(".party-grid tbody tr")].find(row=>row.querySelector(".name-cell")?.textContent==="عميل فحص القائمة المعدل");
     row.querySelector(".party-row-actions button").click();
   })()`);
-  await until(() => evaluate('Boolean(document.querySelector(".party-opening-panel"))'), "party source account");
-  await click(".party-opening-summary button.soft");
+  await until(() => evaluate('Boolean(document.querySelector(".party-history"))'), "party source account");
+  assert.equal(await evaluate('document.querySelector(".party-opening-panel,.party-opening-summary,.party-opening-add")===null'), true, "A posted opening has no permanent editor or duplicate opening action");
+  const openingHistoryAction = action => evaluate(`(()=>{
+    const row=[...document.querySelectorAll(".party-history tbody tr")].find(row=>row.children[2]?.textContent.trim()===${JSON.stringify(String(opening.number))});
+    const button=row?.querySelector(${JSON.stringify(action === "edit" ? ".lifecycle-row-actions button.soft" : ".lifecycle-row-actions .compact-delete")});
+    if(!button||button.disabled)throw Error("Opening history action unavailable: "+${JSON.stringify(action)});button.click();
+  })()`);
+  await fill('.party-payment-panel input.num', "7");
+  await openingHistoryAction("edit");
+  await until(() => evaluate('Boolean(document.querySelector(".app-confirm-dialog"))'), "dirty payment replacement confirmation");
+  await click(".app-confirm-actions button:last-child");
+  assert.equal(await evaluate('document.querySelector(".party-payment-panel input.num").value'), "7");
+  assert.equal(await evaluate('document.querySelector(".party-opening-panel")===null'), true);
+  await openingHistoryAction("edit");
+  await until(() => evaluate('Boolean(document.querySelector(".app-confirm-dialog"))'), "confirmed opening source replacement");
+  await click(".app-confirm-actions button:first-child");
   await until(() => evaluate('Boolean(document.querySelector(".party-opening-panel form"))'), "opening source edit");
   await fill('.party-opening-panel input[type=number]', "30");
   await evaluate('document.querySelector(".party-opening-panel form").requestSubmit()');
   await until(() => evaluate('Boolean(document.querySelector(".app-confirm-dialog"))'), "opening edit confirmation");
   await click(".app-confirm-actions button:first-child");
   await until(async () => (await database.collection("parties").findOne({ id: created.id }))?.net === 30 &&
-    await evaluate('!window.__payrollBusy && !document.querySelector(".party-opening-panel form")'), "opening balance edited");
-  await click(".party-opening-panel .compact-delete");
+    await evaluate('!window.__payrollBusy && !document.querySelector(".party-opening-panel")'), "opening balance edited and editor hidden");
+  await screenshot("party-opening-after-save-1280",1280);
+  await openingHistoryAction("void");
   await until(() => evaluate('Boolean(document.querySelector(".app-confirm-dialog"))'), "opening void confirmation");
   await click(".app-confirm-actions button:first-child");
   await until(async () => (await database.collection("documents").findOne({ id: opening.id }))?.status === "voided" &&
     await evaluate('!window.__payrollBusy'), "opening balance voided");
   assert.equal((await database.collection("parties").findOne({ id: created.id })).net, 0);
-  checkpoints.push("Opening balance source edits25 to30 and void restores zero without a cash posting");
+  await until(() => evaluate('Boolean(document.querySelector(".party-opening-add")) && !document.querySelector(".party-opening-panel,.party-opening-summary")'), "single compact opening action after void");
+  await screenshot("party-opening-after-void-760",760);
+  checkpoints.push("Opening debt is button-only when absent; history edit25→30 hides after save, history void restores zero, and canceling replacement preserves payment draft7");
+  const { runPartyCashScenarios } = await import("./party-cash-ui-scenarios.mjs");
+  const partyCash = await runPartyCashScenarios({ cdp, database, partyId: created.id, screenshot });
+  layouts.push(...partyCash.layouts);
+  checkpoints.push(...partyCash.checkpoints);
 
   await setView("suppliers");
   assert.equal(await evaluate('document.querySelector(".parties-create")===null'), true);
@@ -185,9 +212,17 @@ export async function runPartiesReportScenarios({ cdp, command, database, screen
     assert(Math.abs(layout.roleTop - layout.nameTop) <= 1, "One role dropdown stays beside the contextual name picker");
     assert(layout.roleWidth <= 180, "Role dropdown stays compact");
   }
+  layouts.push(...await captureControlLayouts({ cdp, screenshot, scope: ".party-ledger-filter,.report-toolbar", name: "party-ledger-filters-ar" }));
+  await evaluate('window.__smokeSetLocale("fr")');
+  layouts.push(...await captureControlLayouts({ cdp, screenshot, scope: ".party-ledger-filter,.report-toolbar", name: "party-ledger-filters-fr", widths: [480] }));
+  await evaluate('window.__smokeSetLocale("ar")');
   assert.deepEqual(await accounts(), cashBefore, "All account balances remain unchanged throughout party and report scenarios");
-  assert.deepEqual(await database.collection("financialMovements").find().toArray(), financialBefore, "Opening debt and its corrections create no cash movements");
+  const financialAfter = await database.collection("financialMovements").find().toArray();
+  assert.deepEqual(financialAfter.filter(row => !partyCash.documentIds.includes(row.documentId)), financialBefore, "All unrelated financial history remains unchanged");
+  const cashTrace = financialAfter.filter(row => partyCash.documentIds.includes(row.documentId));
+  assert(cashTrace.length >= 8, "Both real payments retain their posting/edit/void audit movements");
+  assert.equal(cashTrace.reduce((sum, row) => sum + (row.direction === "in" ? 1 : -1) * row.amount, 0), 0, "Posted/reversed payment history has zero net cash after both voids");
   assert.deepEqual(await database.collection("stockMovements").find().toArray(), stockBefore, "Party and ledger forms create no stock movements");
   checkpoints.push("Employee, customer and supplier ledger contexts select their own registered names and clear stale results");
-  return { checkpoints, layouts, accountBalancesUnchanged: true, customerId: created.id, supplierId, workerId: worker.id };
+  return { checkpoints, layouts, partyCash, accountBalancesUnchanged: true, customerId: created.id, supplierId, workerId: worker.id };
 }

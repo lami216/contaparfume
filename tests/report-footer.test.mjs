@@ -15,7 +15,7 @@ test("visible reports expose exact semantic footer keys",()=>{
   assert.deepEqual(keys("debts"),["receivable","payable","net","count"]);
   assert.deepEqual(keys("party-ledger"),["tradeTotal","debitTotal","creditTotal","net"]);
   assert.deepEqual(keys("financial"),["businessIncoming","businessOutgoing","businessNet","balanceNet"]);
-  assert.deepEqual(keys("expenses"),["total","count"]);
+  assert.deepEqual(keys("expenses"),["recurringTotal","nonrecurringTotal"]);
 });
 test("footer tones follow business meaning and meaningful zero stays visible",()=>{
   const debts=buildReportFooterMetrics({type:"debts",result:result({receivable:20,payable:10,net:10,count:2})});
@@ -42,7 +42,7 @@ test("expense screen, printable output and export share columns without the reti
   assert.match(ui, /buildReportFooterMetrics\(\{type,result:printResult/);
   const metrics = buildReportFooterMetrics({
     type: "expenses",
-    result: result({ total: 600, count: 3, recurringTotal: 300, oneOffTotal: 300 }),
+    result: result({ total: 600, count: 3, recurringTotal: 300, nonrecurringTotal: 300 }),
   });
-  assert.deepEqual(metrics.map(metric => [metric.key, metric.value]), [["total", 600], ["count", 3]]);
+  assert.deepEqual(metrics.map(metric => [metric.key, metric.value]), [["recurringTotal", 300], ["nonrecurringTotal", 300]]);
 });

@@ -87,16 +87,23 @@ test('fractional ml, capacity checks and aggregate shortages are atomic',async()
   await assert.rejects(f.sale([{quantity:1,fillMl:0.0001,bottleProductId:'b5',unitPrice:100}]),/الحجم/);
  }finally{await f.h.close()}
 });
-test('quantity correction to zero keeps profit and blocks old sale reversal until count is undone',async()=>{
+test('quantity correction to zero keeps profit and its snapshot when sale reversal reopens only the returned liquid',async()=>{
  const f=await fixture();try{
   const sale=await f.sale([{quantity:9,fillMl:10,bottleProductId:'b10',unitPrice:1500}]);
+  const originalSale=await f.db.collection('documents').findOne({id:sale});
   const count=await f.count(0),d=await f.db.collection('documents').findOne({id:count});
   assert.equal(d.inventoryLoss,0);assert.equal(d.inventoryGain,0);assert.equal((await f.get()).stocks[f.wh],0);
   const r=await f.report();assert.equal(r.summary.inventoryLoss,0);assert.equal(r.summary.netOperatingResult,4230);
   assert.equal((await f.db.collection('products').findOne({id:'b10'})).stocks[f.wh],11);
-  await assert.rejects(f.run({type:'decant-sale.void',documentId:sale}),/تسوية/);
-  await f.run({type:'perfume-management.void',documentId:count});assert.equal((await f.report()).summary.inventoryLoss,0);
-  await f.run({type:'decant-sale.void',documentId:sale});assert.equal((await f.get()).stocks[f.wh],100);
+  await f.run({type:'decant-sale.void',documentId:sale});
+  const returned=await f.get(),batch=returned.perfumeLots.find(item=>item.id===f.lot);
+  assert.equal(returned.stocks[f.wh],90);assert.equal(batch.stocks[f.wh],90);assert.equal(batch.remainingQuantity,90);assert.equal(batch.settledAt,undefined);assert.equal(batch.liquidUnitCost,100);
+  assert.deepEqual(await f.db.collection('documents').findOne({id:count}),d);
+  const canceledSale=await f.db.collection('documents').findOne({id:sale});assert.equal(canceledSale.status,'voided');assert.deepEqual(canceledSale.lines,originalSale.lines);
+  assert.equal((await f.db.collection('products').findOne({id:'b10'})).stocks[f.wh],20);assert.equal((await f.db.collection('paymentAccounts').findOne({id:'cash'})).balance,10000);
+  const after=(await f.report()).summary;for(const key of ['sales','salesCost','salesProfit','netOperatingResult','inventoryLoss','inventoryGain'])assert.equal(after[key],0,key);
+  await f.run({type:'perfume-management.void',documentId:count});assert.equal((await f.get()).stocks[f.wh],100);assert.equal((await f.get()).perfumeLots.find(item=>item.id===f.lot).liquidUnitCost,100);
+  const canceledCount=await f.db.collection('documents').findOne({id:count});assert.equal(canceledCount.status,'voided');assert.deepEqual(canceledCount.lines,d.lines);assert.equal((await f.report()).summary.inventoryLoss,0);
  }finally{await f.h.close()}
 });
 test('surplus at zero restores a costed quantity without cash, with guarded reversal',async()=>{

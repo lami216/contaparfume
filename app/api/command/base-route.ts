@@ -9,7 +9,7 @@ import { divisionLiquidCost, type PerfumeAllocation, type PerfumeLot } from "../
 import { consumePerfumeLot, correctPerfumeLotYield, createOpeningPerfumeLot, perfumeLotEquals } from "../../perfume-stock-reconciliation.ts";
 import { handlePerfumeInvoiceCommand, PerfumeInvoiceCommandError } from "../../perfume-invoice-commands.ts";
 import { normalizePartyNet, partyCashDelta, partyNet } from "../../party-balance.ts";
-import { nextDocumentSequence, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
+import { nextDocumentSequence, nextStockSettlementSequence, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
 import { restoreProductArchiveStockClearance } from "../../../lib/transaction-lifecycle.ts";
 import { handleVolumeCommand } from "../../perfume-volume-commands.ts";
 import { reconcileQuantityLot, roundMl } from "../../perfume-volume.ts";
@@ -373,7 +373,7 @@ async function executeLegacy(db: Db, session: ClientSession, body: Input): Promi
     if(quantityCorrection&&correction.quantityDelta>0)await assertPerfumeLotCanReopen(db,session,{id:beforeLot.conversionDocumentId},beforeLot,"هذا التصحيح يعيد فتح دفعة قديمة بينما توجد دفعة أحدث بها رصيد. عالج الدفعة الأحدث أولًا:");
     if(correction.quantityDelta===0&&(correction.lot.remainingQuantity!==0||beforeLot.settledAt))throw new CommandError("لا يوجد فرق في ناتج التقسيم لاعتماده",409);
     lots[index]=correction.lot;
-    const doc={...baseDocument("adjustment","DYC"),perfumeStockOperationType:quantityCorrection?"reconciliation":"yield-correction",...(quantityCorrection?{perfumeStockTreatment:"quantity-correction",quantityUnit:beforeLot.quantityUnit??"portion",actualQuantity:correction.afterWarehouseQuantity}:{}),partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:reason,total:0,dueTotal:0,paidTotal:0,inventoryLoss:0,inventoryGain:0,bookValueBefore:correction.remainingBookValue,bookValueAfter:correction.afterBookValue,decantProductId,perfumeLotId:lotId,stockDelta:correction.quantityDelta,perfumeLotBefore:beforeLot,perfumeLotAfter:structuredClone(correction.lot),lines:[] as Record<string,unknown>[]};
+    const doc={...baseDocument("adjustment","DYC"),settlementSequence:await nextStockSettlementSequence(db,session),perfumeStockOperationType:quantityCorrection?"reconciliation":"yield-correction",...(quantityCorrection?{perfumeStockTreatment:"quantity-correction",quantityUnit:beforeLot.quantityUnit??"portion",actualQuantity:correction.afterWarehouseQuantity}:{}),partyId:null,partyName:null,warehouseId,warehouseName:warehouse.name,destinationWarehouseId:null,destinationWarehouseName:null,parentDocumentId:null,paymentMethod:null,title:reason,total:0,dueTotal:0,paidTotal:0,inventoryLoss:0,inventoryGain:0,bookValueBefore:correction.remainingBookValue,bookValueAfter:correction.afterBookValue,decantProductId,perfumeLotId:lotId,stockDelta:correction.quantityDelta,perfumeLotBefore:beforeLot,perfumeLotAfter:structuredClone(correction.lot),lines:[] as Record<string,unknown>[]};
     await savePerfumeLots(db,session,decant,lots);
     if(correction.quantityDelta){
       const stock=await changeStock(db,session,decant,warehouse,correction.quantityDelta,doc,"perfume-yield-correction");
@@ -655,7 +655,7 @@ async function executeLegacy(db: Db, session: ClientSession, body: Input): Promi
     }
     const effectiveInput=input.filter(line=>line.actualQuantity!==Number((map.get(line.productId)!.stocks as Record<string,number>|undefined)?.[warehouseId]??0));
     if(!effectiveInput.length)throw new CommandError("لا يوجد تغيير في المخزون لاعتماده",409);
-    const doc = { ...baseDocument("adjustment", "ADJ"), partyId: null, partyName: null, warehouseId, warehouseName: warehouse.name, destinationWarehouseId: null, destinationWarehouseName: null, parentDocumentId: null, paymentMethod: null, title: reason, total: 0, dueTotal: 0, paidTotal: 0, lines: [] as Record<string, unknown>[] };
+    const doc = { ...baseDocument("adjustment", "ADJ"), settlementSequence: await nextStockSettlementSequence(db, session), partyId: null, partyName: null, warehouseId, warehouseName: warehouse.name, destinationWarehouseId: null, destinationWarehouseName: null, parentDocumentId: null, paymentMethod: null, title: reason, total: 0, dueTotal: 0, paidTotal: 0, lines: [] as Record<string, unknown>[] };
     for (const line of effectiveInput) { const p = map.get(line.productId)!, before = Number((p.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0), after = line.actualQuantity!; if (after > before && p.lastPurchaseCost == null && line.purchaseCost != null) { await db.collection("products").updateOne({ id: p.id }, { $set: { lastPurchaseCost: line.purchaseCost, lastPurchaseAt: doc.occurredAt } }, { session }); p.lastPurchaseCost = line.purchaseCost; } await changeStock(db, session, p, warehouse, after - before, doc, "adjustment"); doc.lines.push({ id: id("line"), productId: line.productId, description: `${p.name} — ${reason} (قبل ${before}، بعد ${after})`, quantity: after - before, unitPrice: Number(p.lastPurchaseCost ?? 0), lineTotal: 0, balanceBefore: before, balanceAfter: after }); } await db.collection("documents").insertOne(doc, { session }); return doc.id;
   }
   if (type === "party-cash.post") {

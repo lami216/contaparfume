@@ -29,7 +29,7 @@ export function buildReportFooterMetrics({ type, result, productFiltered = false
     return [metric(s,"tradeTotal",t(role==="customer"?"مبيعات العميل في الفترة":"مشترياتنا من المورد في الفترة"),role==="customer"?"positive":"neutral"),metric(s,"debitTotal",t("إجمالي المدين في الفترة"),"neutral"),metric(s,"creditTotal",t("إجمالي الدائن في الفترة"),"neutral"),metric(s,"net",t("الرصيد الحالي الآن"),signed(current),undefined,current===0?t("متوازن"):current>0?t("مستحق لنا"):t("مستحق علينا"))];
   }
   if (type === "financial") return [metric(s,"businessIncoming",t("المقبوضات التشغيلية"),"positive"),metric(s,"businessOutgoing",t("المدفوعات التشغيلية"),"negative"),metric(s,"businessNet",t("صافي التدفق التشغيلي"),signed(reportNumber(s.businessNet))),metric(s,"balanceNet",t("صافي تغير الأرصدة خلال الفترة"),signed(reportNumber(s.balanceNet)))];
-  if (type === "expenses") return [metric(s,"total",t("إجمالي المصاريف"),"negative"),metric(s,"count",t("عدد المصاريف"),"neutral")];
+  if (type === "expenses") return [metric(s,"recurringTotal",t("إجمالي المصاريف المتكررة"),"negative"),metric(s,"nonrecurringTotal",t("إجمالي المصاريف غير المتكررة"),"negative")];
   if (type === "profit") return [metric(s,"revenue",t("صافي المبيعات"),"positive"),metric(s,"cost",t("تكلفة البضاعة المباعة"),"negative"),metric(s,"inventoryLoss",t("خسائر مخزون التقسيمات"),"negative"),...(reportNumber(s.inventoryGain)?[metric(s,"inventoryGain",t("زيادة جرد التقسيمات"),"positive")]:[]),metric(s,"netProfitAfterInventoryLoss",t("ربح المبيعات بعد خسائر المخزون"),signed(reportNumber(s.netProfitAfterInventoryLoss))),metric(s,"margin",t("هامش ربح المبيعات %"),signed(reportNumber(s.margin)),"percent")];
   return [];
 }

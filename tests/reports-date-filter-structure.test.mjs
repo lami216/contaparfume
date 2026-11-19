@@ -22,7 +22,7 @@ test("report toolbars cannot override compact date internals", () => {
 });
 
 test("shared compact date geometry remains authoritative", () => {
-  assert.match(css, /\.compact-date-range label\{[^}]*width:130px[^}]*min-width:130px[^}]*height:34px[^}]*border-radius:4px/);
+  assert.match(css, /\.compact-date-range label\{[^}]*display:flex[^}]*gap:0;[^}]*width:130px[^}]*min-width:130px[^}]*height:34px[^}]*border-radius:4px/);
   assert.match(css, /\.compact-date-range label span\{[^}]*width:24px[^}]*min-width:24px/);
-  assert.match(css, /\.compact-date-range input\{[^}]*width:106px[^}]*border-radius:0/);
+  assert.match(css, /\.compact-date-range input\{[^}]*flex:1 1 0;[^}]*width:0;min-width:0;max-width:100%;[^}]*height:32px;min-height:32px;[^}]*border-radius:0/);
 });

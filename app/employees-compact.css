@@ -1,0 +1,109 @@
+/* Worker accounts use the same compact fieldsets, controls and tables as parties. */
+.employees-workspace {
+  --section-color: var(--color-parties, #087f8c);
+  --section-soft: #e5f5f6;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  grid-template-columns: minmax(0, 1.05fr) minmax(300px, 1fr);
+  grid-template-areas: "error error" "list account" "history account";
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-items: start;
+  align-content: start;
+  gap: 6px;
+  padding: 0;
+  overflow: auto;
+}
+.employees-workspace .erp-fieldset {
+  min-inline-size: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 7px 8px 8px;
+  border: 1.5px solid #aeb8b6;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+}
+.employees-workspace .erp-fieldset > legend {
+  max-width: calc(100% - 16px);
+  margin-inline-start: 8px;
+  padding-inline: 6px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.employees-workspace .employees-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.employees-workspace .employees-toolbar input { flex: 1 1 120px; min-width: 0; width: 100%; }
+.employees-workspace .employees-toolbar > button { flex: 0 1 auto; }
+.employees-workspace .employees-account { min-width: 0; min-height: 0; align-content: start; gap: 6px; }
+.employees-workspace .employee-form { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.employees-workspace .employee-form label,
+.employees-workspace .employee-resume-date { min-width: 0; font-size: 10px; font-weight: 800; gap: 3px; }
+.employees-workspace :is(input, select) { min-width: 0; max-width: 100%; min-height: 34px; height: 34px; padding: 4px 7px; border: 1px solid #9faab8; border-radius: 5px; font-size: 11px; }
+.employees-workspace .employee-form :is(input, select) { width: 100%; }
+.employees-workspace :is(.primary, .soft) { min-width: 0; max-width: 100%; min-height: 34px; height: auto; padding: 4px 8px; border-radius: 5px; font-size: 10px; line-height: 1.3; white-space: normal; }
+.employees-workspace .employee-actions { gap: 5px; }
+.employees-workspace .employee-actions > button { flex: 0 1 auto; }
+.employees-workspace .employee-actions svg,
+.employees-workspace .employees-toolbar svg { width: 14px; height: 14px; flex: 0 0 auto; }
+.employees-workspace .employee-hint { margin: 2px 0; color: var(--muted); font-size: 10px; font-weight: 400; line-height: 1.45; }
+.employees-workspace .employee-terms { margin: 5px 0; color: var(--muted); font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+.employees-workspace .employee-balance { gap: 6px; font-size: 11px; flex-wrap: wrap; }
+.employees-workspace .employee-balance strong { font-size: 17px; font-variant-numeric: tabular-nums; }
+.employees-workspace .employee-resume-date { display: grid; grid-template-columns: max-content minmax(0, 180px); align-items: center; margin: 5px 0; }
+.employees-workspace .employee-resume-date input { width: 100%; }
+.employees-workspace .employees-list > .erp-table-wrap { max-height: 210px; overflow: auto; }
+.employees-workspace .employees-history > .erp-table-wrap { max-height: 360px; overflow: auto; }
+.employees-workspace .employees-list-table { min-width: 360px; }
+.employees-workspace .employees-history-table { min-width: 480px; }
+.employees-workspace .employee-source-link {
+  appearance: none;
+  display: inline-block;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--section-color);
+  font: inherit;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: start;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.employees-workspace .employee-source-link:hover { text-decoration: underline; background: transparent; }
+.employees-workspace .employee-source-link:focus-visible { outline: 2px solid var(--section-color); outline-offset: -2px; }
+.employees-workspace .employee-source-link:disabled { cursor: default; }
+.employees-workspace .employee-history-kind { white-space: normal; overflow-wrap: anywhere; }
+.employees-workspace .employee-balance-direction,
+.employees-workspace .employee-period { margin-top: 2px; color: var(--muted); font-size: 9px; line-height: 1.3; white-space: normal; }
+.employees-workspace .erp-table td.action-cell { display: table-cell; }
+.employees-workspace .employees-history .employee-actions { justify-content: center; gap: 4px; }
+.employees-workspace .employees-history .employee-actions button { width: 24px; min-width: 24px; min-height: 24px; height: 24px; padding: 3px; border-radius: 4px; }
+@media (max-width: 560px) {
+  .employees-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "error" "list" "account" "history";
+    grid-template-rows: auto auto auto auto;
+  }
+  .employees-workspace .employees-list > .erp-table-wrap { max-height: 170px; }
+  .employees-workspace .employees-history > .erp-table-wrap { max-height: 300px; }
+}
+@media (max-width: 400px) {
+  .employees-workspace .employee-form { grid-template-columns: minmax(0, 1fr); }
+  .employees-workspace .employee-resume-date { grid-template-columns: minmax(0, 1fr); }
+}

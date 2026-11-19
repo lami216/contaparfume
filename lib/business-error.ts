@@ -33,7 +33,9 @@ function blocker(value: unknown) {
   const source = record(value), documentId = identifier(field(source, "documentId"));
   if (!documentId) return null;
   return {
-    documentId, documentNumber: text(field(source, "documentNumber"), BUSINESS_ERROR_LIMITS.label), kind: text(field(source, "kind"), 80),
+    documentId, documentNumber: text(field(source, "documentNumber"), BUSINESS_ERROR_LIMITS.label),
+    ...(typeof field(source, "documentReference") === "string" ? { documentReference: text(field(source, "documentReference"), BUSINESS_ERROR_LIMITS.label) } : {}),
+    kind: text(field(source, "kind"), 80),
     title: text(field(source, "title"), BUSINESS_ERROR_LIMITS.title), status: text(field(source, "status"), 40), occurredAt: text(field(source, "occurredAt"), 80),
     movementTypes: rows(field(source, "movementTypes"), value => typeof value === "string" ? text(value, 80) : null, BUSINESS_ERROR_LIMITS.nestedItems),
     warehouses: rows(field(source, "warehouses"), warehouse, BUSINESS_ERROR_LIMITS.nestedItems),

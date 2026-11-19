@@ -1,5 +1,6 @@
 import { getDisplayCurrencyCode, type CurrencySettings } from "../lib/currency-core";
 import { formatAccountingDecimal, formatAccountingPercentage } from "../lib/accounting-format";
+import { displayDocumentNumber as formatDocumentReference } from "../lib/document-sequences";
 import type { PerfumeAllocation, PerfumeForm, PerfumeLot } from "./perfume-logic";
 
 export type PaymentMethod = string;
@@ -20,7 +21,8 @@ export type DocumentKind =
   | "account-adjustment"
   | "party-opening"
   | "employee-accrual"
-  | "employee-payment";
+  | "employee-payment"
+  | "employee-closure";
 export type CommercialDocumentFamily = "sale" | "purchase" | null;
 /** Business family used by reports and presentation. Decant documents keep their
  * specialized storage kind because their inventory lifecycle is different. */
@@ -59,7 +61,7 @@ export interface ProductCategory {
   systemKind?: "perfume-decants" | "perfume-bottles" | "perfume-fragrances";
   createdAt?: string;
 }
-export interface ExpenseCategory {id:string;name:string;createdAt?:string}
+export interface ExpenseCategory {id:string;name:string;kind?:"recurring"|"nonrecurring";isArchived?:boolean;revision?:number;createdAt?:string;updatedAt?:string}
 export interface Product {
   id: string;
   name: string;
@@ -120,6 +122,7 @@ export interface DocumentLine {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  lineTotalMode?: "exact";
   costAtSale?: number | null;
   grossProfit?: number | null;
   perfumeAllocations?: PerfumeAllocation[];
@@ -143,6 +146,7 @@ export interface DocumentRecord {
   id: string;
   number: string;
   sequence?: number;
+  settlementSequence?: number;
   legacyBillCode?: string;
   kind: DocumentKind;
   partyId: string | null;
@@ -168,6 +172,7 @@ export interface DocumentRecord {
   periodEnd?: string;
   dueDate?: string;
   balanceDelta?: number;
+  salaryReserveReleased?: number;
   allocations?: Array<{accrualId:string;amount:number}>;
   partyOpeningDirection?: "receivable"|"payable";
   partyOpeningAmount?: number;
@@ -247,8 +252,8 @@ export interface Movement {
   occurredAt: string;
   documentRevision?: number;
 }
-export interface EmployeeAgreement {id:string;startDate:string;endDate?:string;amount:number;intervalMonths:number;entitlement:"beginning"|"end"}
-export interface Employee {id:string;name:string;phone:string;startDate:string;balance:number;revision:number;isArchived?:boolean;agreements:EmployeeAgreement[]}
+export interface EmployeeAgreement {id:string;startDate:string;endDate?:string;stopDate?:string;canceledAt?:string;amount:number;intervalMonths:number;entitlement:"beginning"|"end"}
+export interface Employee {id:string;name:string;phone:string;startDate:string;accountStartDate?:string;balance:number;revision:number;isArchived?:boolean;isDeleted?:boolean;deletedAt?:string;deletionDocumentId?:string|null;agreements:EmployeeAgreement[]}
 export interface BootstrapData {
   employees?: Employee[];
   perfumeDefaults?: import("./perfume-volume").PerfumeDefaults;
@@ -371,6 +376,7 @@ export const kindLabels: Record<DocumentKind, string> = {
   "party-opening": "رصيد بداية الديون",
   "employee-accrual": "استحقاق عامل",
   "employee-payment": "حركة حساب عامل",
+  "employee-closure": "إقفال حساب عامل",
   purchase: "فاتورة شراء",
   sale: "فاتورة بيع",
   "decant-purchase": "فاتورة شراء زجاج التقسيمات",
@@ -428,7 +434,7 @@ export function accountingPercent(value: number) {
   return western(formatAccountingPercentage(DISPLAY_LOCALE, value));
 }
 export function displayDocumentNumber(document: Pick<DocumentRecord, "number" | "sequence" | "kind">) {
-  return ["sale", "purchase", "expense", "decant-sale", "decant-purchase"].includes(document.kind) && Number.isSafeInteger(Number(document.sequence)) && Number(document.sequence) > 0 ? String(document.sequence) : document.number;
+  return formatDocumentReference(document);
 }
 /** Accounting-backed inventory valuation. Manual pieceCost never silently becomes historical cost. */
 export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "openingCost" | "legacyOpeningCost">) {

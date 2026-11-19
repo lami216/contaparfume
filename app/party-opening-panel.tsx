@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { EditorReplacementGuard } from "./editor-replacement";
 import type { DocumentRecord, Party } from "./domain";
 import { money } from "./domain";
@@ -19,23 +19,23 @@ type OpeningDocument = DocumentRecord & {
 type Run = (body: Record<string, unknown>, message: string, afterSuccess?: () => void) => Promise<unknown>;
 const copies = {
   ar: {
-    title: "رصيد بداية الحساب", optional: "إضافة رصيد بداية", receivable: "مستحق لنا", payable: "مستحق علينا",
-    amount: "المبلغ", note: "ملاحظة", add: "إضافة رصيد البداية", edit: "تعديل رصيد البداية", save: "حفظ رصيد البداية",
-    cancel: "إلغاء التعديل", remove: "إلغاء رصيد البداية", noOpening: "لم يُسجّل رصيد بداية لهذا الحساب",
+    title: "رصيد بداية الحساب", optional: "إضافة رصيد بداية", receivable: "مستحق لنا", payable: "مستحق علينا", shortReceivable: "لنا", shortPayable: "علينا",
+    direction: "الاتجاه", amount: "المبلغ", note: "ملاحظة", add: "إضافة رصيد البداية", edit: "تعديل رصيد البداية", save: "حفظ رصيد البداية",
+    cancel: "إلغاء التعديل", withoutOpening: "بدون رصيد بداية",
     additive: "هذا مبلغ سابق لم يُسجّل، وسيُضاف إلى الرصيد الحالي.",
     current: "الرصيد الحالي", result: "الرصيد بعد العملية", change: "التغيير", balanced: "الحساب متوازن",
-    confirm: "هل تعتمد رصيد البداية بهذه النتيجة؟", confirmRemove: "هل تلغي رصيد البداية مع الإبقاء على الحركات اللاحقة؟",
-    saved: "تم حفظ رصيد بداية الحساب", removed: "تم إلغاء رصيد بداية الحساب",
+    confirm: "هل تعتمد رصيد البداية بهذه النتيجة؟",
+    saved: "تم حفظ رصيد بداية الحساب",
     changed: "تغير مستند رصيد البداية. ألغِ التعديل وافتحه من جديد.",
   },
   fr: {
-    title: "Solde initial du compte", optional: "Ajouter un solde initial", receivable: "À nous devoir", payable: "À payer au tiers",
-    amount: "Montant", note: "Note", add: "Ajouter le solde initial", edit: "Modifier le solde initial", save: "Enregistrer le solde initial",
-    cancel: "Annuler la modification", remove: "Annuler le solde initial", noOpening: "Aucun solde initial enregistré pour ce compte",
+    title: "Solde initial du compte", optional: "Ajouter un solde initial", receivable: "À nous devoir", payable: "À payer au tiers", shortReceivable: "À recevoir", shortPayable: "À payer",
+    direction: "Sens", amount: "Montant", note: "Note", add: "Ajouter le solde initial", edit: "Modifier le solde initial", save: "Enregistrer le solde initial",
+    cancel: "Annuler la modification", withoutOpening: "Sans solde initial",
     additive: "Ce montant antérieur non enregistré sera ajouté au solde actuel.",
     current: "Solde actuel", result: "Solde après l’opération", change: "Variation", balanced: "Compte équilibré",
-    confirm: "Confirmer le solde initial avec ce résultat ?", confirmRemove: "Annuler le solde initial en conservant les mouvements ultérieurs ?",
-    saved: "Solde initial enregistré", removed: "Solde initial annulé",
+    confirm: "Confirmer le solde initial avec ce résultat ?",
+    saved: "Solde initial enregistré",
     changed: "Le document a changé. Annulez la modification puis ouvrez-le à nouveau.",
   },
 };
@@ -43,25 +43,29 @@ const copies = {
 function OpeningFields({ value, onChange, disabled = false }: {
   value: PartyOpeningDraft; onChange: (value: PartyOpeningDraft) => void; disabled?: boolean;
 }) {
-  const { locale } = useI18n(), copy = copies[locale];
+  const { locale } = useI18n(), copy = copies[locale], noteId = useId();
+  const [noteExpanded, setNoteExpanded] = useState(Boolean(value.note));
   return <div className="party-opening-fields">
-    <label>{copy.receivable} / {copy.payable}<select value={value.direction} disabled={disabled}
+    <label>{copy.direction}<select value={value.direction} disabled={disabled}
       onChange={event => onChange({ ...value, direction: event.target.value as Direction })}>
-      <option value="receivable">{copy.receivable}</option><option value="payable">{copy.payable}</option>
+      <option value="receivable">{copy.shortReceivable}</option><option value="payable">{copy.shortPayable}</option>
     </select></label>
     <label>{copy.amount}<input type="number" inputMode="decimal" step="any" min="0" required value={value.amount}
       disabled={disabled} onChange={event => onChange({ ...value, amount: event.target.value })}/></label>
-    <label>{copy.note}<input value={value.note} maxLength={1000} disabled={disabled}
-      onChange={event => onChange({ ...value, note: event.target.value })}/></label>
+    <button type="button" className="soft party-opening-note-toggle" disabled={disabled} aria-expanded={noteExpanded} aria-controls={noteId}
+      onClick={() => setNoteExpanded(current => !current)}>{copy.note}</button>
+    {noteExpanded && <label id={noteId} className="party-opening-note">{copy.note}<input value={value.note} maxLength={1000} disabled={disabled}
+      onChange={event => onChange({ ...value, note: event.target.value })}/></label>}
   </div>;
 }
 
 export function PartyOpeningCreateFields({ value, onChange }: { value: PartyOpeningDraft; onChange: (value: PartyOpeningDraft) => void }) {
-  const { locale } = useI18n(), copy = copies[locale];
+  const { locale } = useI18n(), copy = copies[locale], fieldsId = useId();
   return <div className="party-opening-create">
-    <label className="party-opening-toggle"><input type="checkbox" checked={value.enabled}
-      onChange={event => onChange({ ...value, enabled: event.target.checked })}/>{copy.optional}</label>
-    {value.enabled && <OpeningFields value={value} onChange={onChange}/>}
+    <button type="button" className="soft party-opening-toggle" aria-expanded={value.enabled} aria-controls={fieldsId}
+      aria-label={value.enabled ? copy.withoutOpening : copy.optional}
+      onClick={() => onChange({ ...value, enabled: !value.enabled })}>{value.enabled ? copy.withoutOpening : copy.optional}</button>
+    {value.enabled && <div id={fieldsId} className="party-opening-create-fields"><OpeningFields value={value} onChange={onChange}/></div>}
   </div>;
 }
 
@@ -125,30 +129,20 @@ export function PartyOpeningPanel({ party, documents, canManage, run, registerGu
       // The shared runner displays the error and the draft stays available.
     } finally { setPending(false); }
   };
-  const remove = async () => {
-    if (!permitted || !opening || pending || !await prepareEditorReplacement()) return;
-    const after = current - Number(opening.partyOpeningContribution);
-    const message = [copy.confirmRemove, copy.current + " " + summary(current), copy.result + " " + summary(after)].join("\n");
-    if (!await confirm({ title: copy.title, message, confirmLabel: copy.remove, tone: "danger" })) return;
-    setPending(true);
-    try { await run({ type: "party-opening.void", documentId: opening.id, expectedRevision: opening.revision }, copy.removed, reset); }
-    catch { /* The shared runner displays the command error. */ }
-    finally { setPending(false); }
-  };
-  return <fieldset className="erp-fieldset party-opening-panel">
-    <legend>{copy.title}</legend>
-    <div className="party-opening-summary"><strong>{opening ? summary(Number(opening.partyOpeningContribution)) : copy.noOpening}</strong>
-      {permitted && !expanded && <button type="button" className="soft" onClick={() => void openEditor()}>{opening ? copy.edit : copy.add}</button>}
-      {permitted && opening && <button type="button" className="danger compact-delete" disabled={pending} onClick={() => void remove()}>{copy.remove}</button>}
-    </div>
-    {expanded && <form onSubmit={event => { event.preventDefault(); void save(); }}>
+  // Keep the guard registered even when the saved opening is shown only in history.
+  if (!expanded) return permitted && !opening ? <div className="party-opening-launch">
+    <button type="button" className="soft party-opening-add" disabled={pending} onClick={() => void openEditor()}>{copy.add}</button>
+  </div> : null;
+  return <div className="party-opening-panel party-opening-editor">
+    <form aria-label={editing ? copy.edit : copy.title} onSubmit={event => { event.preventDefault(); void save(); }}>
+      <strong className="party-opening-editor-title">{editing ? copy.edit : copy.title}</strong>
       {!editing && current !== 0 && <small>{copy.additive}</small>}
-      <OpeningFields value={draft} onChange={setDraft} disabled={!permitted || pending}/>
+      <OpeningFields key={editing?.id ?? "new"} value={draft} onChange={setDraft} disabled={!permitted || pending}/>
       <div className="party-opening-preview"><span>{copy.current} · {summary(current)}</span>
         {valid && <strong>{copy.result} · {summary(result)}</strong>}</div>
       {stale && <div className="error" role="alert">{copy.changed}</div>}
-      <div className="party-row-actions"><button className="primary" disabled={!permitted || pending || stale || !valid}>{copy.save}</button>
+      <div className="party-row-actions"><button type="submit" className="primary" disabled={!permitted || pending || stale || !valid}>{copy.save}</button>
         <button type="button" className="soft" disabled={pending} onClick={reset}>{copy.cancel}</button></div>
-    </form>}
-  </fieldset>;
+    </form>
+  </div>;
 }

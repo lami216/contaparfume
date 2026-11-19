@@ -8,7 +8,7 @@ import { log } from "../../../lib/log.ts";
 import { getPrincipalFromRequest, hasCapability, requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
 import { isProductExpired, resolvePartyType } from "../../domain.ts";
 import { normalizePartyNet, partyNet } from "../../party-balance.ts";
-import { nextDocumentSequence, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
+import { nextDocumentSequence, nextStockSettlementSequence, displayStockMovementDocumentNumber, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
 import { deriveOpeningStockState, planOpeningStockCorrection } from "../../../lib/opening-stock.ts";
 import { currentProductCost, resolveProductCost } from "../../../lib/product-cost.ts";
 import { isOrdinaryStockCostProduct } from "../../../lib/adjustment-stock-cost.ts";
@@ -17,9 +17,10 @@ import { transferPerfumeLotStock } from "../../perfume-stock-reconciliation.ts";
 import { roundMl } from "../../perfume-volume.ts";
 import type { PerfumeAllocation, PerfumeLot } from "../../perfume-logic.ts";
 import { nextOpeningCorrectionSequence, selectLatestOpeningCorrection } from "../../opening-correction-order.ts";
+import { resolveInvoiceLineTotal, sumInvoiceLineTotals } from "../../invoice-line-amount.ts";
 
 type Input = Record<string, unknown>;
-type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; actualQuantity?: number; costAtSale?: number | null; grossProfit?: number | null; perfumeAllocations?: PerfumeAllocation[]; saleCostRecovery?: Record<string, unknown> };
+type Line = { id?: string; productId: string; quantity: number; description?: string; piecePrice?: number; unitPrice?: number; lineTotal?: unknown; lineTotalMode?: "exact"; actualQuantity?: number; costAtSale?: number | null; grossProfit?: number | null; perfumeAllocations?: PerfumeAllocation[]; saleCostRecovery?: Record<string, unknown> };
 type WarehouseDoc = { _id: string; name: string; isSalesDefault?: boolean; [key: string]: unknown };
 const warehouses = (db: Db) => db.collection<WarehouseDoc>("warehouses");
 class CommandError extends Error {
@@ -71,7 +72,7 @@ const lines = (body: Input): Line[] => {
   return body.lines.map((raw) => {
     const r = raw as Input, productId = text(r.productId), quantity = positive(r.quantity, "الكمية");
     if (!productId || seen.has(productId)) throw new CommandError("المنتجات غير صالحة أو مكررة"); seen.add(productId);
-    return { productId, quantity, piecePrice: num(r.piecePrice), unitPrice: num(r.unitPrice), actualQuantity: num(r.actualQuantity) };
+    return { productId, quantity, piecePrice: num(r.piecePrice), unitPrice: num(r.unitPrice), actualQuantity: num(r.actualQuantity), ...(Object.hasOwn(r,"lineTotal")?{lineTotal:r.lineTotal}:{}) };
   });
 };
 const baseDocument = (kind: string, prefix: string) => ({
@@ -410,7 +411,8 @@ async function openingStockBlockingOperations(
     const document = documentMap.get(item.documentId);
     return {
       documentId: item.documentId,
-      documentNumber: String(document?.number ?? item.documentNumber),
+      documentReference: String(document?.number ?? item.documentNumber),
+      documentNumber: displayStockMovementDocumentNumber({documentNumber:document?.number??item.documentNumber},document),
       kind: String(document?.kind ?? ""),
       title: String(document?.title ?? ""),
       status: String(document?.status ?? ""),
@@ -771,17 +773,20 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     const calculated = [] as Record<string, unknown>[];
     for (const line of input) {
       const product = newProducts.get(line.productId)!, old = oldByProduct.get(line.productId);
-      const unitPrice = positive(isSale ? line.piecePrice : line.unitPrice, isSale ? "سعر الفرد" : "سعر الشراء"), lineTotal = Math.round(line.quantity * unitPrice);
+      const unitPrice = positive(isSale ? line.piecePrice : line.unitPrice, isSale ? "سعر الفرد" : "سعر الشراء");
+      const suppliedTotal=Object.hasOwn(line,"lineTotal"),exact=suppliedTotal||old?.lineTotalMode==="exact";
+      const proposedTotal=suppliedTotal?line.lineTotal:old?.lineTotalMode==="exact"&&Number(old.quantity)===line.quantity&&Number(old.unitPrice)===unitPrice?old.lineTotal:line.quantity*unitPrice;
+      const lineTotal=resolveInvoiceLineTotal(line.quantity,unitPrice,proposedTotal,exact),amountMode=exact?{lineTotalMode:"exact" as const}:{};
       if (isSale) {
         const cost = old
           ? old.costAtSale ?? null
           : isOrdinaryStockCostProduct(product)
             ? await authoritativeCost(db, session, product, warehouseId)
             : await historicalCost(db, session, line.productId, String(original.occurredAt));
-        calculated.push({ id: old?.id ?? id("line"), productId: line.productId, description: product.name, quantity: line.quantity, unitPrice, lineTotal, costAtSale: cost, grossProfit: cost == null ? null : lineTotal - line.quantity * Number(cost), ...(old?.saleCostRecovery ? { saleCostRecovery: old.saleCostRecovery } : {}) });
-      } else calculated.push({ id: old?.id ?? id("line"), productId: line.productId, description: product.name, quantity: line.quantity, unitPrice, lineTotal });
+        calculated.push({ id: old?.id ?? id("line"), productId: line.productId, description: product.name, quantity: line.quantity, unitPrice, lineTotal, ...amountMode, costAtSale: cost, grossProfit: cost == null ? null : lineTotal - line.quantity * Number(cost), ...(old?.saleCostRecovery ? { saleCostRecovery: old.saleCostRecovery } : {}) });
+      } else calculated.push({ id: old?.id ?? id("line"), productId: line.productId, description: product.name, quantity: line.quantity, unitPrice, lineTotal, ...amountMode });
     }
-    const total = calculated.reduce((sum, line) => sum + Number(line.lineTotal), 0), paidTotal = paymentMethod === "note" ? 0 : total, dueTotal = total - paidTotal;
+    const total = sumInvoiceLineTotals(calculated.map(line=>Number(line.lineTotal)),calculated.some(line=>line.lineTotalMode==="exact")), paidTotal = paymentMethod === "note" ? 0 : total, dueTotal = total - paidTotal;
     if (dueTotal && !party) throw new CommandError(isSale ? "اختر عميلاً عند وجود مبلغ مستحق" : "اختر موردًا عند وجود مبلغ مستحق");
     const oldWarehouse = await warehouses(db).findOne({ _id: String(original.warehouseId) }, { session });
     if (!oldWarehouse) throw new CommandError("مخزن الفاتورة الأصلي غير موجود", 409);
@@ -839,8 +844,12 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     if (isSale && input.some(line => isProductExpired(map.get(line.productId)!, new Date().toISOString().slice(0, 10)))) throw new CommandError("انتهت صلاحية هذا المنتج ولا يمكن بيعه.");
     if (paymentMethod !== "note") await paymentAccount(db, session, paymentMethod);
     const costs = isSale ? new Map(await Promise.all(input.map(async line => [line.productId, await authoritativeCost(db, session, map.get(line.productId)!, warehouseId)] as const))) : new Map<string, number | null>();
-    const calculated = input.map(line => { const p = map.get(line.productId)!; let unitPrice: number, total: number; if (isSale) { const price = positive(line.piecePrice, "سعر الفرد"); total = Math.round(line.quantity * price); unitPrice = price; } else { unitPrice = positive(line.unitPrice, "سعر الشراء"); total = Math.round(unitPrice * line.quantity); } return { id: id("line"), productId: line.productId, description: p.name, quantity: line.quantity, unitPrice, lineTotal: total, ...(isSale ? { costAtSale: costs.get(line.productId) ?? null, grossProfit: costs.get(line.productId) == null ? null : total - line.quantity * Number(costs.get(line.productId)) } : {}) }; });
-    const total = calculated.reduce((s, l) => s + l.lineTotal, 0);
+    const calculated = input.map(line => {
+      const p=map.get(line.productId)!,unitPrice=positive(isSale?line.piecePrice:line.unitPrice,isSale?"سعر الفرد":"سعر الشراء"),exact=Object.hasOwn(line,"lineTotal");
+      const total=resolveInvoiceLineTotal(line.quantity,unitPrice,line.lineTotal,exact);
+      return {id:id("line"),productId:line.productId,description:p.name,quantity:line.quantity,unitPrice,lineTotal:total,...(exact?{lineTotalMode:"exact" as const}:{}),...(isSale?{costAtSale:costs.get(line.productId)??null,grossProfit:costs.get(line.productId)==null?null:total-line.quantity*Number(costs.get(line.productId))}:{})};
+    });
+    const total=sumInvoiceLineTotals(calculated.map(line=>line.lineTotal),calculated.some(line=>line.lineTotalMode==="exact"));
     const suppliedCash = body.cashAmount ?? body.paidAmount;
     const settlementAmount = suppliedCash == null || suppliedCash === "" ? (paymentMethod === "note" ? 0 : total) : positive(suppliedCash, isSale ? "المبلغ المستلم" : "المبلغ المدفوع", true);
     if (paymentMethod === "note" ? settlementAmount !== 0 : settlementAmount !== total) throw new CommandError("الدفع الجزئي داخل الفاتورة غير مدعوم. الفاتورة إما مدفوعة بالكامل أو ملاحظة بالكامل، ثم تُسجل أي دفعة لاحقة من حساب الطرف.", 409);
@@ -920,7 +929,7 @@ export async function execute(db: Db, session: ClientSession, body: Input) {
     }
     const effectiveInput = input.filter(line => line.actualQuantity !== Number((map.get(line.productId)!.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0));
     if (!effectiveInput.length) throw new CommandError("لا يوجد تغيير في المخزون لاعتماده", 409);
-    const doc = { ...baseDocument("adjustment", "ADJ"), revision: 0, partyId: null, partyName: null, warehouseId, warehouseName: warehouse.name, destinationWarehouseId: null, destinationWarehouseName: null, parentDocumentId: null, paymentMethod: null, title: reason, total: 0, dueTotal: 0, paidTotal: 0, lines: [] as Record<string, unknown>[] };
+    const doc = { ...baseDocument("adjustment", "ADJ"), settlementSequence: await nextStockSettlementSequence(db, session), revision: 0, partyId: null, partyName: null, warehouseId, warehouseName: warehouse.name, destinationWarehouseId: null, destinationWarehouseName: null, parentDocumentId: null, paymentMethod: null, title: reason, total: 0, dueTotal: 0, paidTotal: 0, lines: [] as Record<string, unknown>[] };
     for (const line of effectiveInput) {
       const p = map.get(line.productId)!, before = Number((p.stocks as Record<string, number> | undefined)?.[warehouseId] ?? 0), after = line.actualQuantity!;
       await changeStock(db, session, p, warehouse, after - before, doc, "adjustment");

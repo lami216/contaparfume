@@ -21,7 +21,7 @@ test("warehouse movement report uses declared column types instead of key-name c
   assert.match(source, /columnType==="number"\|\|columnType==="money"/);
 });
 
-test("displayed prices, totals, and inventory values use currency formatting", () => {
+test("read-only monetary values and invoice footers use currency formatting", () => {
   const forbidden = [
     /number\(inventoryValue\)/,
     /number\(inventoryUnitCost\(/,
@@ -39,7 +39,9 @@ test("displayed prices, totals, and inventory values use currency formatting", (
   assert.match(source, /hasInventoryView\?money\(inventoryValue\)/);
   assert.match(source, /money\(inventoryUnitCost\(product\)\)/);
   assert.match(source, /money\(selectedQty \* inventoryUnitCost\(product\)\)/);
-  assert.match(source, /<MoneyValue value=\{lineTotal\}\/>/);
+  // Invoice row totals are editable decimal inputs now. The invoice footer and
+  // read-only document totals retain the shared currency formatter.
+  assert.match(source, /money\(total\)/);
   assert.match(source, /<MoneyValue value=\{document\.total\}\/>/);
 });
 

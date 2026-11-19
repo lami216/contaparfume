@@ -37,15 +37,16 @@ function employeeDelta(document: Stored) {
 export function buildEmployeeLedger(employee: Stored, documents: Stored[], period: Period = {}) {
   const employeeId = String(employee.id);
   const posted = documents.filter(document => document.employeeId === employeeId && document.status === "posted" &&
-    (document.kind === "employee-accrual" || document.kind === "employee-payment"));
+    (document.kind === "employee-accrual" || document.kind === "employee-payment" || document.kind === "employee-closure"));
+  const kindRank = (document: Stored) => document.kind === "employee-accrual" ? 0 : document.kind === "employee-payment" ? 1 : 2;
   const ordered = [...posted].sort((left, right) =>
     String(left.businessDate ?? String(left.occurredAt).slice(0, 10)).localeCompare(String(right.businessDate ?? String(right.occurredAt).slice(0, 10))) ||
-    Number(left.kind === "employee-payment") - Number(right.kind === "employee-payment") ||
+    kindRank(left) - kindRank(right) ||
     Number(left.employeeAccountOrder ?? 0) - Number(right.employeeAccountOrder ?? 0) ||
     String(left.createdAt ?? left.occurredAt).localeCompare(String(right.createdAt ?? right.occurredAt)) ||
     String(left.id).localeCompare(String(right.id)));
   let running = 0, opening = 0, closing = 0, debit = 0, credit = 0;
-  let accrued = 0, withdrawn = 0, deposited = 0;
+  let accrued = 0, withdrawn = 0, deposited = 0, reserveReleased = 0;
   const rows: ReportRow[] = [];
   for (const document of ordered) {
     const delta = -employeeDelta(document);
@@ -55,12 +56,14 @@ export function buildEmployeeLedger(employee: Stored, documents: Stored[], perio
     if (!period.to || day <= period.to) closing += delta;
     if ((period.from && day < period.from) || (period.to && day > period.to)) continue;
     const isAccrual = document.kind === "employee-accrual";
-    const direction = employeePaymentDirection(document);
-    const movementCode = isAccrual ? "employee-accrual" : direction === "deposit" ? "employee-deposit" : "employee-withdrawal";
-    const movementType = isAccrual ? "استحقاق عامل" : direction === "deposit" ? "إيداع من العامل" : "سحب العامل";
+    const isClosure = document.kind === "employee-closure";
+    const direction = isClosure ? null : employeePaymentDirection(document);
+    const movementCode = isClosure ? "employee-closure" : isAccrual ? "employee-accrual" : direction === "deposit" ? "employee-deposit" : "employee-withdrawal";
+    const movementType = isClosure ? "إقفال حساب عامل محذوف" : isAccrual ? "استحقاق عامل" : direction === "deposit" ? "إيداع من العامل" : "سحب العامل";
     debit += Math.max(delta, 0);
     credit += Math.max(-delta, 0);
-    if (isAccrual) accrued += cents(document.total);
+    if (isClosure) reserveReleased += cents(document.salaryReserveReleased);
+    else if (isAccrual) accrued += cents(document.total);
     else if (direction === "deposit") deposited += cents(document.total);
     else withdrawn += cents(document.total);
     const note = typeof document.note === "string" ? document.note.trim() : "";
@@ -70,6 +73,7 @@ export function buildEmployeeLedger(employee: Stored, documents: Stored[], perio
       documentNumber: displayDocumentNumber(document), description: movementType + (note ? ` — ${note}` : ""),
       descriptionCode: movementCode, debit: Math.max(delta, 0) / 100, credit: Math.max(-delta, 0) / 100,
       balance: running / 100, runningBalance: running / 100, paymentMethod: String(document.paymentMethod ?? ""),
+      ...(isClosure ? { noncash: true } : {}),
     });
   }
   const current = cents(employee.balance) ? -cents(employee.balance) : 0;
@@ -78,6 +82,7 @@ export function buildEmployeeLedger(employee: Stored, documents: Stored[], perio
     summary: {
       name: String(employee.name ?? ""), partyType: "employee", tradeTotal: 0,
       workersAccrued: accrued / 100, workersPaid: withdrawn / 100, workersDeposited: deposited / 100,
+      workersReserveReleased: reserveReleased / 100,
       debitTotal: debit / 100, creditTotal: credit / 100,
       openingBalance: opening / 100, closingBalance: closing / 100, currentBalance: current / 100,
       net: current / 100, receivable: Math.max(current, 0) / 100, payable: Math.max(-current, 0) / 100,

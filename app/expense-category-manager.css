@@ -1,0 +1,127 @@
+.expense-category-row .expense-category-manage {
+  width: 28px;
+  min-width: 28px;
+  height: 34px;
+  padding: 0;
+}
+.expense-category-manage svg { width: 16px; height: 16px; }
+.expense-form-body .expense-payment-row {
+  grid-template-columns: 128px minmax(180px, 220px) 112px;
+  justify-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+.expense-payment-row > *,
+.expense-payment-row .expense-category-row,
+.expense-payment-row .expense-edit-actions > * { min-width: 0; max-width: 100%; }
+.expense-payment-row > label { grid-column: 1; grid-row: 1; }
+.expense-payment-row .expense-category-picker { grid-column: 2; grid-row: 1; }
+.expense-payment-row .expense-edit-actions > .blocked-action { grid-column: 3; grid-row: 1; }
+.expense-payment-row .expense-cancel { grid-column: 2; grid-row: 2; }
+.expense-payment-row .expense-delete { grid-column: 3; grid-row: 2; }
+.expense-payment-row :is(input, select) { max-width: 100%; min-width: 0; }
+.expense-form-body .expense-payment-row :is(.expense-save, .expense-cancel, .expense-delete),
+.expense-form-body .expense-category-create > button {
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  min-height: 34px;
+  line-height: 1.2;
+  white-space: normal;
+}
+.expense-payment-row:has(.expense-category-create) {
+  grid-template-columns: 128px minmax(180px, 220px) minmax(290px, 1fr) 112px;
+}
+.expense-category-create {
+  grid-column: 3;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(100px, 130px) max-content;
+  align-items: end;
+  gap: 6px;
+  min-width: 0;
+}
+.expense-payment-row:has(.expense-category-create) .expense-edit-actions > .blocked-action { grid-column: 4; grid-row: 1; }
+.expense-payment-row:has(.expense-category-create) .expense-cancel { grid-column: 3; }
+.expense-payment-row:has(.expense-category-create) .expense-delete { grid-column: 4; }
+.expense-category-create label { min-width: 0; }
+.expense-category-create select { width: 100%; min-width: 0; height: 34px; }
+.expense-payment-row .expense-category-error { grid-column: 1 / -1; grid-row: auto; }
+.expense-category-manager {
+  width: min(680px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+.modal-card.expense-category-manager {
+  height: auto;
+  min-height: 0;
+  align-self: center;
+  border-radius: 9px;
+}
+.expense-category-manager .modal-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.expense-category-manager h3 { margin: 0; font-size: 15px; }
+.expense-category-new { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; }
+.expense-category-manager svg { width: 15px; height: 15px; }
+.expense-category-manager-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 150px) auto;
+  align-items: end;
+  gap: 8px;
+  padding-block: 8px;
+  border-block: 1px solid var(--line);
+}
+.expense-category-manager-editor label { min-width: 0; display: grid; gap: 4px; }
+.expense-category-manager-editor :is(input, select) { width: 100%; min-width: 0; height: 34px; }
+.expense-category-manager-editor small { grid-column: 1 / -1; font-size: 11px; color: var(--text-muted); }
+.expense-category-manager .erp-table-wrap { min-height: 80px; max-height: 50vh; overflow: auto; }
+.expense-category-manager .erp-table { min-width: 430px; }
+.report-expense-kind,
+.report-expense-category { display: grid; gap: 3px; align-items: end; white-space: normal; min-width: 0; }
+.report-expense-kind select,
+.report-expense-category select { min-width: 0; width: 100%; text-overflow: ellipsis; }
+.report-toolbar:has(.report-expense-kind) { flex-wrap: wrap; }
+.report-toolbar .report-filters:has(.report-expense-kind) {
+  flex: 1 1 620px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  min-width: 0;
+  max-width: 100%;
+}
+.report-toolbar .report-filters:has(.report-expense-kind) > * { min-width: 0; max-width: none; width: 100%; }
+@container (max-width: 780px) {
+  .expense-form-body .expense-payment-row:has(.expense-category-create) { grid-template-columns: 128px minmax(180px, 220px) 112px; }
+  .expense-category-create { grid-column: 1 / -1; grid-row: 2; width: min(100%, 560px); }
+  .expense-payment-row:has(.expense-category-create) .expense-edit-actions > .blocked-action { grid-column: 3; grid-row: 1; }
+  .expense-payment-row:has(.expense-category-create) .expense-cancel { grid-column: 2; }
+  .expense-payment-row:has(.expense-category-create) .expense-delete { grid-column: 3; }
+  .expense-payment-row:has(.expense-category-create) :is(.expense-cancel, .expense-delete) { grid-row: 3; }
+}
+@container (max-width: 480px) {
+  .expense-form-body .expense-payment-row,
+  .expense-form-body .expense-payment-row:has(.expense-category-create) { grid-template-columns: 128px minmax(0, 1fr) 112px; }
+}
+@container (max-width: 420px) {
+  .expense-form-body .expense-payment-row,
+  .expense-form-body .expense-payment-row:has(.expense-category-create) { grid-template-columns: minmax(0, 1fr) 112px; }
+  .expense-payment-row .expense-category-picker { grid-column: 1 / -1; grid-row: 2; }
+  .expense-payment-row .expense-edit-actions > .blocked-action,
+  .expense-payment-row:has(.expense-category-create) .expense-edit-actions > .blocked-action { grid-column: 2; grid-row: 1; }
+  .expense-category-create { grid-row: 3; grid-template-columns: minmax(80px, 1fr) minmax(95px, 120px) max-content; }
+  .expense-payment-row .expense-cancel,
+  .expense-payment-row:has(.expense-category-create) .expense-cancel { grid-column: 1; grid-row: 3; }
+  .expense-payment-row .expense-delete,
+  .expense-payment-row:has(.expense-category-create) .expense-delete { grid-column: 2; grid-row: 3; }
+  .expense-payment-row:has(.expense-category-create) :is(.expense-cancel, .expense-delete) { grid-row: 4; }
+}
+@media (max-width: 480px) {
+  .expense-category-manager-editor { grid-template-columns: minmax(0, 1fr) minmax(110px, 140px); }
+  .expense-category-manager-editor .party-row-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
+@media (max-width: 460px) {
+  .report-toolbar .report-filters:has(.report-expense-kind) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .report-filters .report-expense-kind { grid-column: 1 / -1; }
+}

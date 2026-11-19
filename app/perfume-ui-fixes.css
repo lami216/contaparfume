@@ -796,10 +796,17 @@
 }
 .decant-sale-workspace .invoice-table .num,
 .decant-purchase-workspace .invoice-table .num {
+  box-sizing: border-box;
   width: 100%;
-  min-width: 58px;
+  min-width: 0;
+  max-width: 100%;
   height: 32px;
   min-height: 32px;
+}
+.decant-sale-workspace .invoice-table .row-delete svg,
+.decant-purchase-workspace .invoice-table .row-delete svg {
+  width: 14px;
+  height: 14px;
 }
 .decant-invoice-error {
   white-space: pre-line;

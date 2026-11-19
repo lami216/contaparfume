@@ -2,11 +2,13 @@ import type {SqliteDatabase as Db, SqliteSession as Session} from "../lib/sqlite
 import type {PerfumeLot} from "./perfume-logic.ts";
 import {documentUsesPerfumeLot, managementKind} from "./perfume-management.ts";
 import {roundMl} from "./perfume-volume.ts";
+import {displayDocumentNumber} from "../lib/document-sequences.ts";
+import {stockNumber} from "../lib/stock-numbers.ts";
 
 type Row=Record<string,unknown>;
 export type PerfumeDependency={documentId:string;number:string;label:string;occurredAt:string};
 const kinds:Record<string,string>={split:"تحويل عطر",recombine:"إرجاع الباقي",opening:"رصيد افتتاحي",consumption:"استهلاك", "yield-correction":"تسوية",sale:"فاتورة بيع","decant-sale":"فاتورة تقسيمات",transfer:"تحويل مخزني",adjustment:"تسوية مخزون"};
-const dependency=(d:Row):PerfumeDependency=>({documentId:String(d.id),number:String(d.number??d.id),label:kinds[managementKind(d)??String(d.kind)]??"عملية",occurredAt:String(d.occurredAt??"")});
+const dependency=(d:Row):PerfumeDependency=>({documentId:String(d.id),number:displayDocumentNumber(d),label:kinds[managementKind(d)??String(d.kind)]??"عملية",occurredAt:String(d.occurredAt??"")});
 export function perfumeOperationBlocked(message:string,documents:Row[]=[]){
   const dependencies=[...new Map(documents.map(d=>[d.id,dependency(d)])).values()];
   const references=dependencies.map(d=>`${d.label} ${d.number}`).join("، ");
@@ -38,16 +40,53 @@ export function assertPerfumeProductLotBalance(product: Row) {
 
 /** A source may have only one newly active lot. Reversals must obey the same
  * rule as posting, without blocking pre-existing overlapping historical lots. */
-export async function assertPerfumeLotCanReopen(db: Db, session: Session, document: Row, lot: PerfumeLot, blockedMessage = "إلغاء هذه الحركة يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:") {
-  if (Number(lot.remainingQuantity) !== 0) return;
-  const products = await db.collection("products").find({parentProductId: lot.sourceProductId, perfumeForm:"decant"},{session}).toArray();
-  const others = openSourceLots(products, lot.sourceProductId, lot.id);
+export async function assertPerfumeLotCanReopen(db: Db, session: Session, document: Row, lot: PerfumeLot, blockedMessage = "إلغاء هذه الحركة يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:", options: { strictReturn?: boolean; pendingProduct?: Row } = {}) {
+  if (Number(lot.remainingQuantity) !== 0 && !(options.strictReturn && lot.settledAt)) return;
+  const stored = await db.collection("products").find(options.strictReturn ? {perfumeForm:"decant"} : {parentProductId: lot.sourceProductId, perfumeForm:"decant"},{session}).toArray();
+  const products = stored.map(product => options.pendingProduct && options.pendingProduct.id === product.id ? options.pendingProduct : product);
+  const occupiedOrUnknown = (value: unknown) => { const quantity=stockNumber(value);return quantity===null||quantity<0||quantity>0; };
+  const others = options.strictReturn ? products.flatMap(product => {
+    const lots = (Array.isArray(product.perfumeLots) ? product.perfumeLots : []) as PerfumeLot[];
+    if (!lots.length) return String(product.parentProductId) === lot.sourceProductId && Object.values((product.stocks ?? {}) as Row).some(occupiedOrUnknown)
+      ? [{documentId:"",lotId:""}] : [];
+    return lots.filter(other => other.sourceProductId === lot.sourceProductId && !(product.id === options.pendingProduct?.id && other.id === lot.id)
+      && (occupiedOrUnknown(other.remainingQuantity) || Object.values(other.stocks ?? {}).some(occupiedOrUnknown)))
+      .map(other => ({documentId:other.conversionDocumentId,lotId:other.id}));
+  }) : openSourceLots(products, lot.sourceProductId, lot.id);
   if (!others.length) return;
   const all = await db.collection("documents").find({}, {session}).toArray(), anchor = all.findIndex(item=>item.id===document.id);
   const ids = new Set(others.map(item=>item.documentId));
+  if (options.strictReturn) {
+    const blockers = all.filter(item => ids.has(String(item.id)));
+    throw perfumeOperationBlocked(blockedMessage, blockers);
+  }
   const blockers = all.filter((item,index)=>item.status==="posted"&&ids.has(String(item.id))&&(anchor<0||index>anchor));
   if (blockers.length) throw perfumeOperationBlocked(blockedMessage, blockers);
   if (others.some(item=>!all.some(d=>d.id===item.documentId))) throw perfumeOperationBlocked("لا يمكن إثبات أسبقية الدفعة الأخرى التي بها رصيد؛ راجع سندها قبل إعادة فتح الدفعة القديمة.");
+}
+
+/** Only a documented zero-closing count can remain in place when an earlier
+ * sale is reversed. Ordinary later counts/consumption and partial returns keep
+ * their existing dependency barrier. No historical amount or snapshot changes. */
+export function isPerfumeLotClosingSettlement(document: Row, productId: string, lot: PerfumeLot) {
+  if (document.kind !== "adjustment" || document.status !== "posted" || managementKind(document) !== "yield-correction"
+    || document.decantProductId !== productId || document.perfumeLotId !== lot.id || document.partialProductId || document.perfumeConversionType === "perfume-recombine") return false;
+  const before = document.perfumeLotBefore as PerfumeLot | undefined, after = document.perfumeLotAfter as PerfumeLot | undefined;
+  if (!before || !after || before.id !== lot.id || after.id !== lot.id || before.sourceProductId !== lot.sourceProductId || after.sourceProductId !== lot.sourceProductId
+    || before.recombinedAt || after.recombinedAt || before.partialProductId || after.partialProductId || !after.settledAt
+    || stockNumber(after.remainingQuantity) !== 0 || before.quantityUnit !== after.quantityUnit || after.quantityUnit !== lot.quantityUnit
+    || before.conversionDocumentId !== lot.conversionDocumentId || after.conversionDocumentId !== lot.conversionDocumentId) return false;
+  const cost = stockNumber(lot.liquidUnitCost), beforeCost = stockNumber(before.liquidUnitCost), afterCost = stockNumber(after.liquidUnitCost), delta = stockNumber(document.stockDelta), warehouseId = String(document.warehouseId ?? "");
+  if (!warehouseId || cost===null || cost <= 0 || beforeCost===null || afterCost===null || Math.abs(cost-beforeCost)>1e-6 || Math.abs(cost-afterCost)>1e-6 || delta===null || delta>0) return false;
+  const warehouses = new Set([...Object.keys(before.stocks ?? {}), ...Object.keys(after.stocks ?? {}), warehouseId]);
+  let totalBefore = 0;
+  for (const wh of warehouses) {
+    const prior = stockNumber(Object.hasOwn(before.stocks??{},wh)?before.stocks[wh]:0), next = stockNumber(Object.hasOwn(after.stocks??{},wh)?after.stocks[wh]:0);
+    if (prior===null || prior < 0 || next !== 0 || roundMl(next-prior)!==roundMl(wh===warehouseId?delta:0)) return false;
+    totalBefore = roundMl(totalBefore + prior);
+  }
+  const remainingBefore=stockNumber(before.remainingQuantity);
+  return remainingBefore!==null && totalBefore === roundMl(remainingBefore) && roundMl(totalBefore + delta) === 0;
 }
 
 /** Absolute counts/returns are barriers. Voided sales must never be barriers. */

@@ -1,7 +1,7 @@
 export type ReportType = "overview" | "sales" | "purchases" | "product-sales" | "stock" | "profit" | "debts" | "party-ledger" | "financial" | "expenses";
 export type ReportGroup = "invoice" | "product";
 export type ReportAccountRole = "employee" | "customer" | "supplier";
-export interface ReportFilters { type: ReportType; from?: string; to?: string; allTime?: boolean; unpaged?: boolean; partyId?: string; partyType?: ReportAccountRole; productId?: string; categoryId?: string; warehouseId?: string; paymentAccountId?: string; movementType?: string; direction?: "in" | "out"; groupBy?: ReportGroup; sortBy?: "quantity" | "sales" | "name" | "profit"; sortKey?: string; sortDirection?: "asc" | "desc"; debtSide?: "receivable" | "payable" | "clear"; search?: string; expenseCategoryId?: string; page: number; pageSize: number }
+export interface ReportFilters { type: ReportType; from?: string; to?: string; allTime?: boolean; unpaged?: boolean; partyId?: string; partyType?: ReportAccountRole; productId?: string; categoryId?: string; warehouseId?: string; paymentAccountId?: string; movementType?: string; direction?: "in" | "out"; groupBy?: ReportGroup; sortBy?: "quantity" | "sales" | "name" | "profit"; sortKey?: string; sortDirection?: "asc" | "desc"; debtSide?: "receivable" | "payable" | "clear"; search?: string; expenseCategoryId?: string; expenseCategoryKind?: "recurring" | "nonrecurring"; page: number; pageSize: number }
 export interface ReportMeta { page: number; pageSize: number; totalRows: number; totalPages: number; accountTotals?: Array<{ account: string; incoming: number; outgoing: number; net: number }> }
 export interface OverviewInvoiceRow extends ReportRow { id: string; documentId: string; kind: "sale" | "decant-sale" | "purchase" | "decant-purchase" | "expense" | "employee-payment" | "employee-accrual"; type: string; number: string; sequence: number | null; occurredAt: string; invoiceValue: number; cost: number; profit: number | null }
 export interface OverviewBankAccount { id: string; name: string; balance: number }
@@ -30,7 +30,7 @@ export function reportSummaryTone(type: ReportType, key: string, value: unknown)
   if (key === "net" && ["debts", "party-ledger"].includes(type)) return amount === 0 ? "neutral" : "negative";
   if (key === "profit" || (type === "financial" && key === "net")) return signed();
   if ((type === "sales" && key === "netSales") || (type === "product-sales" && ["sales", "netSales"].includes(key)) || (type === "profit" && key === "revenue") || (type === "stock" && key === "incoming") || (type === "financial" && key === "incoming") || (type === "overview" && key === "sales")) return "positive";
-  if ((type === "stock" && key === "outgoing") || (type === "financial" && key === "outgoing") || (type === "expenses" && key === "total") || (type === "overview" && key === "expenses")) return "negative";
+  if ((type === "stock" && key === "outgoing") || (type === "financial" && key === "outgoing") || (type === "expenses" && ["total", "recurringTotal", "nonrecurringTotal"].includes(key)) || (type === "overview" && key === "expenses")) return "negative";
   return "neutral";
 }
 
