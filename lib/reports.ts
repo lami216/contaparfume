@@ -208,7 +208,7 @@ async function directDocuments(db: Db, f: ReportFilters, kind: string | readonly
 
 export async function buildReport(db: Db, f: ReportFilters): Promise<ReportResponse> {
   const payrollDocuments = ["overview", "expenses"].includes(f.type)
-    ? await db.collection("documents").find({ kind: { $in: ["employee-accrual", "employee-payment", "employee-closure"] } }).toArray()
+    ? await db.collection("documents").find({ kind: { $in: ["employee-opening", "employee-accrual", "employee-payment", "employee-closure"] } }).toArray()
     : [];
   const salaryExpenses = payrollExpenseDocuments(payrollDocuments, f);
   const categoryScope: ProductScope = f.categoryId ? new Set((await db.collection("products").find({ categoryId: f.categoryId }).project({ id: 1 }).toArray()).map(product => String(product.id))) : null;
@@ -325,7 +325,7 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
       if (!f.partyId) throw new Error("يجب اختيار الطرف");
       const employee = await db.collection("employees").findOne({ id: f.partyId });
       if (!employee) throw new Error("العامل غير موجود");
-      const documents = await db.collection("documents").find({ employeeId: f.partyId, kind: { $in: ["employee-accrual", "employee-payment", "employee-closure"] } }).toArray();
+      const documents = await db.collection("documents").find({ employeeId: f.partyId, kind: { $in: ["employee-opening", "employee-accrual", "employee-payment", "employee-closure"] } }).toArray();
       const ledger = buildEmployeeLedger(employee, documents, f.allTime ? {} : { from: f.from, to: f.to });
       return { report: f.type, from: f.from ?? null, to: f.to ?? null, summary: ledger.summary,
         rows: pageReportRows(sortReportRows(ledger.rows, f), f), meta: pagination(ledger.rows.length, f) };
