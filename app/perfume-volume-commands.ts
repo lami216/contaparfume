@@ -3,6 +3,7 @@ import type { PerfumeLot } from "./perfume-logic.ts";
 import { perfumeLotEquals } from "./perfume-stock-reconciliation.ts";
 import { resolvePerfumeDefaults, reconcileVolumeLot, roundMl, volumeMl } from "./perfume-volume.ts";
 import {assertPerfumeLotCanReopen,assertPerfumeProductLotBalance,laterLotDocuments,perfumeOperationBlocked,prepareLotDeltaUndo} from "./perfume-operation-guards.ts";
+import { nextStockSettlementSequence } from "../lib/document-sequences.ts";
 
 type Delegate = (db: Db, session: Session, body: Row) => Promise<unknown>;
 const fail = (message: string) => Object.assign(new Error(message), { status: 409 });
@@ -141,7 +142,7 @@ export async function handleVolumeCommand(db: Db, session: Session, body: Row, l
   if (count.delta && !reason) throw fail("سبب فرق الجرد مطلوب");
   if (!returning && !count.delta && count.lot.remainingQuantity !== 0) throw fail("لا يوجد فرق في الجرد");
   if (returning && Object.entries(before.stocks).some(([key,q]) => key !== wh && q > 0)) throw fail("اجمع باقي الدفعة في مخزن واحد قبل الإرجاع");
-  const document: Row = { ...doc(returning ? "إرجاع الباقي إلى عطر ناقص" : "جرد دفعة التقسيمات", warehouse), quantityUnit: "ml", ...(quantityCorrection ? { perfumeStockTreatment: "quantity-correction" } : {}), perfumeStockOperationType: "reconciliation", perfumeConversionType: returning ? "perfume-recombine" : undefined, decantProductId: product.id, perfumeLotId: before.id, perfumeLotBefore: before, actualQuantity: count.actual, reconciliationDelta: count.delta, inventoryLoss: count.inventoryLoss, inventoryGain: count.inventoryGain, bookValueBefore: count.bookValueBefore, bookValueAfter: count.bookValueAfter, note: reason, stockDelta: count.delta };
+  const document: Row = { ...doc(returning ? "إرجاع الباقي إلى عطر ناقص" : "جرد دفعة التقسيمات", warehouse), ...(!returning ? { settlementSequence: await nextStockSettlementSequence(db, session) } : {}), quantityUnit: "ml", ...(quantityCorrection ? { perfumeStockTreatment: "quantity-correction" } : {}), perfumeStockOperationType: "reconciliation", perfumeConversionType: returning ? "perfume-recombine" : undefined, decantProductId: product.id, perfumeLotId: before.id, perfumeLotBefore: before, actualQuantity: count.actual, reconciliationDelta: count.delta, inventoryLoss: count.inventoryLoss, inventoryGain: count.inventoryGain, bookValueBefore: count.bookValueBefore, bookValueAfter: count.bookValueAfter, note: reason, stockDelta: count.delta };
   if (count.delta) {
     const balances = await move(db,session,product,warehouse,count.delta,document,"perfume-reconciliation");
     document.lines.push({ id:id("line"),productId:product.id,description:`${product.name} — فرق جرد`,quantity:count.delta,unitPrice:count.unitCost,lineTotal:0,inventoryLoss:count.inventoryLoss,inventoryGain:count.inventoryGain,balanceBefore:balances.before,balanceAfter:balances.after,perfumeRole:"count" });

@@ -3,7 +3,7 @@ import type { PerfumeLot } from "./perfume-logic.ts";
 import { documentUsesPerfumeLot } from "./perfume-management.ts";
 import { roundMl } from "./perfume-volume.ts";
 import { perfumeLotEquals } from "./perfume-stock-reconciliation.ts";
-import { perfumeOperationBlocked } from "./perfume-operation-guards.ts";
+import { assertPerfumeLotCanReopen, perfumeOperationBlocked } from "./perfume-operation-guards.ts";
 
 const conflict = () => Object.assign(new Error("لا يمكن إلغاء التحويل لأن له حركات لاحقة غير ملغاة، أو اختلافًا غير موثق في رصيد الدفعة."), { status: 409 });
 const values = (stocks: Record<string, number>) => Object.values(stocks).reduce((sum, value) => sum + Number(value), 0);
@@ -24,7 +24,7 @@ export async function restoreLegacySaleAllocations(db: Db, session: Session, ori
     }
     for (const allocation of line.perfumeAllocations as Row[]) {
       const lot = (product.perfumeLots as PerfumeLot[]).find(item => item.id === allocation.lotId);
-      if (!lot || lot.settledAt) throw conflict();
+      if (!lot) throw conflict();
       if (lot.recombinedAt) {
         const returned = lot.partialProductId && await db.collection("documents").findOne({ status: "posted", perfumeConversionType: "perfume-recombine", "lines.productId": lot.partialProductId }, { session });
         if (!returned || returned.perfumeLotAfter || lot.quantityUnit === "ml") throw conflict();
@@ -41,8 +41,12 @@ export async function restoreLegacySaleAllocations(db: Db, session: Session, ori
         const corrections = documents.filter((document,index) => index > anchor && document.status === "posted" && document.perfumeStockOperationType === "yield-correction" && documentUsesPerfumeLot(document, productId, lot.id));
         throw perfumeOperationBlocked("لا يمكن إلغاء البيع القديم لأن تقييم الدفعة أو تكلفتها تغير بعده؛ ألغِ تصحيح الناتج المرتبط أولًا:", corrections);
       }
+      // Core has already restored visible stock in this same transaction. The
+      // pending lot snapshot supplies the return guard without double-applying it.
+      await assertPerfumeLotCanReopen(db,session,original,lot,"لا يمكن إعادة فتح هذه الدفعة لأن للعطر دفعة أخرى بها رصيد. عالج الدفعة الأخرى أولًا:",{strictReturn:true,pendingProduct:product});
       lot.remainingQuantity = roundMl(Number(lot.remainingQuantity) + amount);
       lot.stocks = { ...lot.stocks, [wh]: roundMl(Number(lot.stocks[wh] ?? 0) + amount) };
+      if(lot.settledAt)delete lot.settledAt;
       if (lot.remainingQuantity > lot.originalQuantity + Number(lot.quantityAdjustmentMl ?? 0) + 1e-8) throw conflict();
     }
   }

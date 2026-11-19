@@ -1,6 +1,6 @@
 import type {SqliteDatabase as Db, SqliteSession as Session} from "../lib/sqlite.ts";
 import type {PerfumeAllocation, PerfumeLot} from "./perfume-logic.ts";
-import {laterLotDocuments, openSourceLots, perfumeOperationBlocked} from "./perfume-operation-guards.ts";
+import {isPerfumeLotClosingSettlement,laterLotDocuments, openSourceLots, perfumeOperationBlocked} from "./perfume-operation-guards.ts";
 import {roundMl, volumeMl} from "./perfume-volume.ts";
 
 type Row = Record<string, unknown>;
@@ -57,7 +57,7 @@ function remainderLot(product: Row, lotId: string) {
 
 /** A count is an absolute quantity decision. Reopening an older sale must not
  * silently change that decision, or reopen an exhausted lot over a newer lot. */
-export async function assertRemainderSaleReversible(db: Db, session: Session, document: Row, product: Row) {
+export async function assertRemainderSaleReversible(db: Db, session: Session, document: Row, product: Row, options: {allowClosingSettlement?:boolean;exactStockReplay?:boolean}={}) {
   const lines = Array.isArray(document.lines) ? document.lines as Row[] : [];
   const line = lines[0], allocations = Array.isArray(line?.perfumeAllocations) ? line.perfumeAllocations as PerfumeAllocation[] : [];
   const allocation = allocations[0], lotId = text(document.perfumeLotId), warehouseId = text(document.warehouseId);
@@ -71,9 +71,9 @@ export async function assertRemainderSaleReversible(db: Db, session: Session, do
     throw fail("بيانات بيع المتبقي الأصلية غير متطابقة؛ لم يتم تغيير المخزون");
   const {lot} = remainderLot(product, lotId);
   const later = await laterLotDocuments(db, session, document);
-  const barriers = later.filter(item => item.kind === "adjustment");
+  const barriers = later.filter(item => item.kind === "adjustment" && !(options.allowClosingSettlement && isPerfumeLotClosingSettlement(item,String(product.id),lot)));
   if (barriers.length) throw perfumeOperationBlocked("ألغِ أو عدّل تسوية أو استهلاك الدفعة الأحدث قبل تعديل بيع المتبقي أو إلغائه:", barriers);
-  if (Number(lot.remainingQuantity) === 0) {
+  if (!options.exactStockReplay && Number(lot.remainingQuantity) === 0) {
     const products = await db.collection("products").find({parentProductId: lot.sourceProductId, perfumeForm: "decant"}, {session}).toArray();
     const other = openSourceLots(products, lot.sourceProductId, lot.id);
     if (other.length) {

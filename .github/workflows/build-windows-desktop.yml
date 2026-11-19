@@ -30,6 +30,8 @@ jobs:
       - run: node node_modules/electron/install.js
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
+      - name: Prove the settled-batch return blocker on the exact previous source
+        run: node scripts/prove-perfume-settlement-baseline.mjs
       - run: npx tsc --noEmit
       - name: Exercise invoices, opening debts, workers, perfume and reports on isolated synthetic data
         run: node --import tsx --test scripts/payroll-ui-smoke.mjs

@@ -1,5 +1,6 @@
 import { getDisplayCurrencyCode, type CurrencySettings } from "../lib/currency-core";
 import { formatAccountingDecimal, formatAccountingPercentage } from "../lib/accounting-format";
+import { displayDocumentNumber as formatDocumentReference } from "../lib/document-sequences";
 import type { PerfumeAllocation, PerfumeForm, PerfumeLot } from "./perfume-logic";
 
 export type PaymentMethod = string;
@@ -144,6 +145,7 @@ export interface DocumentRecord {
   id: string;
   number: string;
   sequence?: number;
+  settlementSequence?: number;
   legacyBillCode?: string;
   kind: DocumentKind;
   partyId: string | null;
@@ -429,7 +431,7 @@ export function accountingPercent(value: number) {
   return western(formatAccountingPercentage(DISPLAY_LOCALE, value));
 }
 export function displayDocumentNumber(document: Pick<DocumentRecord, "number" | "sequence" | "kind">) {
-  return ["sale", "purchase", "expense", "decant-sale", "decant-purchase"].includes(document.kind) && Number.isSafeInteger(Number(document.sequence)) && Number(document.sequence) > 0 ? String(document.sequence) : document.number;
+  return formatDocumentReference(document);
 }
 /** Accounting-backed inventory valuation. Manual pieceCost never silently becomes historical cost. */
 export function inventoryUnitCost(product: Pick<Product, "lastPurchaseCost" | "openingCost" | "legacyOpeningCost">) {

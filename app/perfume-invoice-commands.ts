@@ -7,7 +7,7 @@ import { currentProductCost } from "../lib/product-cost.ts";
 import { findActiveFinancialMovement, postFinancialMovement, reverseFinancialMovement as reverseStoredFinancialMovement } from "../lib/transaction-lifecycle.ts";
 import { resolvePartyType } from "./domain.ts";
 import {assertRemainderSaleReversible, parseRemainderSaleInput, prepareRemainderSale} from "./perfume-remainder-sale.ts";
-import {assertPerfumeLotCanReopen} from "./perfume-operation-guards.ts";
+import {assertPerfumeLotCanReopen,assertPerfumeProductLotBalance} from "./perfume-operation-guards.ts";
 import {resolveBottledSaleVolume} from "./perfume-bottle-fill.ts";
 
 type Input = Record<string, unknown>;
@@ -181,17 +181,23 @@ async function consumeLiquidLots(db: Db, session: ClientSession, product: Produc
 }
 async function restoreLiquidAllocations(db: Db, session: ClientSession, product: ProductDoc, allocations: PerfumeAllocation[] | undefined, document: ProductDoc, exactStockReplay = false) {
   if (product.perfumeForm !== "decant" || !allocations?.length) return;
+  assertPerfumeProductLotBalance(product);
   const lots = perfumeLots(product), byId = new Map(lots.map(lot => [lot.id, lot]));
   for (const allocation of allocations) {
     const lot = byId.get(allocation.lotId);
     if (!lot) throw new PerfumeInvoiceCommandError("تعذر العثور على دفعة التقسيم الأصلية", 409);
-    if (lot.recombinedAt || lot.settledAt) throw new PerfumeInvoiceCommandError("تمت تسوية أو إرجاع الدفعة؛ ألغِ التسوية الأحدث أولًا",409);
-    if(!exactStockReplay)await assertPerfumeLotCanReopen(db, session, document, lot);
+    if (lot.recombinedAt || lot.partialProductId) throw new PerfumeInvoiceCommandError("أُرجع باقي هذه الدفعة؛ ألغِ عملية الإرجاع أولًا",409);
+    if(!exactStockReplay)await assertPerfumeLotCanReopen(db, session, document, lot,"لا يمكن إعادة فتح هذه الدفعة لأن للعطر دفعة أخرى بها رصيد. عالج الدفعة الأخرى أولًا:",{strictReturn:true,pendingProduct:{...product,perfumeLots:lots}});
     const factor = product.perfumeStockUnit === "ml" && allocation.quantityUnit !== "ml" ? Number(product.legacyDecantUnitMl ?? 1) : 1;
     const amount = roundMl(Number(allocation.quantity) * factor), warehouseId = String(allocation.warehouseId);
-    if (Math.abs(Number(lot.liquidUnitCost) - Number(allocation.unitCost)/factor) > 1e-6) throw new PerfumeInvoiceCommandError("تغيرت تكلفة الدفعة بعد البيع؛ ألغِ التصحيح الأحدث أولًا",409);
+    const cost=Number(allocation.unitCost)/factor,currentCost=Number(lot.liquidUnitCost??lot.landedUnitCost);
+    if(!warehouseId||!Number.isFinite(factor)||factor<=0||!Number.isFinite(amount)||amount<=0||(product.perfumeStockUnit!=="ml"&&!Number.isInteger(amount))||!Number.isFinite(cost)||cost<0||!Number.isFinite(currentCost)||currentCost<0)throw new PerfumeInvoiceCommandError("توزيع تكلفة البيع الأصلي غير صالح",409);
+    if (Math.abs(currentCost - cost) > 1e-6) throw new PerfumeInvoiceCommandError("تغيرت تكلفة الدفعة بعد البيع؛ ألغِ التصحيح الأحدث أولًا",409);
     lot.stocks = { ...(lot.stocks ?? {}), [warehouseId]: roundMl(Number(lot.stocks?.[warehouseId] ?? 0) + amount) };
     lot.remainingQuantity = roundMl(Number(lot.remainingQuantity ?? 0) + amount);
+    // The settled document remains posted with its original snapshots and P&L.
+    // Only current availability reopens; a neutral edit restores this flag below.
+    if(lot.settledAt)delete lot.settledAt;
   }
   await savePerfumeLots(db, session, product, lots);
 }
@@ -434,7 +440,7 @@ async function voidSale(db: Db, session: ClientSession, body: Input, exactStockR
   if (original.perfumeSaleMode === "remainder") {
     const product = products.get(String(original.decantProductId));
     if (!product) throw new PerfumeInvoiceCommandError("عطر بيع المتبقي الأصلي غير موجود", 409);
-    await assertRemainderSaleReversible(db, session, original, product);
+    await assertRemainderSaleReversible(db, session, original, product,{allowClosingSettlement:true,exactStockReplay});
   }
   for (const line of lines) {
     const product = products.get(line.productId)!;
@@ -481,9 +487,13 @@ async function editInvoice(db: Db, session: ClientSession, body: Input, kind: "d
   const oldPartyId = text(existing.partyId), oldPayment = text(existing.paymentMethod);
   const oldProductIds = [...new Set(((existing.lines ?? []) as InvoiceLine[]).flatMap(line => [line.productId, line.bottleProductId].filter((value): value is string => Boolean(value))))];
   const originalLines=(existing.lines??[]) as InvoiceLine[];
-  const originalProducts=kind==="decant-sale"&&!remainder?await db.collection("products").find({id:{$in:oldProductIds}},{session}).toArray():[];
+  const originalProducts=kind==="decant-sale"?await db.collection("products").find({id:{$in:oldProductIds}},{session}).toArray():[];
   const productById=new Map(originalProducts.map(product=>[String(product.id),product]));
   let exactStockReplay=false;
+  if(kind==="decant-sale"&&remainder){
+    const requested=parseRemainderSaleInput(body),old=originalLines[0];
+    exactStockReplay=originalLines.length===1&&requested.productId===String(existing.decantProductId)&&requested.productId===old.productId&&requested.lotId===String(existing.perfumeLotId)&&requested.warehouseId===String(existing.warehouseId)&&Math.abs(requested.quantityMl-Number(existing.remainderQuantityMl))<1e-6&&old.costAtSale!=null&&Number.isFinite(Number(old.costAtSale))&&Number(old.costAtSale)>=0&&Boolean(old.perfumeAllocations?.length);
+  }
   if(kind==="decant-sale"&&!remainder&&(body.warehouseId===undefined||String(body.warehouseId)===String(existing.warehouseId))){
     const requested=parseLines(body),unmatched=[...originalLines];
     exactStockReplay=requested.length===unmatched.length&&requested.every(line=>{
@@ -523,6 +533,11 @@ async function editInvoice(db: Db, session: ClientSession, body: Input, kind: "d
       if(!after||!sameStocks(before.stocks,after.stocks))throw new PerfumeInvoiceCommandError("تغيرت كمية المخزون أثناء تعديل بيانات الفاتورة؛ لم يُحفظ التعديل",409);
       const beforeLots=perfumeLots(before),afterLots=perfumeLots(after);
       if(beforeLots.length!==afterLots.length||beforeLots.some(lot=>{const next=afterLots.find(item=>item.id===lot.id);return !next||!sameStocks(lot.stocks,next.stocks)||Math.abs(lot.remainingQuantity-next.remainingQuantity)>1e-6||Math.abs(lot.liquidUnitCost-next.liquidUnitCost)>1e-6;}))throw new PerfumeInvoiceCommandError("تغيرت دفعات البيع الأصلية أثناء تعديل بيانات الفاتورة؛ لم يُحفظ التعديل",409);
+      // A price/header-only edit does not reopen a closed lot as a side effect
+      // of the internal undo/repost. Preserve exact legacy presence/null values.
+      let closureChanged=false;
+      for(const original of beforeLots){const next=afterLots.find(lot=>lot.id===original.id)!;if(Object.hasOwn(original,"settledAt")){if(next.settledAt!==original.settledAt){next.settledAt=original.settledAt;closureChanged=true;}}else if(Object.hasOwn(next,"settledAt")){delete next.settledAt;closureChanged=true;}}
+      if(closureChanged)await savePerfumeLots(db,session,after,afterLots);
     }
     const revised=await db.collection("documents").findOne({id:documentId},{session}),remaining=[...((revised?.lines??[]) as InvoiceLine[])];
     if(String(revised?.warehouseId)!==String(existing.warehouseId))throw new PerfumeInvoiceCommandError("تغيرت كمية المخزون أثناء تعديل بيانات الفاتورة؛ لم يُحفظ التعديل",409);

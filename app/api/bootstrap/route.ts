@@ -4,7 +4,7 @@ import { getDatabase } from "../../../lib/sqlite";
 import { resolvePartyType } from "../../domain";
 import { log } from "../../../lib/log";
 import { getPrincipalFromRequest, hasCapability, type Capability } from "../../../lib/auth";
-import { peekNextDocumentSequence } from "../../../lib/document-sequences";
+import { peekNextDocumentSequence, ensureStockSettlementNumberingReady, displayStockMovementDocumentNumber } from "../../../lib/document-sequences";
 import { calculatePartyFinancialSummaries } from "../../party-metrics";
 import { productsWithCurrentCosts } from "../../../lib/product-cost.ts";
 import { getInvoiceBranding } from "../../../lib/invoice-branding";
@@ -19,6 +19,7 @@ export async function GET(request: Request) {const licenseDenied=await requireVa
   const principal=await getPrincipalFromRequest(request);if(!principal)return Response.json({error:"غير مصرح"},{status:401});
   try {
     const db = await getDatabase();
+    await ensureStockSettlementNumberingReady(db);
     const { fragranceCategoryId } = await db.transaction(async session => { await accrueDueEmployees(db,session); return ensurePerfumeSystemCategories(db, session); });
 
     const [parties, warehouses, products, categories, documents, movements, financialMovements, paymentAccounts, accountTransfers, productCounter, nextSale, nextPurchase, nextExpense, nextDecantSale, nextDecantPurchase, branding, currency] = await Promise.all([
@@ -41,7 +42,7 @@ export async function GET(request: Request) {const licenseDenied=await requireVa
     const productHints=new Map(products.map(product=>[String(product.id),product]));
     const cleanMovements = collapseLegacyStockEditMovements(clean(movements as Array<Record<string, unknown>>).map((input:Record<string,unknown>)=>{
       const movement=presentVolumeMovement(input,productHints.get(String(input.productId)));
-      return {...movement,type:classifyStockMovementType(movement.type,documentHints.get(String(movement.documentId??"")))};
+      return {...movement,documentReference:movement.documentNumber,documentNumber:displayStockMovementDocumentNumber(movement,documentHints.get(String(movement.documentId??""))),type:classifyStockMovementType(movement.type,documentHints.get(String(movement.documentId??"")))};
     }));
     const effectiveFinancialMovements=(financialMovements as Array<Record<string,unknown>>).filter(isEffectiveFinancialMovement);
     const partyMetricDocuments=(documents as Array<Record<string,unknown>>).filter(document=>["sale","decant-sale","return","purchase","decant-purchase"].includes(String(document.kind)));

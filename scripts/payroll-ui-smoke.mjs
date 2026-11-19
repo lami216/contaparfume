@@ -130,7 +130,7 @@ async function main() {
         window.__payrollBusy=true;pending.current=true;
         try{
           const response=await fetch("/api/command",{method:"POST",headers:{"content-type":"application/json","Idempotency-Key":crypto.randomUUID()},body:JSON.stringify(body)});
-          const value=await response.json();if(!response.ok)throw new Error(value.error);
+          const value=await response.json();if(!response.ok){window.__smokeLastError=value;throw Object.assign(new Error(value.error),{payload:value,status:response.status})}
           await finishSuccessfulCommand(afterSuccess,refresh);
           window.__lastPayrollResult=value;return value.id;
         }finally{window.__payrollBusy=false;pending.current=false}
@@ -347,6 +347,9 @@ async function main() {
     assert.equal(response.status,200,JSON.stringify(value));return value.id;
   };
   await perfumeScenarios({database,command,screenshot});
+  const {runPerfumeSettlementScenarios}=await import("./perfume-settlement-ui-scenarios.mjs");
+  result.perfumeSettlements=await runPerfumeSettlementScenarios({cdp,origin:base,command,database,screenshot});
+  result.checkpoints.push(...result.perfumeSettlements.checkpoints);
   await cdp.evaluate('window.__smokeSetLocale("ar")');
   await until(()=>cdp.evaluate('document.documentElement.lang==="ar"'),"Arabic party scenario locale");
   const {runPartiesReportScenarios}=await import("./parties-ui-scenarios.mjs");

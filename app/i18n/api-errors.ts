@@ -1,6 +1,12 @@
 import type { Locale } from "./locale";
 
 const exactFrench: Record<string, string> = {
+  "لا يمكن إعادة فتح هذه الدفعة لأن للعطر دفعة أخرى بها رصيد. عالج الدفعة الأخرى أولًا:": "Impossible de rouvrir ce lot car un autre lot de ce parfum contient du stock. Traitez d’abord l’autre lot :",
+  "عداد التسويات غير صالح": "Le compteur des régularisations est invalide.",
+  "تعذر تخصيص رقم تسوية صالح": "Impossible d’attribuer un numéro de régularisation valide.",
+  "تغير ترقيم التسويات أثناء التهيئة؛ أعد المحاولة": "La numérotation des régularisations a changé pendant la préparation. Veuillez réessayer.",
+  "أُرجع باقي هذه الدفعة؛ ألغِ عملية الإرجاع أولًا": "Le reliquat de ce lot a déjà été retourné. Annulez d’abord cette opération.",
+  "تغيرت تكلفة الدفعة بعد البيع؛ ألغِ التصحيح الأحدث أولًا": "Le coût du lot a changé après la vente. Annulez d’abord la correction la plus récente.",
   "مجموع السطر غير صالح": "Le total de la ligne est invalide.",
   "مجموع السطر لا يطابق الكمية وسعر الوحدة": "Le total de la ligne ne correspond pas à la quantité et au prix unitaire.",
   "إجمالي الفاتورة غير صالح": "Le total de la facture est invalide.",
@@ -134,7 +140,7 @@ export function translateApiError(locale: Locale, message: string): string {
   if (locale === "ar") return message;
   const exact = exactFrench[message];
   if (exact) return exact;
-  for (const prefix of ["هذا التصحيح يعيد فتح دفعة قديمة بينما توجد دفعة أحدث بها رصيد. عالج الدفعة الأحدث أولًا:","إلغاء هذه الحركة يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:","ألغِ أو عدّل تسوية أو استهلاك الدفعة الأحدث قبل تعديل بيع المتبقي أو إلغائه:","إلغاء بيع المتبقي يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:","لا يمكن إلغاء البيع القديم لأن تقييم الدفعة أو تكلفتها تغير بعده؛ ألغِ تصحيح الناتج المرتبط أولًا:","ألغِ الحركات القديمة المرتبطة قبل تهيئة المل، ثم أعد تسجيلها بالمل؛ صور هذه الحركات محفوظة بوحدة التقسيمة القديمة:"]) if (message.startsWith(prefix)) return exactFrench[prefix] + message.slice(prefix.length);
+  for (const prefix of ["لا يمكن إعادة فتح هذه الدفعة لأن للعطر دفعة أخرى بها رصيد. عالج الدفعة الأخرى أولًا:","هذا التصحيح يعيد فتح دفعة قديمة بينما توجد دفعة أحدث بها رصيد. عالج الدفعة الأحدث أولًا:","إلغاء هذه الحركة يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:","ألغِ أو عدّل تسوية أو استهلاك الدفعة الأحدث قبل تعديل بيع المتبقي أو إلغائه:","إلغاء بيع المتبقي يعيد فتح دفعة قديمة بينما توجد دفعة جديدة بها رصيد. عالج الدفعة الجديدة أولًا:","لا يمكن إلغاء البيع القديم لأن تقييم الدفعة أو تكلفتها تغير بعده؛ ألغِ تصحيح الناتج المرتبط أولًا:","ألغِ الحركات القديمة المرتبطة قبل تهيئة المل، ثم أعد تسجيلها بالمل؛ صور هذه الحركات محفوظة بوحدة التقسيمة القديمة:"]) if (message.startsWith(prefix)) return exactFrench[prefix] + message.slice(prefix.length);
   const pendingLot = message.match(/^لا يمكن فتح دفعة جديدة؛ ما زال للعطر رصيد تقسيمات في دفعة سابقة \(([^)]*)\)\. إذا نفد فعليًا، سجّل المتبقي كاستهلاك؛ وإذا كان الرصيد خطأً في الإدخال، صحّح الكمية أولًا\. الدفعة السابقة:(.*)$/);
   if (pendingLot) return `Un lot précédent contient encore du parfum (${pendingLot[1]}). Enregistrez une sortie réelle en consommation ou corrigez une erreur de quantité avant le nouveau lot. Lot précédent :${pendingLot[2]}`;
   const missingCategory = message.match(/^المنتج (.+) يشير إلى فئة غير موجودة؛ راجع التصنيف قبل المتابعة$/);
