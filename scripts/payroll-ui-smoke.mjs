@@ -361,6 +361,9 @@ async function main() {
   const {runInvoiceTotalsScenarios}=await import("./invoice-totals-ui-scenarios.mjs");
   result.invoiceTotals=await runInvoiceTotalsScenarios({cdp,origin:base,command,database,screenshot});
   result.checkpoints.push(...result.invoiceTotals.checkpoints);
+  const {runWorkerCorrectionScenarios}=await import("./worker-correction-ui-scenarios.mjs");
+  result.workerCorrections=await runWorkerCorrectionScenarios({cdp,origin:base,command,database,screenshot});
+  result.checkpoints.push(...result.workerCorrections.checkpoints);
   assert.deepEqual(cdp.errors, []);
   result.status = "passed";
 }

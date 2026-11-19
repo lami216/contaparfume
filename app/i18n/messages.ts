@@ -1,4 +1,12 @@
 export const arMessages = {
+  "إقفال حساب عامل": "إقفال حساب عامل",
+  "إقفال حساب عامل محذوف": "إقفال حساب عامل محذوف",
+  "حذف نهائي": "حذف نهائي",
+  "لا يمكن حذف العامل قبل تصفية المبلغ المستحق عليه للمحل.": "لا يمكن حذف العامل قبل تصفية المبلغ المستحق عليه للمحل.",
+  "سيُحذف العامل نهائيًا من القوائم ويُلغى المبلغ غير المسحوب المستحق له. ستبقى حركات السحب والإيداع السابقة محفوظة دون تغيير النقد. هل تريد المتابعة؟": "سيُحذف العامل نهائيًا من القوائم ويُلغى المبلغ غير المسحوب المستحق له. ستبقى حركات السحب والإيداع السابقة محفوظة دون تغيير النقد. هل تريد المتابعة؟",
+  "تغيير تاريخ البداية أو الاتفاق يعيد حساب الاستحقاقات، مع الاحتفاظ بحركات السحب والإيداع دون تغيير النقد.": "تغيير تاريخ البداية أو الاتفاق يعيد حساب الاستحقاقات، مع الاحتفاظ بحركات السحب والإيداع دون تغيير النقد.",
+  "يمكن أن يكون مبلغ الاستحقاق صفرًا للعامل الذي يستخدم الحساب للسحب والإيداع فقط.": "يمكن أن يكون مبلغ الاستحقاق صفرًا للعامل الذي يستخدم الحساب للسحب والإيداع فقط.",
+  "حساب العامل محذوف — السجل محفوظ للقراءة فقط": "حساب العامل محذوف — السجل محفوظ للقراءة فقط",
   "مجموع السطر": "مجموع السطر",
   "partyOpening.void": "إلغاء رصيد البداية",
   "partyOpening.voidPreview": "هل تريد إلغاء رصيد البداية؟ الرصيد الحالي: {before}، وبعد الإلغاء: {after}.",
@@ -1504,6 +1512,14 @@ export type MessageKey = keyof typeof arMessages;
 export type TranslationParams = Record<string, string | number>;
 
 export const frMessages: Record<MessageKey, string> = {
+  "إقفال حساب عامل": "Clôture du compte d’un salarié",
+  "إقفال حساب عامل محذوف": "Clôture du compte d’un salarié supprimé",
+  "حذف نهائي": "Supprimer définitivement",
+  "لا يمكن حذف العامل قبل تصفية المبلغ المستحق عليه للمحل.": "Soldez d’abord la dette du salarié envers le magasin avant de le supprimer.",
+  "سيُحذف العامل نهائيًا من القوائم ويُلغى المبلغ غير المسحوب المستحق له. ستبقى حركات السحب والإيداع السابقة محفوظة دون تغيير النقد. هل تريد المتابعة؟": "Le salarié sera définitivement retiré des listes et son solde dû non retiré sera annulé. Les retraits et dépôts passés restent conservés sans modifier la trésorerie. Continuer ?",
+  "تغيير تاريخ البداية أو الاتفاق يعيد حساب الاستحقاقات، مع الاحتفاظ بحركات السحب والإيداع دون تغيير النقد.": "Modifier la date de début ou l’accord recalcule les droits en conservant les retraits et dépôts, sans modifier la trésorerie.",
+  "يمكن أن يكون مبلغ الاستحقاق صفرًا للعامل الذي يستخدم الحساب للسحب والإيداع فقط.": "Le montant dû peut être nul pour un salarié qui utilise uniquement les retraits et dépôts.",
+  "حساب العامل محذوف — السجل محفوظ للقراءة فقط": "Compte du salarié supprimé — historique en lecture seule",
   "مجموع السطر": "Total de la ligne",
   "partyOpening.void": "Annuler le solde initial",
   "partyOpening.voidPreview": "Annuler le solde initial ? Solde actuel : {before}. Solde après annulation : {after}.",

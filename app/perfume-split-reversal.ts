@@ -24,7 +24,7 @@ export async function restoreLegacySaleAllocations(db: Db, session: Session, ori
     }
     for (const allocation of line.perfumeAllocations as Row[]) {
       const lot = (product.perfumeLots as PerfumeLot[]).find(item => item.id === allocation.lotId);
-      if (!lot) throw conflict();
+      if (!lot || (lot.settledAt && (lot.recombinedAt || lot.partialProductId))) throw conflict();
       if (lot.recombinedAt) {
         const returned = lot.partialProductId && await db.collection("documents").findOne({ status: "posted", perfumeConversionType: "perfume-recombine", "lines.productId": lot.partialProductId }, { session });
         if (!returned || returned.perfumeLotAfter || lot.quantityUnit === "ml") throw conflict();

@@ -45,9 +45,9 @@ export async function runPerfumeSettlementScenarios({ cdp, origin, command, data
   assert.equal(settlement.perfumeStockTreatment, 'quantity-correction'); assert.equal(settlement.inventoryLoss, 0); assert.equal(settlement.inventoryGain, 0);
   assert.equal(settlement.bookValueBefore, 700); assert.equal(settlement.bookValueAfter, 0);
   await evaluate('window.__smokeSetLocale("ar")');
-  await evaluate('window.__smokeSetView("employees")');
-  await until(() => evaluate('Boolean(document.querySelector(".employee-payment-panel"))'), 'leave previous perfume editor');
-  await evaluate('window.__smokeSetView("perfume")');
+  assert.equal(await evaluate('window.__smokeSetView("employees")'), true, 'Existing editor guard permits leaving the saved perfume view');
+  await until(() => evaluate('Boolean(document.querySelector(".employees-workspace"))&&!document.querySelector(".decant-invoices-hub")'), 'previous perfume component unmounted');
+  assert.equal(await evaluate('window.__smokeSetView("perfume")'), true, 'Return through the real perfume navigation');
   const scope = '.decant-sale-workspace', quantitySelector = scope + ' .invoice-table tbody tr input.num', priceSelector = scope + ' .invoice-table tbody tr td:nth-child(4) input';
   await until(() => evaluate('Boolean(document.querySelector(".decant-sale-workspace"))'), 'real decant sale screen');
   const invoiceNumber = String(sale.sequence ?? sale.number);

@@ -208,7 +208,7 @@ async function directDocuments(db: Db, f: ReportFilters, kind: string | readonly
 
 export async function buildReport(db: Db, f: ReportFilters): Promise<ReportResponse> {
   const payrollDocuments = ["overview", "expenses"].includes(f.type)
-    ? await db.collection("documents").find({ kind: { $in: ["employee-accrual", "employee-payment"] } }).toArray()
+    ? await db.collection("documents").find({ kind: { $in: ["employee-accrual", "employee-payment", "employee-closure"] } }).toArray()
     : [];
   const salaryExpenses = payrollExpenseDocuments(payrollDocuments, f);
   const categoryScope: ProductScope = f.categoryId ? new Set((await db.collection("products").find({ categoryId: f.categoryId }).project({ id: 1 }).toArray()).map(product => String(product.id))) : null;
@@ -312,7 +312,7 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
         partyType, accountType:partyType==="customer"?"عميل":"مورد", balance:Math.abs(net),
         receivable:Math.max(net,0), payable:Math.max(-net,0), lastMovement:String(party.lastMovementAt??"") };
     });
-    const employeeRows = employees.filter(employee => employee.isArchived !== true || n(employee.balance) !== 0).map(employeeAccountRow).filter(account =>
+    const employeeRows = employees.filter(employee => employee.isDeleted !== true && (employee.isArchived !== true || n(employee.balance) !== 0)).map(employeeAccountRow).filter(account =>
       (f.debtSide !== "receivable" || n(account.receivable) > 0) &&
       (f.debtSide !== "payable" || n(account.payable) > 0) &&
       (f.debtSide !== "clear" || n(account.balance) === 0));
@@ -325,7 +325,7 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
       if (!f.partyId) throw new Error("يجب اختيار الطرف");
       const employee = await db.collection("employees").findOne({ id: f.partyId });
       if (!employee) throw new Error("العامل غير موجود");
-      const documents = await db.collection("documents").find({ employeeId: f.partyId, kind: { $in: ["employee-accrual", "employee-payment"] } }).toArray();
+      const documents = await db.collection("documents").find({ employeeId: f.partyId, kind: { $in: ["employee-accrual", "employee-payment", "employee-closure"] } }).toArray();
       const ledger = buildEmployeeLedger(employee, documents, f.allTime ? {} : { from: f.from, to: f.to });
       return { report: f.type, from: f.from ?? null, to: f.to ?? null, summary: ledger.summary,
         rows: pageReportRows(sortReportRows(ledger.rows, f), f), meta: pagination(ledger.rows.length, f) };
@@ -369,7 +369,7 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
   const kindRank:Record<string,number>={sale:0,"decant-sale":1,purchase:2,"decant-purchase":3,expense:4,"employee-payment":5,"employee-accrual":6};
   const invoices=commercial.filter(d=>d.kind!=="return").map(d=>{const kind=String(d.kind) as "sale"|"decant-sale"|"purchase"|"decant-purchase"|"expense"|"employee-payment"|"employee-accrual",value=netValue(d),saleFact=factsByDocument.get(String(d.id)),saleLike=isSaleKind(kind);return{id:String(d.id),documentId:String(d.id),employeeId:d.employeeId?String(d.employeeId):undefined,kind,type:kind==="decant-sale"?"فاتورة التقسيمات":kind==="decant-purchase"?"فاتورة شراء زجاج التقسيمات":kind==="sale"?"فاتورة بيع":kind==="purchase"?"فاتورة شراء":kind==="employee-payment"?value<0?"استرداد مصروف عامل":"مصروف عامل":kind==="employee-accrual"?"استحقاق عامل":"فاتورة مصروفات",number:displayDocumentNumber(d),sequence:Number.isSafeInteger(Number(d.sequence))&&n(d.sequence)>0?n(d.sequence):null,occurredAt:String(d.occurredAt),invoiceValue:value,cost:saleLike?(saleFact?.cost??0):value,profit:saleLike?(saleFact?.profit??value):null,costKnown:saleLike?(saleFact?.costKnown??false):true,unknownRevenue:saleLike?(saleFact?.unknownRevenue??Math.abs(value)):0}}).sort((a,b)=>kindRank[a.kind]-kindRank[b.kind]||((a.sequence??Number.MAX_SAFE_INTEGER)-(b.sequence??Number.MAX_SAFE_INTEGER))||a.occurredAt.localeCompare(b.occurredAt)||a.id.localeCompare(b.id));
   const typedParties=parties.map(p=>({...p,partyType:resolvePartyType(p)} as Document & {partyType:"customer"|"supplier"}));
-  const employeeRows = employees.filter(employee => employee.isArchived !== true || n(employee.balance) !== 0).map(employeeAccountRow);
+  const employeeRows = employees.filter(employee => employee.isDeleted !== true && (employee.isArchived !== true || n(employee.balance) !== 0)).map(employeeAccountRow);
   const partyRows=groupAccountRows([...employeeRows,...typedParties.map(p=>({id:String(p.id),partyId:String(p.id),name:String(p.name),partyType:p.partyType,receivable:Math.max(n(p.receivable)-n(p.payable),0),payable:Math.max(n(p.payable)-n(p.receivable),0)}))]);
   const bankAccounts=accounts.map(a=>({id:String(a.id??a._id),name:String(a.name),balance:n(a.balance)}));
   const currentAccountsBalance=bankAccounts.reduce((v,a)=>v+a.balance,0);

@@ -268,6 +268,33 @@ if (oldExpectation) {
     });
   });
 
+  test('historical ordinary sale void cannot reopen a settled lot already represented by a recombination or partial product', async t => {
+    for (const state of ['recombined', 'partial']) await t.test(state, async t => {
+      const f = await fixture(t, { legacy: true }), saleId = await seedHistoricalOrdinarySale(f);
+      const settlementId = await f.correction(), settlement = await f.doc(settlementId), product = await f.product();
+      const lot = product.perfumeLots.find(item => item.id === f.lotId), partialId = 'historical-partial-' + crypto.randomUUID();
+      assert(lot.settledAt);
+      lot.partialProductId = partialId;
+      if (state === 'recombined') lot.recombinedAt = new Date().toISOString();
+      await f.db.collection('products').updateOne({ id: f.productId }, { $set: { perfumeLots: product.perfumeLots } });
+      await f.db.collection('products').insertOne({ id: partialId, name: 'Synthetic historical partial perfume', perfumeForm: 'partial', parentProductId: 'full', stocks: { w: 0 } });
+      if (state === 'recombined') {
+        // This is precisely the older unstructured recombination shape accepted
+        // for a nonsettled legacy lot; closing it must not broaden that exception.
+        await f.db.collection('documents').insertOne({ id: 'historical-recombine-' + crypto.randomUUID(), number: 'RETURN-SYNTHETIC', kind: 'adjustment', status: 'posted', revision: 0,
+          perfumeConversionType: 'perfume-recombine', warehouseId: 'w', occurredAt: new Date().toISOString(), total: 0,
+          lines: [{ id: 'partial-line', productId: partialId, quantity: 1, unitPrice: 100, lineTotal: 100 }] });
+      }
+      const before = await f.snapshot(), result = await f.post({ type: 'sale.void', documentId: saleId }, 'blocked-represented-lot');
+      assert.equal(result.status, 409, JSON.stringify(result));
+      assert.deepEqual(await f.snapshot(), before);
+      assert.equal(await f.db.collection('commandReceipts').findOne({ _id: f.keyPrefix + 'blocked-represented-lot' }), null);
+      assert.equal((await f.doc(saleId)).status, 'posted');
+      assert.deepEqual(await f.doc(settlementId), settlement);
+      await assertStock(f, 0); assert.equal(await f.cash(), 10300);
+    });
+  });
+
   test('a late failure during sale void rolls back returned liquid, bottles, money, document, audit and receipt; retry remains exact', async t => {
     const f = await closedSale(t), before = await f.snapshot();
     f.db.native.exec("CREATE TRIGGER settlement_void_failure BEFORE UPDATE ON documents BEGIN SELECT RAISE(ABORT,'SYNTHETIC_SETTLEMENT_VOID'); END");
