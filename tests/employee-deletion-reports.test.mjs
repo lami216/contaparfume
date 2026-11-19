@@ -20,6 +20,7 @@ async function fixture(t) {
   });
   await h.reset();
   const db = h.db;
+  await db.collection('warehouses').insertOne({ _id: 'synthetic-main', name: 'Synthetic default warehouse', isSalesDefault: true });
   await db.collection('paymentAccounts').insertOne({ id: 'cash', code: 'cash', name: 'Synthetic cash', openingBalance: 10000, balance: 10000, isActive: true });
   const run = (body, day = '2026-11-04') => handlePayrollCommand(db, {}, body, clock(day));
   const employee = id => db.collection('employees').findOne({ id });

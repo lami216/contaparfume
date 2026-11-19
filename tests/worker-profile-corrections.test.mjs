@@ -96,7 +96,7 @@ test('archived positive balance closes liability/reserve once without cash, wage
 });
 
 test('personal deposits close with zero salary reserve and no fabricated wage/income; negative and active deletion attempts roll back', async t => {
-  const f = await fixture(t, 0); await f.pay(30, 'withdraw'); const active = await f.all(); await assert.rejects(f.remove(), /أرشيف/); assert.deepEqual(await f.all(), active); await f.archive(); const debt = await f.all(); await assert.rejects(f.remove(), /دين.*المحل/); assert.deepEqual(await f.all(), debt);
+  const f = await fixture(t, 0); await f.pay(30, 'withdraw'); const active = await f.all(); await assert.rejects(f.remove(), /أرشيف/); assert.deepEqual(await f.all(), active); await f.archive(); const debt = await f.all(); await assert.rejects(f.remove(), error => error.status === 409 && /دين.*للمحل/.test(error.message)); assert.deepEqual(await f.all(), debt);
   const g = await fixture(t, 0); await g.pay(100, 'deposit'); await g.archive(); const funds = await g.funds(); await g.remove(); const closure = (await g.docs()).find(row => row.kind === 'employee-closure'); assert.equal(closure.salaryReserveReleased, 0); assert.equal(closure.total, 100); assert.deepEqual(payrollExpenseEntries(await g.docs()), []); assert.deepEqual(await g.funds(), funds); assert.equal(payrollSummary([await g.employee()], await g.docs()).reserveChange, 0); await g.validate();
 });
 
