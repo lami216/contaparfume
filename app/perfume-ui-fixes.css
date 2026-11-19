@@ -803,6 +803,11 @@
   height: 32px;
   min-height: 32px;
 }
+.decant-sale-workspace .invoice-table .row-delete svg,
+.decant-purchase-workspace .invoice-table .row-delete svg {
+  width: 14px;
+  height: 14px;
+}
 .decant-invoice-error {
   white-space: pre-line;
 }

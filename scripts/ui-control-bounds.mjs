@@ -28,7 +28,6 @@ export async function assertControlBounds({ cdp, scope, name }) {
     }
     return{width:innerWidth,locale:document.documentElement.lang,count:controls.length,overlap};
   })()`);
-  assert.deepEqual(measured.overlap, [], name + " controls overlap: " + JSON.stringify(measured.overlap));
   const controls = [];
   for (let index = 0; index < measured.count; index++) {
     const entry = await cdp.evaluate(`(async()=>{
@@ -58,19 +57,25 @@ export async function assertControlBounds({ cdp, scope, name }) {
       return{label,tag:element.tagName,width:box.width,height:box.height,failures};
     })()`);
     controls.push(entry);
-    assert.deepEqual(entry.failures, [], name + " clips " + JSON.stringify(entry));
   }
   await cdp.evaluate(`(()=>{delete window.__smokeBoundControls;document.querySelector(${JSON.stringify(scope)})?.scrollIntoView({block:"start",inline:"nearest"})})()`);
+  assert.deepEqual(measured.overlap, [], name + " controls overlap: " + JSON.stringify(measured.overlap));
+  const clipped = controls.filter(entry => entry.failures.length);
+  assert.deepEqual(clipped, [], name + " clips " + JSON.stringify(clipped));
   return { name, ...measured, controls };
 }
 
 export async function captureControlLayouts({ cdp, screenshot, scope, name, widths = [1280, 760, 480] }) {
-  const layouts = [];
+  const layouts = [], failures = [];
   for (const width of widths) {
     await cdp.call("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
     await cdp.evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
-    layouts.push(await assertControlBounds({ cdp, scope, name: name + "-" + width }));
+    try { layouts.push(await assertControlBounds({ cdp, scope, name: name + "-" + width })); }
+    catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
     await screenshot(name + "-" + width, width);
   }
+  // Check every requested width before failing; all clipping and overlap checks
+  // remain mandatory, while one bad control no longer hides the other evidence.
+  assert.deepEqual(failures, [], name + " layout failures: " + JSON.stringify(failures));
   return layouts;
 }
