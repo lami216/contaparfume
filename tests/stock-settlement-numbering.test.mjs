@@ -45,6 +45,7 @@ const document = id => db.collection('documents').findOne({ id });
 const counter = () => db.collection('counters').findOne({ _id: STOCK_SETTLEMENT_COUNTER_ID });
 const settlement = (actualQuantity, more = {}) => ({ type: 'adjustment.post', warehouseId: 'w', reason: 'Synthetic physical count', lines: [{ productId: 'ordinary', actualQuantity }], ...more });
 const seedLiquid = async () => {
+  await ok({ type: 'purchase.post', warehouseId: 'w', paymentMethod: 'cash', lines: [{ productId: 'full', quantity: 1, unitPrice: 1000 }] });
   const split = await ok({ type: 'perfume-split.post', sourceProductId: 'full', warehouseId: 'w', volumeMl: 100, priceBasisMl: 10, salePrice: 200 });
   const product = await db.collection('products').findOne({ perfumeForm: 'decant' });
   return { product, lot: product.perfumeLots[0], split };
@@ -147,7 +148,7 @@ test('authorized history searches both serial and original reference, and bootst
   for (const q of ['765432', saved.number]) { const response = await historyGET(new Request(origin + '/api/history?resource=documents&q=' + encodeURIComponent(q), { headers: headers() })); assert.equal(response.status, 200); assert((await response.json()).rows.some(row => row.id === id)); }
   const bootstrap = await bootstrapGET(new Request(origin + '/api/bootstrap', { headers: headers() })); assert.equal(bootstrap.status, 200); const data = await bootstrap.json(), movement = data.movements.find(row => row.documentId === id); assert.equal(movement.documentNumber, '765432'); assert.equal(movement.documentReference, saved.number);
   const history = await historyGET(new Request(origin + '/api/history?resource=stockMovements', { headers: headers() })); assert.equal(history.status, 200); assert.equal((await history.json()).rows.find(row => row.documentId === id).documentNumber, '765432');
-  const response = await reportsGET(new Request(origin + '/api/reports?type=stock&allTime=true&unpaged=true', { headers: headers() })); assert.equal(response.status, 200); const report = await response.json(), reported = report.rows.find(row => row.documentId === id); assert.equal(reported.documentNumber, '765432'); assert.equal(reported.documentReference, saved.number);
+  const response = await reportsGET(new Request(origin + '/api/reports?type=stock&allTime=true&unpaged=true', { headers: headers() })); assert.equal(response.status, 200); const report = await response.json(), reported = report.rows.find(row => row.documentId === id); assert.equal(reported.documentNumber, '765432'); assert.equal(reported.documentReference, saved.number); assert.equal(reported.movementType, 'adjustment');
   assert.equal(displayStockMovementDocumentNumber(originalMovement, await document(id)), '765432'); assert.deepEqual(await db.collection('stockMovements').findOne({ documentId: id }), originalMovement);
   const count = changes(db), anonymous = await historyGET(new Request(origin + '/api/history?resource=documents')); assert.equal(anonymous.status, 401); assert.equal(changes(db), count);
 });

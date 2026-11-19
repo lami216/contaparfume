@@ -281,7 +281,10 @@ export async function buildReport(db: Db, f: ReportFilters): Promise<ReportRespo
   if (f.type === "stock") {
     const query:Document=matchDate(f);if(constraint)query.productId=constraint;
     const stored=await db.collection("stockMovements").find(query).toArray() as Array<Record<string,unknown>>,documentIds=[...new Set(stored.map(row=>String(row.documentId??"")).filter(Boolean))];
-    const documents=(documentIds.length?await db.collection("documents").find({id:{$in:documentIds}}).project({id:1,number:1,kind:1,title:1,openingCorrection:1,openingStockBefore:1,openingStockAfter:1,perfumeStockOperationType:1,perfumeManagementType:1,perfumeConversionType:1,productArchiveStockClearance:1,settlementSequence:1}).toArray():[]) as Array<Record<string,unknown>>,documentMap=new Map(documents.map(document=>[String(document.id),document]));
+    const projectedDocuments=(documentIds.length?await db.collection("documents").find({id:{$in:documentIds}}).project({id:1,number:1,kind:1,title:1,openingCorrection:1,openingStockBefore:1,openingStockAfter:1,perfumeStockOperationType:1,perfumeManagementType:1,perfumeConversionType:1,productArchiveStockClearance:1,settlementSequence:1}).toArray():[]) as Array<Record<string,unknown>>;
+    // SQLite's compatibility projection materializes absent keys as undefined.
+    // Restore true field presence before provenance classifiers inspect hasOwn.
+    const documents=projectedDocuments.map(document=>Object.fromEntries(Object.entries(document).filter(([,value])=>value!==undefined))),documentMap=new Map(documents.map(document=>[String(document.id),document]));
     const movementProducts=await db.collection("products").find({id:{$in:stored.map(row=>row.productId)}}).toArray(),movementProductsById=new Map(movementProducts.map(product=>[String(product.id),product]));
     const normalizedStored=stored.map(row=>presentVolumeMovement(row,movementProductsById.get(String(row.productId))));
     const classified:Array<Record<string,unknown>&{type:string}>=collapseLegacyStockEditMovements(normalizedStored.map(row=>({...row,type:classifyStockMovementType(row.type,documentMap.get(String(row.documentId??"")))}))),all=f.movementType?classified.filter(row=>stockMovementMatchesFilter(row.type,f.movementType)):classified,ordered=[...all].sort((a,b)=>String(b.occurredAt).localeCompare(String(a.occurredAt)));

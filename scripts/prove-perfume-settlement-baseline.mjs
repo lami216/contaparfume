@@ -20,7 +20,7 @@ const snapshots=new Map(await Promise.all(files.map(async file=>[file,await read
 try{
   for(const file of files)await writeFile(path.join(root,file),git(["show",`${baseline}:${file}`]));
   const result=spawnSync(process.execPath,["--import","tsx","--test","tests/perfume-settlement-reopen.test.mjs"],{
-    cwd:root,env:{...process.env,PERFUME_SETTLEMENT_EXPECT_OLD:"1"},stdio:"inherit",windowsHide:true,timeout:120000,
+    cwd:root,env:{...process.env,NODE_ENV:"test",ALKARNA_TEST_LICENSE_BYPASS:"1",ALKARNA_LICENSE_DISABLE_REGISTRY:"1",PERFUME_SETTLEMENT_EXPECT_OLD:"1"},stdio:"inherit",windowsHide:true,timeout:120000,
   });
   assert.equal(result.status,0,result.error?.message||"The original code did not reproduce the settled-lot return blocker.");
   console.log("BEFORE FIX: reproduced a settled-lot return blocked by the exact previous implementation.");

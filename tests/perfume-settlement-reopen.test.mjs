@@ -21,7 +21,7 @@ async function fixture(t, { legacy = false } = {}) {
   await db.collection('warehouses').insertMany([{ _id: 'w', name: 'Synthetic primary', isSalesDefault: true }, { _id: 'other', name: 'Synthetic second' }]);
   await db.collection('paymentAccounts').insertOne({ id: 'cash', code: 'cash', name: 'Cash', isActive: true, balance: 10000, openingBalance: 10000 });
   await db.collection('parties').insertOne({ id: 'customer', name: 'Synthetic customer', partyType: 'customer', receivable: 0, payable: 0, net: 0 });
-  await db.collection('users').insertOne({ id: 'manager', username: 'manager', name: 'Synthetic manager', isActive: true, permissions: ['perfume.divisions.manage', 'pos.delete', 'warehouses.transfer', 'warehouses.transfer.create', 'warehouses.transfer.delete'] });
+  await db.collection('users').insertOne({ id: 'manager', username: 'manager', name: 'Synthetic manager', isActive: true, permissions: ['perfume.divisions.manage', 'pos.delete', 'warehouses.edit', 'warehouses.transfer', 'warehouses.transfer.create', 'warehouses.transfer.delete'] });
   await db.collection('products').insertMany([
     { id: 'full', sku: '1', name: 'Synthetic settlement perfume', perfumeForm: 'full', stocks: { w: 4 }, openingCost: 1000, lastPurchaseCost: 1000, piecePrice: 1500 },
     { id: 'b', sku: '2', name: 'Synthetic 10ml bottle', perfumeForm: 'bottle', decantSizeMl: 10, openingCost: 10, lastPurchaseCost: 10, pieceCost: 10, stocks: { w: 30, other: 10 } },
@@ -193,7 +193,11 @@ if (oldExpectation) {
   test('a global zero settlement can return to the original nondefault warehouse without touching another warehouse', async t => {
     const f = await fixture(t);
     await f.ok({ type: 'transfer.post', fromWarehouseId: 'w', toWarehouseId: 'other', lines: [{ productId: f.productId, quantity: 30 }] });
-    const saleId = await f.sale(2, { warehouseId: 'other' }), one = await f.correction('w'), two = await f.correction('other');
+    await f.ok({ type: 'warehouse.default', warehouseId: 'other' });
+    const saleId = await f.sale(2);
+    assert.equal((await f.doc(saleId)).warehouseId, 'other');
+    await f.ok({ type: 'warehouse.default', warehouseId: 'w' });
+    const one = await f.correction('w'), two = await f.correction('other');
     const docs = [await f.doc(one), await f.doc(two)]; assert.equal((await f.lot()).remainingQuantity, 0);
     await f.voidSale(saleId); await assertStock(f, 20, 'other'); await assertStock(f, 0, 'w');
     assert.equal((await f.bottle()).stocks.other, 10); assert.equal((await f.bottle()).stocks.w, 30);

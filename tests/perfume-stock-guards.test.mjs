@@ -6,6 +6,7 @@ import {buildReport,parseReportFilters} from '../lib/reports.ts';
 import {createNativeBackup,parseAndValidateBackup,restoreNativeBackup} from '../lib/backup.ts';
 import {managementInputFor,managementPreviewLot} from '../app/perfume-management.ts';
 import {GET as history} from '../app/api/history/route.ts';
+import {displayDocumentNumber} from '../lib/document-sequences.ts';
 
 async function fixture(){
  const h=await sqliteHarness();await h.reset();const db=h.db,wh='wh-guard';
@@ -48,10 +49,11 @@ test('a reconciliation reversal also preserves the reversal of an earlier sale',
 
 test('active later sales and counts identify their real document and do not mutate stock',async()=>{const f=await fixture();try{
  const consumption=await f.consume(),sale=await f.sale(1),d=await f.db.collection('documents').findOne({id:sale});
- await assert.rejects(f.cancel(consumption),e=>e.code==='PERFUME_OPERATION_BLOCKED'&&e.dependencies.some(x=>x.documentId===sale&&x.number===d.number));
+ await assert.rejects(f.cancel(consumption),e=>e.code==='PERFUME_OPERATION_BLOCKED'&&e.dependencies.some(x=>x.documentId===sale&&x.number===displayDocumentNumber(d)));
  assert.equal((await f.get()).stocks[f.wh],80);
- await f.run({type:'decant-sale.void',documentId:sale});const count=await f.count(85);
- await assert.rejects(f.cancel(consumption),e=>e.dependencies.some(x=>x.documentId===count));
+ await f.run({type:'decant-sale.void',documentId:sale});const count=await f.count(85),countDocument=await f.db.collection('documents').findOne({id:count});
+ assert.equal(countDocument.settlementSequence,1);
+ await assert.rejects(f.cancel(consumption),e=>e.dependencies.some(x=>x.documentId===count&&x.number===displayDocumentNumber(countDocument)));
  await f.cancel(count);await f.cancel(consumption);assert.equal((await f.get()).stocks[f.wh],100);
 }finally{await f.h.close()}});
 
