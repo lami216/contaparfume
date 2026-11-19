@@ -38,16 +38,24 @@ test('cancel does not fetch data, create directories/files or return success-as-
   assert.equal(f.service.isActive(), false);
 });
 test('user may spend time choosing a USB before the transfer timeout starts; duplicate save is rejected', async t => {
-  let release;
+  let release, dialogOpened;
   const selection = new Promise(resolve => { release = resolve; });
-  const f = await fixture(t, { timeoutMs: 100, dialog: { showSaveDialog: () => selection } });
+  const opened = new Promise(resolve => { dialogOpened = resolve; });
+  const transfer = new AbortController(), timeoutCalls = [];
+  t.mock.method(AbortSignal, 'timeout', milliseconds => { timeoutCalls.push(milliseconds); return transfer.signal; });
+  const f = await fixture(t, { timeoutMs: 100, dialog: { showSaveDialog: () => { dialogOpened(); return selection; } } });
   let fetched = false;
   const pending = f.service.save(async signal => { fetched = true; assert.equal(signal.aborted, false); return json('{}'); });
+  await opened;
   await assert.rejects(f.service.save(async () => json('{}')), /backup-busy/);
   await new Promise(resolve => setTimeout(resolve, 150));
   assert.equal(fetched, false); assert.equal(f.service.isActive(), true);
+  assert.deepEqual(timeoutCalls, [], 'No transfer deadline exists while the native dialog is open');
   release({ canceled: false, filePath: f.target });
   assert.equal((await pending).ok, true);
+  assert.deepEqual(timeoutCalls, [100], 'The configured deadline is created only after native target selection');
+  assert.equal(fetched, true); assert.equal(f.service.isActive(), false);
+  assert.equal(await fs.readFile(f.target, 'utf8'), '{}');
 });
 test('streams a backup larger than 5MiB unchanged to the selected folder', async t => {
   const f = await fixture(t), text = JSON.stringify({ records: 'ع'.repeat(3 * 1024 * 1024) });

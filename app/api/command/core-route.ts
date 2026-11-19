@@ -8,7 +8,7 @@ import { log } from "../../../lib/log.ts";
 import { getPrincipalFromRequest, hasCapability, requireCapability, validSameOrigin, type Capability } from "../../../lib/auth.ts";
 import { isProductExpired, resolvePartyType } from "../../domain.ts";
 import { normalizePartyNet, partyNet } from "../../party-balance.ts";
-import { nextDocumentSequence, nextStockSettlementSequence, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
+import { nextDocumentSequence, nextStockSettlementSequence, displayStockMovementDocumentNumber, type SequencedDocumentKind } from "../../../lib/document-sequences.ts";
 import { deriveOpeningStockState, planOpeningStockCorrection } from "../../../lib/opening-stock.ts";
 import { currentProductCost, resolveProductCost } from "../../../lib/product-cost.ts";
 import { isOrdinaryStockCostProduct } from "../../../lib/adjustment-stock-cost.ts";
@@ -411,7 +411,8 @@ async function openingStockBlockingOperations(
     const document = documentMap.get(item.documentId);
     return {
       documentId: item.documentId,
-      documentNumber: String(document?.number ?? item.documentNumber),
+      documentReference: String(document?.number ?? item.documentNumber),
+      documentNumber: displayStockMovementDocumentNumber({documentNumber:document?.number??item.documentNumber},document),
       kind: String(document?.kind ?? ""),
       title: String(document?.title ?? ""),
       status: String(document?.status ?? ""),

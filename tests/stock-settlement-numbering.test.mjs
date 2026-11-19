@@ -152,3 +152,25 @@ test('authorized history searches both serial and original reference, and bootst
   assert.equal(displayStockMovementDocumentNumber(originalMovement, await document(id)), '765432'); assert.deepEqual(await db.collection('stockMovements').findOne({ documentId: id }), originalMovement);
   const count = changes(db), anonymous = await historyGET(new Request(origin + '/api/history?resource=documents')); assert.equal(anonymous.status, 401); assert.equal(changes(db), count);
 });
+
+test('actual POST opening-correction blocker identifies the later count by its serial and retained reference, without mutating any ledger', async () => {
+  const productId = await ok({ type: 'product.create', name: 'Synthetic blocker product', pieceCost: 10, piecePrice: 20, openingStock: 2, openingWarehouseId: 'w' });
+  await ok({ type: 'product.update', id: productId, name: 'Synthetic blocker product', pieceCost: 10, piecePrice: 20, replaceOpeningStock: true, openingStock: 10, openingCost: 11, openingWarehouseId: 'w', relocateOpeningStock: false });
+  const correction = await db.collection('documents').findOne({ openingCorrection: true, status: 'posted', 'lines.productId': productId });
+  const initial = await db.collection('documents').findOne({ title: 'رصيد بداية', 'lines.productId': productId });
+  assert(correction); assert(initial); assert.equal(correction.settlementSequence, undefined); assert.equal(initial.settlementSequence, undefined);
+  const countId = await ok(settlement(5, { lines: [{ productId, actualQuantity: 5 }] })), countDocument = await document(countId);
+  assert.equal(countDocument.settlementSequence, 1);
+  const snapshot = () => Promise.all(['products', 'documents', 'stockMovements', 'financialMovements', 'paymentAccounts', 'parties', 'auditEvents', 'commandReceipts', 'counters'].map(name => stored(db, name)));
+  const before = await snapshot(), rejected = await post({ type: 'opening-stock-correction.void', documentId: correction.id });
+  assert.equal(rejected.status, 409); assert.equal(rejected.body.code, 'OPENING_CORRECTION_BLOCKED'); assert.equal(rejected.body.blockers.length, 1);
+  const blocker = rejected.body.blockers[0];
+  assert.deepEqual([blocker.documentId, blocker.documentNumber, blocker.documentReference, blocker.kind, blocker.status], [countId, '1', countDocument.number, 'adjustment', 'posted']);
+  assert.deepEqual(blocker.warehouses.map(row => [row.warehouseId, row.quantityDelta]), [['w', -5]]);
+  assert.deepEqual(await snapshot(), before);
+  await ok({ type: 'adjustment.void', documentId: countId }); await ok({ type: 'opening-stock-correction.void', documentId: correction.id });
+  const product = await db.collection('products').findOne({ id: productId });
+  assert.deepEqual([product.stocks.w, product.openingStock, product.openingCost], [2, 2, 10]);
+  assert.equal((await document(countId)).status, 'voided'); assert.equal((await document(countId)).settlementSequence, 1); assert.equal((await document(correction.id)).status, 'voided');
+  assert.deepEqual(await stored(db, 'financialMovements'), []); assert.equal((await db.collection('paymentAccounts').findOne({ id: 'cash' })).balance, 10000);
+});

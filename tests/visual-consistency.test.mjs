@@ -149,8 +149,8 @@ test("invoice editors expose explicit new, edit, void, history routing and autho
 test("compact dates, explicit action order, and idle discovery remain structural", () => {
   const dates = between("function CompactDateRange", "function BarcodeScanner");
   assert.ok(dates.indexOf("onApply&&") < dates.indexOf("عرض الكل"));
-  assert.match(css, /\.compact-date-range label\{[^}]*width:130px[^}]*border-radius:4px/);
-  assert.match(css, /\.compact-date-range input\{[^}]*width:106px/);
+  assert.match(css, /\.compact-date-range label\{[^}]*display:flex[^}]*gap:0;[^}]*width:130px[^}]*min-width:130px[^}]*height:34px[^}]*border-radius:4px/);
+  assert.match(css, /\.compact-date-range input\{[^}]*flex:1 1 0;[^}]*width:0;min-width:0;max-width:100%;[^}]*height:32px;min-height:32px/);
   assert.match(css, /\.expense-form input\[type="date"\]\{width:128px\}/);
   for (const editor of [between("function Pos", "function Purchase"), between("function Purchases", "function Expenses")]) assert.match(editor, /collapseResultsWhenIdle/);
   assert.match(css, /grid-template-rows: auto minmax\(0, 1fr\)/);
