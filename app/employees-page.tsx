@@ -1,5 +1,6 @@
 "use client";
 import {useEffect,useId,useState} from "react";
+import {statementNote} from "../lib/movement-statement";
 import {Plus,PencilLine,X} from "lucide-react";
 import {activePaymentAccounts,displayDocumentNumber,formatDate,money,type BootstrapData,type DocumentRecord,type Employee} from "./domain";
 import {localBusinessDay} from "./history-filters";
@@ -147,6 +148,7 @@ export default function EmployeesPage({data,run,openDoc,sourceId,clearSource,reg
             <td><button type="button" className="source-link employee-source-link" dir="ltr" title={displayDocumentNumber(document)} onClick={()=>openDoc(document.id)}>{displayDocumentNumber(document)}</button></td>
             <td>{formatDate(document.occurredAt)}</td>
             <td className="employee-history-kind">{tr(isOpening?"workerOpening.title":isPayment?deposit?"إيداع العامل":"سحب العامل":"استحقاق عامل")}
+              {statementNote(document)&&<small className="movement-statement-note" dir="auto">{statementNote(document)}</small>}
               {isOpening&&<small className="employee-period">{tr(document.employeeOpeningDirection==="receivable"?"workerOpening.receivable":"workerOpening.payable")} · {tr("workerOpening.nonCash")}</small>}
               {document.periodStart&&<small className="employee-period">{formatDate(document.periodStart)} — {formatDate(document.periodEnd??document.periodStart)}</small>}
               {document.status==="voided"&&<small className="employee-period">{tr("pm.voided")}</small>}

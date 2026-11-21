@@ -106,7 +106,7 @@ async function main() {
     import{createRoot}from"react-dom/client";
     import EmployeesPage from "./app/employees-page";
     import DecantInvoicesPage from "./app/decant-invoices-page";
-    import{Parties,PartyPage,Reports,Expenses,Pos,Purchases,Adjustment,Records}from"./app/conta-app";
+    import{Parties,PartyPage,Reports,Expenses,Pos,Purchases,Adjustment,Records,Banks,DocumentDetail}from"./app/conta-app";
     import{LocaleProvider,useI18n}from"./app/i18n/provider";
     import{ConfirmationProvider,useAppConfirm}from"./app/app-confirm";
     import{requestEditorReplacement}from"./app/editor-replacement";
@@ -114,14 +114,14 @@ async function main() {
     import{tr}from"./app/i18n/messages";
     function Shell(){
       const[data,setData]=useState(null),[sourceId,setSourceId]=useState(${JSON.stringify(employeeId)}),[view,setView]=useState("employees");
-      const[selectedPartyId,setSelectedPartyId]=useState(null),[expenseEditId,setExpenseEditId]=useState(null),editorGuard=useRef(null),pending=useRef(false);
+      const[selectedPartyId,setSelectedPartyId]=useState(null),[expenseEditId,setExpenseEditId]=useState(null),[statementPreviewId,setStatementPreviewId]=useState(null),editorGuard=useRef(null),pending=useRef(false);
       const{setLocale}=useI18n(),confirmAction=useAppConfirm();
       const register=useCallback(guard=>{editorGuard.current=guard},[]);
       const prepare=()=>requestEditorReplacement({hasPendingCommands:()=>pending.current,getGuard:()=>editorGuard.current,confirmDiscard:()=>confirmAction({message:tr("لديك تعديلات غير محفوظة. هل تريد تجاهلها والانتقال؟")}),onPending:()=>{window.__smokePendingBlocked=true}});
       const refresh=async()=>{const response=await fetch("/api/bootstrap"),value=await response.json();if(!response.ok)throw new Error(value.error||"Bootstrap failed");setData(value)};
       useEffect(()=>{void refresh().catch(error=>{window.__smokeError=error.stack;console.error(error)})},[]);
       useEffect(()=>{
-        window.__smokeSetView=async next=>{if(!await prepare())return false;await refresh();setView(next);document.getElementById("root").className="app-shell section-"+(next==="perfume"?"decantInvoices":["party-ledger","expense-report","overview","stock-report"].includes(next)?"reports":next==="party-detail"?"customers":next==="sale"?"pos":next==="purchase"?"purchases":next);return true};
+        window.__smokeSetView=async next=>{if(!await prepare())return false;await refresh();setStatementPreviewId(null);setView(next);document.getElementById("root").className="app-shell section-"+(next.startsWith("bank-")?"banks":next==="perfume"?"decantInvoices":["party-ledger","expense-report","overview","stock-report","financial-report"].includes(next)?"reports":next==="party-detail"?"customers":next==="sale"?"pos":next==="purchase"?"purchases":next);return true};
         window.__smokeSetLocale=setLocale;
         window.__smokeEditExpense=async id=>{if(!await prepare())return false;await refresh();setView("expenses");setExpenseEditId(id);document.getElementById("root").className="app-shell section-expenses";return true};
         return()=>{delete window.__smokeSetView;delete window.__smokeSetLocale;delete window.__smokeEditExpense};
@@ -138,6 +138,10 @@ async function main() {
       };
       if(!data)return <p>Loading</p>;
       const openDoc=id=>{window.__openedPayrollDocument=id};
+      const statementDocument=data.documents.find(row=>row.id===statementPreviewId);
+      if(statementDocument)return <DocumentDetail document={statementDocument} data={data} close={()=>setStatementPreviewId(null)}/>;
+      if(view==="bank-adjustment"||view==="bank-movements")return <Banks data={data} run={run} openDoc={id=>{window.__openedPayrollDocument=id;setStatementPreviewId(id)}} openSource={target=>{window.__openedReportSource=target}} tab={view==="bank-adjustment"?"adjustment":"movements"} sourceRequest={null} clearSourceRequest={()=>{}} registerEditorGuard={register} prepareEditorReplacement={prepare}/>;
+      if(view==="financial-report")return <Reports data={data} openDoc={openDoc} openSource={target=>{window.__openedReportSource=target}} type="financial" sourceRequest={null} clearSourceRequest={()=>{}}/>;
       if(view==="records")return <Records data={data} openDoc={openDoc}/>;
       if(view==="stock-report")return <Reports data={data} openDoc={openDoc} openSource={target=>{window.__openedReportSource=target}} type="stock" sourceRequest={null} clearSourceRequest={()=>{}}/>;
       if(view==="adjustments")return <Adjustment data={data} run={run} openDoc={openDoc} openSource={id=>{window.__openedStockSource=id}} openOpeningSource={id=>{window.__openedOpeningProduct=id}} openProductMovements={id=>{window.__openedProductMovements=id}} registerEditorGuard={register} prepareEditorReplacement={prepare}/>;
@@ -155,7 +159,7 @@ async function main() {
   const bundled = await build({
     absWorkingDir: source, stdin: { contents: entry, resolveDir: source, loader: "tsx" },
     bundle: true, platform: "browser", format: "iife", write: false, jsx: "automatic",
-    plugins:[{name:"ci-only-component-exports",setup(builder){builder.onLoad({filter:/[\\/]app[\\/]conta-app\.tsx$/},args=>({contents:fs.readFileSync(args.path,"utf8")+"\nexport { Parties, PartyPage, Reports, Expenses, Pos, Purchases, Adjustment, Records };\n",loader:"tsx",resolveDir:path.dirname(args.path)}))}}],
+    plugins:[{name:"ci-only-component-exports",setup(builder){builder.onLoad({filter:/[\\/]app[\\/]conta-app\.tsx$/},args=>({contents:fs.readFileSync(args.path,"utf8")+"\nexport { Parties, PartyPage, Reports, Expenses, Pos, Purchases, Adjustment, Records, Banks, DocumentDetail };\n",loader:"tsx",resolveDir:path.dirname(args.path)}))}}],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
   });
   const script = bundled.outputFiles[0].contents;
@@ -380,6 +384,9 @@ async function main() {
   const {runPayrollPaymentBalanceScenarios}=await import("./payroll-payment-balance-ui-scenarios.mjs");
   result.payrollPaymentBalances=await runPayrollPaymentBalanceScenarios({cdp,origin:base,command,database,screenshot});
   result.checkpoints.push(...result.payrollPaymentBalances.checkpoints);
+  const {runMovementStatementScenarios}=await import("./movement-statement-ui-scenarios.mjs");
+  result.movementStatements=await runMovementStatementScenarios({cdp,origin:base,command,database,screenshot});
+  result.checkpoints.push(...result.movementStatements.checkpoints);
   assert.deepEqual(cdp.errors, []);
   result.status = "passed";
 }
