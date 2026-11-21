@@ -39,6 +39,12 @@ function money(value: unknown, allowZero = false) {
   if (!Number.isFinite(number) || !Number.isSafeInteger(cents) || (allowZero ? cents < 0 : cents <= 0) || Math.abs(number * 100 - cents) > 1e-7) throw fail("المبلغ يجب أن يكون رقمًا موجبًا صالحًا");
   return cents;
 }
+/** Match ordinary cash movements: balances may be negative and retain sub-cent precision. */
+function assertPaymentAccountBalance(account: Row) {
+  const raw = account.balance;
+  const balance = typeof raw === "number" ? raw : typeof raw === "string" && /^[+-]?\d+(?:\.\d+)?$/.test(raw.trim()) ? Number(raw) : NaN;
+  if (!Number.isFinite(balance)) throw fail("بيانات رصيد الحساب غير صالحة", 409);
+}
 function day(value: unknown) {
   const input = text(value), date = new Date(`${input}T00:00:00.000Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input) || !Number.isFinite(date.valueOf()) || date.toISOString().slice(0, 10) !== input || Number(input.slice(0, 4)) < 1900) throw fail("التاريخ غير صالح");
@@ -420,12 +426,18 @@ async function postPayment(db: SqliteDatabase, session: SqliteSession, employee:
   if (direction !== "withdraw" && direction !== "deposit") throw fail("نوع حركة حساب العامل غير صالح");
   const opening = ledger.documents.find(document => document.kind === "employee-opening" && document.status === "posted");
   const allowAdvance = input.direction !== undefined || previous?.employeePaymentVersion === 2 || Boolean(opening);
-  const account = await db.collection("paymentAccounts").findOne({ $or: [{ id: text(input.paymentMethod) }, { code: text(input.paymentMethod) }], isActive: true, isArchived: { $ne: true } });
-  // Other commerce may leave sub-cent cash. Salary amounts are cents, but the
-  // existing bank balance must retain its precision rather than be rounded.
-  const balance = typeof account?.balance === "number" ? account.balance : typeof account?.balance === "string" && /^\d+(?:\.\d+)?$/.test(account.balance.trim()) ? Number(account.balance) : NaN;
-  const required = amount(cents), tolerance = Math.min(1e-7, Number.EPSILON * Math.max(1, Math.abs(balance), required));
-  if (!account || !Number.isFinite(balance) || (direction === "withdraw" && (balance < 0 || balance + tolerance < required))) throw fail("اختر حسابًا نشطًا برصيد يكفي مبلغ الصرف", 409);
+  const accountKey = text(input.paymentMethod);
+  if (!accountKey) throw fail("يجب اختيار وسيلة دفع صالحة", 409);
+  const account = await db.collection("paymentAccounts").findOne({ $or: [{ id: accountKey }, { code: accountKey }] });
+  const previousAccountKey = text(previous?.paymentMethod);
+  const sameOriginalAccount = Boolean(previousAccountKey && account && [account.id, account.code].includes(previousAccountKey));
+  if (!account || (!sameOriginalAccount && (account.isActive !== true || account.isArchived === true))) throw fail("يجب اختيار وسيلة دفع صالحة", 409);
+  assertPaymentAccountBalance(account);
+  // Historical corrections may retain their original stopped account, as other
+  // cash edits do. New movements and a different target still require an active account.
+  if (sameOriginalAccount && (account.isActive !== true || account.isArchived === true)) {
+    await db.collection("paymentAccounts").updateOne({ id: account.id }, { $set: { isActive: true, isArchived: false, archivedAt: null, updatedAt: now.toISOString() } });
+  }
   const allocations: Array<{ accrualId: string; amount: number }> = [];
   let remaining = cents;
   for (const accrual of ledger.accruals.filter(row => row.status === "posted" && row.dueDate <= date).sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)) || String(a.periodStart).localeCompare(String(b.periodStart)))) {
@@ -465,11 +477,12 @@ async function postPayment(db: SqliteDatabase, session: SqliteSession, employee:
   else await db.collection("documents").insertOne(document);
   return document;
 }
-async function undoPayment(db: SqliteDatabase, session: SqliteSession, employee: Employee, document: Row, why: string, now: Date, neutralDepositEdit = false) {
+async function undoPayment(db: SqliteDatabase, session: SqliteSession, employee: Employee, document: Row, why: string, now: Date) {
   const movement = await findActiveFinancialMovement(db, session, { documentId: document.id, type: "employee-payment" });
   if (!movement || money(movement.amount) !== money(document.total) || movement.direction !== (employeePaymentDirection(document) === "deposit" ? "in" : "out")) throw fail("حركة صرف الموظف الأصلية غير متطابقة", 409);
   const account = await db.collection("paymentAccounts").findOne({ id: document.paymentMethod });
-  if (!neutralDepositEdit && employeePaymentDirection(document) === "deposit" && (!account || Number(account.balance) < Number(document.total))) throw fail("رصيد وسيلة الدفع لا يكفي لعكس إيداع العامل", 409);
+  if (!account) throw fail("يجب اختيار وسيلة دفع صالحة", 409);
+  assertPaymentAccountBalance(account);
   const reverseId = await reverseFinancialMovement(db, session, movement, why);
   await db.collection("financialMovements").updateOne({ id: reverseId }, { $set: { employeeId: employee.id, employeeName: document.employeeName } });
   await changeBalance(db, employee, -accountSign(document) * money(document.total), now);
@@ -635,15 +648,7 @@ export async function handlePayrollCommand(db: SqliteDatabase, session: SqliteSe
       const employee = await employeeById(db, document.employeeId), ledger = await state(db, employee);
       if (kind === "employee-payment") {
         const originalAccount = type.endsWith("update") ? await db.collection("paymentAccounts").findOne({ id: document.paymentMethod }) : null;
-        const targetAccount = type.endsWith("update") ? await db.collection("paymentAccounts").findOne({
-          $or: [{ id: text(input.paymentMethod ?? document.paymentMethod) }, { code: text(input.paymentMethod ?? document.paymentMethod) }],
-        }) : null;
-        const sameDepositAccount = type.endsWith("update") && employeePaymentDirection(document) === "deposit" &&
-          (input.direction ?? "deposit") === "deposit" && Boolean(originalAccount && targetAccount && originalAccount.id === targetAccount.id);
-        if (sameDepositAccount && Number(originalAccount!.balance) + amount(money(input.amount)) - Number(document.total) < 0) {
-          throw fail("رصيد وسيلة الدفع لا يكفي لعكس إيداع العامل", 409);
-        }
-        await undoPayment(db, activeSession, employee, document, why, now, sameDepositAccount);
+        await undoPayment(db, activeSession, employee, document, why, now);
         if (type.endsWith("update")) {
           const revised = await postPayment(db, activeSession, employee, { ...input, occurredAt: input.occurredAt ?? document.businessDate, paymentMethod: input.paymentMethod ?? document.paymentMethod, note: input.note ?? document.note }, now, document);
           if (originalAccount?.isArchived === true && revised.paymentMethod === originalAccount.id) {

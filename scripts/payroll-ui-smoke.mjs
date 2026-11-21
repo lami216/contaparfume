@@ -377,6 +377,9 @@ async function main() {
   const {runExpenseTimeScenarios}=await import("./expense-time-ui-scenarios.mjs");
   result.expenseTimes=await runExpenseTimeScenarios({cdp,origin:base,command,database,screenshot});
   result.checkpoints.push(...result.expenseTimes.checkpoints);
+  const {runPayrollPaymentBalanceScenarios}=await import("./payroll-payment-balance-ui-scenarios.mjs");
+  result.payrollPaymentBalances=await runPayrollPaymentBalanceScenarios({cdp,origin:base,command,database,screenshot});
+  result.checkpoints.push(...result.payrollPaymentBalances.checkpoints);
   assert.deepEqual(cdp.errors, []);
   result.status = "passed";
 }

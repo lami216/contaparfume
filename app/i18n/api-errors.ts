@@ -1,6 +1,8 @@
 import type { Locale } from "./locale";
 
 const exactFrench: Record<string, string> = {
+  "يجب اختيار وسيلة دفع صالحة": "Choisissez un moyen de paiement valide.",
+  "بيانات رصيد الحساب غير صالحة": "Le solde du compte est invalide.",
   "لا يمكن تعديل المصروف لأن وقت السند الأصلي غير صالح": "Impossible de modifier cette dépense : l’heure du document d’origine est invalide.",
   "وقت تسجيل المصروف غير صالح": "L’heure d’enregistrement de la dépense est invalide.",
   "اتجاه رصيد بداية العامل غير صالح": "Le sens du solde initial du salarié est invalide.",
