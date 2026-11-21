@@ -18,7 +18,7 @@ function spreadsheetText(bytes) {
 }
 
 /** Actual components and commands in the caller's disposable GitHub Windows profile. */
-export async function runMovementStatementScenarios({ cdp, origin, command, database, screenshot }) {
+export async function runMovementStatementScenarios({ cdp, command, database, screenshot }) {
   assert.equal(process.env.CI, 'true'); assert.equal(process.env.GITHUB_ACTIONS, 'true'); assert.equal(process.platform, 'win32');
   const checkpoints = [], layouts = [], exports = [], evaluate = expression => cdp.evaluate(expression);
   const until = async (check, label) => { const end = Date.now() + 20000; while (Date.now() < end) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 50)); } throw Error('Timed out waiting for ' + label); };
