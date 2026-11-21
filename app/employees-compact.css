@@ -94,6 +94,25 @@
 .employees-workspace .erp-table td.action-cell { display: table-cell; }
 .employees-workspace .employees-history .employee-actions { justify-content: center; gap: 4px; }
 .employees-workspace .employees-history .employee-actions button { width: 24px; min-width: 24px; min-height: 24px; height: 24px; padding: 3px; border-radius: 4px; }
+.employees-workspace .employee-opening-create { grid-column: 1 / -1; min-width: 0; }
+.employees-workspace .employee-opening-create-fields { margin-top: 6px; padding: 7px; border: 1px solid var(--line); border-radius: 5px; }
+.employees-workspace .employee-opening-form,
+.employees-workspace .employee-opening-fields-wrap { display: grid; min-width: 0; gap: 6px; }
+.employees-workspace .employee-opening-panel { width: 100%; max-width: 520px; }
+.employees-workspace .employee-opening-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr)); align-items: end; gap: 6px; min-width: 0; }
+.employees-workspace .employee-opening-fields label,
+.employees-workspace .employee-opening-note,
+.employees-workspace .employee-opening-reason { display: grid; gap: 3px; min-width: 0; font-size: 10px; font-weight: 800; }
+.employees-workspace .employee-opening-fields-wrap :is(input,select),
+.employees-workspace .employee-opening-reason input { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
+.employees-workspace .employee-opening-note-toggle { justify-self: start; min-height: 28px; padding: 3px 7px; }
+.employees-workspace .employee-opening-summary { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 6px; min-width: 0; font-size: 10px; }
+.employees-workspace .employee-opening-summary > span { min-width: 0; overflow-wrap: anywhere; }
+.employees-workspace .employee-opening-summary > button { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.employees-workspace :is(.employee-opening-edit,.employee-opening-add) svg { width: 14px; height: 14px; flex: none; }
+.employees-workspace .employee-opening-add { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; }
+.employees-workspace .employee-opening-preview { margin: 0; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.employees-workspace .employee-opening-stale { margin: 0; font-size: 10px; }
 @media (max-width: 560px) {
   .employees-workspace {
     grid-template-columns: minmax(0, 1fr);

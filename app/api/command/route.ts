@@ -28,7 +28,7 @@ async function executePerfumeCommand(db: Db, session: ClientSession, body: Input
 
 export async function execute(db: Db, session: ClientSession, body: Input) {
   const type = text(body.type);
-  if(type.startsWith("employee.")||type.startsWith("employee-payment.")||type.startsWith("employee-accrual."))return handlePayrollCommand(db,session,body);
+  if(type.startsWith("employee.")||type.startsWith("employee-payment.")||type.startsWith("employee-accrual.")||type.startsWith("employee-opening."))return handlePayrollCommand(db,session,body);
   if(type==="party-opening.post")return postPartyOpening(db,session,body);
   if(type==="party-opening.update")return updatePartyOpening(db,session,body);
   if(type==="party-opening.void")return voidPartyOpening(db,session,body);
@@ -111,7 +111,7 @@ async function executeAdmittedPost(request: Request, admission: CommandAdmission
     type = text(body.type);
     const map: Record<string, Capability> = {
       "party-opening.post":"party.opening.manage","party-opening.update":"party.opening.manage","party-opening.void":"party.opening.manage",
-      "employee.create":"employees.manage","employee.update":"employees.manage","employee.archive":"employees.manage","employee.restore":"employees.manage","employee.delete":"employees.manage","employee-accrual.sync":"employees.manage","employee-accrual.update":"employees.manage","employee-accrual.void":"employees.manage",
+      "employee.create":"employees.manage","employee.update":"employees.manage","employee.archive":"employees.manage","employee.restore":"employees.manage","employee.delete":"employees.manage","employee-opening.post":"employees.manage","employee-opening.update":"employees.manage","employee-opening.void":"employees.manage","employee-accrual.sync":"employees.manage","employee-accrual.update":"employees.manage","employee-accrual.void":"employees.manage",
       "employee-payment.post":"employees.pay","employee-payment.update":"employees.pay","employee-payment.void":"employees.pay",
       "product.delete":"products.delete","product.stock-zero":"products.delete","product.restore":"products.edit","product.create":"products.create","product.update":"products.edit",
       "product-category.create":"products.create","product-category.update":"products.edit","product-category.delete":"products.delete",

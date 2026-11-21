@@ -101,7 +101,7 @@ test('future agreement edits keep prior salary documents and their source snapsh
   assert.deepEqual(await f.snapshot(), before);
 });
 
-test('payment limits reject unearned dates, overpayment, insufficient bank funds and injected zero values atomically', async t => {
+test('payment limits reject unearned dates, overpayment and injected zero values while bank funds may become negative', async t => {
   const f = await fixture(t), employeeId = await f.create();
   await f.sync('2026-11-30');
   for (const values of [{ amount: 6001 }, { amount: 1, occurredAt: '2026-11-29' }, { amount: 0 }, { amount: 1.001 }, { amount: null }]) {
@@ -110,9 +110,11 @@ test('payment limits reject unearned dates, overpayment, insufficient bank funds
     assert.deepEqual(await f.snapshot(), before);
   }
   await f.db.collection('paymentAccounts').updateOne({ id: 'cash' }, { $set: { balance: 10 } });
-  const before = await f.snapshot();
-  await assert.rejects(f.run({ type: 'employee-payment.post', employeeId, amount: 20, paymentMethod: 'cash' }), /رصيد يكفي/);
-  assert.deepEqual(await f.snapshot(), before);
+  const payment = await f.run({ type: 'employee-payment.post', employeeId, amount: 20, paymentMethod: 'cash' });
+  assert.equal(await f.cash(), -10);
+  assert.equal((await f.employee(employeeId)).balance, 5980);
+  assert.equal((await f.db.collection('documents').findOne({ id: payment })).allocations[0].amount, 20);
+  assert.equal((await f.db.collection('financialMovements').findOne({ documentId: payment, type: 'employee-payment', status: 'posted' })).amount, 20);
 });
 
 test('partial payments allocate oldest due periods first and use cents without balance drift', async t => {
@@ -320,10 +322,13 @@ test('editing a zero-balance archived payroll account keeps it archived until ca
   const report = async (from, to) => (await buildReport(f.db, parseReportFilters(new URL(`http://local/?type=expenses&from=${from}&to=${to}&unpaged=true`)))).summary.total;
   assert.equal(await report('2026-11-01', '2026-11-30'), 0);
   assert.equal(await report('2026-12-01', '2026-12-31'), 100);
-  const snapshot = await f.snapshot();
-  await assert.rejects(edit(2, 101), /رصيد يكفي/);
-  assert.deepEqual(await f.snapshot(), snapshot);
-  await f.run({ type: 'employee-payment.void', documentId, expectedRevision: 2, reason: 'Synthetic cancellation' }, '2026-12-02');
+  await edit(2, 101);
+  assert.equal((await bank()).balance, -1);
+  assert.equal((await bank()).isArchived, false);
+  assert.equal((await bank()).isActive, true);
+  assert.equal((await f.employee(employeeId)).balance, 5899);
+  assert.equal(await report('2026-12-01', '2026-12-31'), 101);
+  await f.run({ type: 'employee-payment.void', documentId, expectedRevision: 3, reason: 'Synthetic cancellation' }, '2026-12-02');
   assert.equal((await bank()).balance, 100);
   assert.equal((await bank()).isArchived, false);
   assert.equal((await f.employee(employeeId)).balance, 6000);
@@ -494,16 +499,13 @@ test('an advance becomes wage expense only when earned, while employee funds rem
   assert.equal(summary.reserveChange, 6000);
 });
 
-test('deposit metadata edits can remain neutral after the cash was used, but a real refund cannot overdraw the account', async t => {
+test('deposit metadata edits remain neutral after cash was used and a real refund may overdraw the account', async t => {
   const f = await fixture(t), employeeId = await f.create({}, '2026-11-01');
   const documentId = await f.run({ type: 'employee-payment.post', employeeId, direction: 'deposit', amount: 1000, paymentMethod: 'cash' }, '2026-11-01');
   await f.db.collection('paymentAccounts').updateOne({ id: 'cash' }, { $set: { balance: 0 } });
   await f.run({ type: 'employee-payment.update', documentId, expectedRevision: 0, direction: 'deposit', amount: 1000, note: 'Metadata only', reason: 'Correct note' }, '2026-11-02');
   assert.equal(await f.cash(), 0);
   assert.equal((await f.employee(employeeId)).balance, 1000);
-  const before = await f.snapshot();
-  await assert.rejects(f.run({ type: 'employee-payment.void', documentId, expectedRevision: 1, reason: 'Unsafe refund' }, '2026-11-02'), /لا يكفي/);
-  assert.deepEqual(await f.snapshot(), before);
   await f.run({ type: 'employee-payment.update', documentId, expectedRevision: 1, direction: 'deposit', amount: 1200, reason: 'Add funds' }, '2026-11-02');
   assert.equal(await f.cash(), 200);
   await f.run({ type: 'employee-payment.update', documentId, expectedRevision: 2, direction: 'deposit', amount: 1100, paymentMethod: 'cash', reason: 'Refund only the difference' }, '2026-11-02');
@@ -514,4 +516,9 @@ test('deposit metadata edits can remain neutral after the cash was used, but a r
   const forged = structuredClone(backup);
   forged.collections.documents.find(row => row.id === documentId).employeePaymentDirection = 'withdraw';
   assert.throws(() => parseAndValidateBackup(stringifyBackup(forged)));
+  await f.run({ type: 'employee-payment.void', documentId, expectedRevision: 3, reason: 'Return the deposited cash' }, '2026-11-02');
+  assert.equal(await f.cash(), -1000);
+  assert.equal((await f.employee(employeeId)).balance, 0);
+  assert.equal((await f.db.collection('documents').findOne({ id: documentId })).status, 'voided');
+  parseAndValidateBackup(stringifyBackup(await createNativeBackup(f.db)));
 });

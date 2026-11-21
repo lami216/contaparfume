@@ -20,6 +20,7 @@ export type DocumentKind =
   | "account-transfer"
   | "account-adjustment"
   | "party-opening"
+  | "employee-opening"
   | "employee-accrual"
   | "employee-payment"
   | "employee-closure";
@@ -167,6 +168,8 @@ export interface DocumentRecord {
   employeeName?: string;
   employeePaymentDirection?: "withdraw" | "deposit";
   employeePaymentVersion?: 2;
+  employeeOpeningDirection?: "payable" | "receivable";
+  employeeOpeningAnchor?: { openingDocumentId: string };
   amount?: number;
   periodStart?: string;
   periodEnd?: string;
@@ -227,6 +230,8 @@ export interface DocumentRecord {
   partyBalanceAfter?: number;
   occurredAt: string;
   businessDate?: string;
+  recordedAt?: string;
+  createdAt?: string;
   dailySequence?: number;
   recurringId?: string;
   legacyKey?: string;
@@ -255,6 +260,8 @@ export interface Movement {
 export interface EmployeeAgreement {id:string;startDate:string;endDate?:string;stopDate?:string;canceledAt?:string;amount:number;intervalMonths:number;entitlement:"beginning"|"end"}
 export interface Employee {id:string;name:string;phone:string;startDate:string;accountStartDate?:string;balance:number;revision:number;isArchived?:boolean;isDeleted?:boolean;deletedAt?:string;deletionDocumentId?:string|null;agreements:EmployeeAgreement[]}
 export interface BootstrapData {
+  /** Audit-only opening entries, kept separate from active operational documents. */
+  employeeOpeningHistory?: DocumentRecord[];
   employees?: Employee[];
   perfumeDefaults?: import("./perfume-volume").PerfumeDefaults;
   principal: { principalType: "local" | "owner" | "user"; name: string; permissions: string[] };
@@ -374,6 +381,7 @@ export const paymentMethods: Array<{
 ];
 export const kindLabels: Record<DocumentKind, string> = {
   "party-opening": "رصيد بداية الديون",
+  "employee-opening": "رصيد بداية عامل",
   "employee-accrual": "استحقاق عامل",
   "employee-payment": "حركة حساب عامل",
   "employee-closure": "إقفال حساب عامل",

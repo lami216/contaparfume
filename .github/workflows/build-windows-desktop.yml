@@ -28,8 +28,8 @@ jobs:
       - run: npm ci --ignore-scripts
         id: dependencies
       - run: node node_modules/electron/install.js
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+      - name: Audit locked runtime and build dependencies
+        run: npm audit --audit-level=moderate
       - name: Prove the settled-batch return blocker on the exact previous source
         run: node scripts/prove-perfume-settlement-baseline.mjs
       - run: npx tsc --noEmit

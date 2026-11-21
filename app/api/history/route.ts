@@ -52,10 +52,10 @@ export async function GET(request:Request){
    const supplierPartyIds=new Set(parties.filter(party=>resolvePartyType(party)==="supplier").map(party=>String(party.id??party._id??"")));
    const currentPartyNames=new Map(parties.map(party=>[String(party.id??party._id??""),String(party.name??"")] as const));
    const access={...coarseAccess,customerPartyIds,supplierPartyIds};
-   let authorized=candidates.filter(document=>reportDocumentLookup||canReadDocument(document,access)).map(document=>resolveCurrentPartyName(document,currentPartyNames));
+   let authorized=candidates.filter(document=>reportDocumentLookup||canReadDocument(document,access)).filter(document=>document.kind!=="employee-opening"||hasCapability(principal,"employees.view")).map(document=>resolveCurrentPartyName(document,currentPartyNames));
    if(!id&&url.searchParams.get("includeCatalog")!=="true")authorized=authorized.filter(d=>!isPerfumeCatalogDocument(d));
    // Product-aware scope includes warehouse transfers and sales of returned partials.
-   if(perfumeOnly){const products=await db.collection("products").find().toArray();authorized=candidates.filter(d=>(reportDocumentLookup||canReadDocument(d,access))&&isPerfumeBusinessDocument(d,products)).map(d=>resolveCurrentPartyName(d,currentPartyNames));}
+   if(perfumeOnly){const products=await db.collection("products").find().toArray();authorized=candidates.filter(d=>(reportDocumentLookup||canReadDocument(d,access))&&isPerfumeBusinessDocument(d,products)).filter(d=>d.kind!=="employee-opening"||hasCapability(principal,"employees.view")).map(d=>resolveCurrentPartyName(d,currentPartyNames));}
    if(productId)authorized=relatedPerfumeDocuments(authorized,{productId,lotId:lotId||undefined,conversionId:url.searchParams.get("conversionId")??undefined});
    if(url.searchParams.get("latest")==="true")authorized=currentPerfumeOperations(authorized,true);
    if(status&&status!=="all")authorized=authorized.filter(d=>d.status===status);

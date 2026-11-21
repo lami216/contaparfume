@@ -29,6 +29,7 @@ function employeeDelta(document: Stored) {
   const saved = finiteAmount(document.balanceDelta);
   if (saved !== null) return cents(saved);
   const amount = cents(document.total);
+  if (document.kind === "employee-opening") return document.employeeOpeningDirection === "payable" ? amount : -amount;
   if (document.kind === "employee-accrual") return amount;
   return employeePaymentDirection(document) === "deposit" ? amount : -amount;
 }
@@ -37,8 +38,8 @@ function employeeDelta(document: Stored) {
 export function buildEmployeeLedger(employee: Stored, documents: Stored[], period: Period = {}) {
   const employeeId = String(employee.id);
   const posted = documents.filter(document => document.employeeId === employeeId && document.status === "posted" &&
-    (document.kind === "employee-accrual" || document.kind === "employee-payment" || document.kind === "employee-closure"));
-  const kindRank = (document: Stored) => document.kind === "employee-accrual" ? 0 : document.kind === "employee-payment" ? 1 : 2;
+    (document.kind === "employee-opening" || document.kind === "employee-accrual" || document.kind === "employee-payment" || document.kind === "employee-closure"));
+  const kindRank = (document: Stored) => document.kind === "employee-opening" ? 0 : document.kind === "employee-accrual" ? 1 : document.kind === "employee-payment" ? 2 : 3;
   const ordered = [...posted].sort((left, right) =>
     String(left.businessDate ?? String(left.occurredAt).slice(0, 10)).localeCompare(String(right.businessDate ?? String(right.occurredAt).slice(0, 10))) ||
     kindRank(left) - kindRank(right) ||
@@ -56,16 +57,17 @@ export function buildEmployeeLedger(employee: Stored, documents: Stored[], perio
     if (!period.to || day <= period.to) closing += delta;
     if ((period.from && day < period.from) || (period.to && day > period.to)) continue;
     const isAccrual = document.kind === "employee-accrual";
+    const isOpening = document.kind === "employee-opening";
     const isClosure = document.kind === "employee-closure";
-    const direction = isClosure ? null : employeePaymentDirection(document);
-    const movementCode = isClosure ? "employee-closure" : isAccrual ? "employee-accrual" : direction === "deposit" ? "employee-deposit" : "employee-withdrawal";
-    const movementType = isClosure ? "إقفال حساب عامل محذوف" : isAccrual ? "استحقاق عامل" : direction === "deposit" ? "إيداع من العامل" : "سحب العامل";
+    const direction = isOpening || isClosure ? null : employeePaymentDirection(document);
+    const movementCode = isOpening ? "employee-opening" : isClosure ? "employee-closure" : isAccrual ? "employee-accrual" : direction === "deposit" ? "employee-deposit" : "employee-withdrawal";
+    const movementType = isOpening ? "رصيد بداية عامل" : isClosure ? "إقفال حساب عامل محذوف" : isAccrual ? "استحقاق عامل" : direction === "deposit" ? "إيداع من العامل" : "سحب العامل";
     debit += Math.max(delta, 0);
     credit += Math.max(-delta, 0);
     if (isClosure) reserveReleased += cents(document.salaryReserveReleased);
     else if (isAccrual) accrued += cents(document.total);
     else if (direction === "deposit") deposited += cents(document.total);
-    else withdrawn += cents(document.total);
+    else if (!isOpening) withdrawn += cents(document.total);
     const note = typeof document.note === "string" ? document.note.trim() : "";
     rows.push({
       id: String(document.id), documentId: String(document.id), partyId: employeeId, employeeId, partyType: "employee",
@@ -73,7 +75,7 @@ export function buildEmployeeLedger(employee: Stored, documents: Stored[], perio
       documentNumber: displayDocumentNumber(document), description: movementType + (note ? ` — ${note}` : ""),
       descriptionCode: movementCode, debit: Math.max(delta, 0) / 100, credit: Math.max(-delta, 0) / 100,
       balance: running / 100, runningBalance: running / 100, paymentMethod: String(document.paymentMethod ?? ""),
-      ...(isClosure ? { noncash: true } : {}),
+      ...(isOpening || isClosure ? { noncash: true } : {}),
     });
   }
   const current = cents(employee.balance) ? -cents(employee.balance) : 0;
