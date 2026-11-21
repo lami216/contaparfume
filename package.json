@@ -42,7 +42,7 @@
     "@types/react-dom": "19.2.3",
     "@types/sql.js": "^1.4.9",
     "concurrently": "^9.2.0",
-    "electron": "44.3.0",
+    "electron": "44.9.1",
     "electron-builder": "26.16.1",
     "eslint": "9.39.4",
     "eslint-config-next": "16.4.6",
@@ -55,6 +55,20 @@
   "type": "module",
   "displayName": "الكرنة للعطور",
   "main": "desktop/main.cjs",
+  "overrides": {
+    "@electron/universal": {
+      "minimatch@>=7.0.0 <11.0.1": "11.0.1"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch@>=7.0.0 <11.0.1": "11.0.1"
+    },
+    "app-builder-lib": {
+      "minimatch@>=7.0.0 <11.0.1": "11.0.1"
+    },
+    "node-gyp": {
+      "undici": "6.29.1"
+    }
+  },
   "build": {
     "afterPack": "scripts/electron-after-pack.cjs",
     "appId": "mr.alkarna.perfume.desktop",
