@@ -7,7 +7,7 @@ test("legacy invoice presentation treats dueTotal as the already-remaining amoun
 test("document print is a body portal with display isolation",()=>{assert.match(app,/createPortal\(<div className="document-print-portal"/);assert.match(css,/body>\*\{display:none!important\}/);assert.doesNotMatch(css,/print-document-mode[^}]*visibility\s*:\s*hidden/);assert.match(css,/@page invoice\{size:A4 portrait/);assert.match(css,/thead\{display:table-header-group\}/);assert.match(css,/\.reports-workspace\{page:report\}/)});
 
 test("very long party cash notes stay inside document metadata in previews and print",()=>{
-  assert.match(app,/className=\{label===tr\("ملاحظة"\)\?"official-record-meta-note":undefined\}/);
+  assert.match(app,/className=\{label===tr\("ملاحظة"\)\|\|label===tr\("البيان"\)\?"official-record-meta-note":undefined\}/);
   assert.match(css,/\.official-record-meta\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(css,/\.official-record-meta b\{[^}]*min-width:0;[^}]*overflow-wrap:anywhere;[^}]*white-space:pre-wrap/);
   assert.match(css,/\.official-record-meta \.official-record-meta-note\{grid-column:1\/-1\}/);

@@ -13,6 +13,16 @@ const packaged = process.argv.includes('--packaged');
 const RUNTIME_DIRECTORY = 'alkarna-runtime';
 let relocatedPackageDirectory;
 
+async function removeSmokeDirectory(directory, prefix) {
+  const target = await realpath(directory), temporaryRoot = await realpath(tmpdir());
+  if (!isPathInside(temporaryRoot, target) || !basename(target).startsWith(prefix) || isPathInside(repositoryRoot, target)) {
+    throw new Error(`Refusing to remove a directory outside this smoke test's temporary profile: ${target}`);
+  }
+  // Windows may release the executable image handle just after process closure.
+  await rm(target, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
+  console.log(`Desktop smoke temporary ${prefix} cleanup: passed`);
+}
+
 async function packagedRuntime() {
   const dist = join(repositoryRoot, 'dist');
   const trees = (await readdir(dist, {withFileTypes: true})).filter((item) => item.isDirectory() && item.name.endsWith('unpacked'));
@@ -167,9 +177,9 @@ const directory = await mkdtemp(join(tmpdir(), 'alkarna-packaged-server-'));
 const port = await new Promise((resolvePort, reject) => { const server = net.createServer(); server.listen(0, '127.0.0.1', () => { const value = server.address().port; server.close(() => resolvePort(value)); }); server.on('error', reject); });
 const origin = `http://127.0.0.1:${port}`;
 const env = {...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_ENV: 'production', ALKARNA_DESKTOP: '1', ALKARNA_USER_DATA: directory, ALKARNA_DATABASE_PATH: join(directory, 'data', 'alkarna.sqlite'), HOSTNAME: '127.0.0.1', PORT: String(port)};
-let child;
-const start = () => { console.log(`Starting ${basename(runtime.electronExecutable)} with ${entry}`); child = spawn(runtime.electronExecutable, [entry], {cwd: root, env, stdio: ['ignore', 'pipe', 'pipe']}); child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr); };
-const stop = () => new Promise((done) => { if (!child || child.exitCode !== null) return done(); child.once('exit', done); child.kill(); });
+let child, childClosed = Promise.resolve();
+const start = () => { console.log(`Starting ${basename(runtime.electronExecutable)} with ${entry}`); child = spawn(runtime.electronExecutable, [entry], {cwd: root, env, stdio: ['ignore', 'pipe', 'pipe']}); childClosed = new Promise(done => child.once('close', done)); child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr); };
+const stop = async () => { if (!child) return; if (child.exitCode === null && child.signalCode === null) child.kill(); await childClosed; };
 const wait = async () => {
   let repeatedFatal = null;
   let repeatedCount = 0;
@@ -236,9 +246,9 @@ try {
   await assertUnlicensedState();
   console.log(`${label} restart zero-user direct mode: passed`);
   console.log(`${packaged ? 'packaged' : 'staged'} desktop server smoke passed`);
-} finally { await stop(); await rm(directory, {recursive: true, force: true}); }
+} finally { await stop(); await removeSmokeDirectory(directory, 'alkarna-packaged-server-'); }
 } finally {
-  if (relocatedPackageDirectory) await rm(relocatedPackageDirectory, {recursive: true, force: true});
+  if (relocatedPackageDirectory) await removeSmokeDirectory(relocatedPackageDirectory, 'alkarna-win-unpacked-');
 }
 }
 

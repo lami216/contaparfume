@@ -19,6 +19,13 @@ type Direction = "in" | "out";
 
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
+/** Omitted metadata preserves the current source verbatim. Explicit null/blank
+ * clears it; a saved null must not revive an older journal's note. */
+function noteForUpdate(body: Input, original: Stored | null | undefined, fallback?: Stored) {
+  if (Object.hasOwn(body, "note")) return text(body.note) || null;
+  const saved = original && Object.hasOwn(original, "note") ? original.note : fallback?.note;
+  return typeof saved === "string" ? saved : null;
+}
 const number = (value: unknown) => typeof value === "number" ? value : Number(value);
 const positive = (value: unknown, label: string, allowZero = false) => {
   const numeric = number(value);
@@ -528,7 +535,7 @@ async function partyCashUpdate(db: Db, session: ClientSession, body: Input) {
   await reactivateHistoricalPaymentAccount(db, session, historicalPayment.account, historicalPayment.sameOriginal);
   const snapshot = await applyPartyNetDelta(db, session, original.partyId, partyCashDelta(direction, amount));
   const revision = Number(original.revision ?? 0) + 1;
-  const revised = { paymentMethod: method, title: direction === "receive" ? "استلام من الطرف" : "دفع للطرف", note: text(body.note) || null, total: amount, paidTotal: amount, cashAmount: amount, partyCashDirection: direction, partyBalanceBefore: snapshot!.before, partyBalanceDelta: snapshot!.delta, partyBalanceAfter: snapshot!.after, updatedAt: new Date(), revision };
+  const revised = { paymentMethod: method, title: direction === "receive" ? "استلام من الطرف" : "دفع للطرف", note: noteForUpdate(body, original, movement), total: amount, paidTotal: amount, cashAmount: amount, partyCashDirection: direction, partyBalanceBefore: snapshot!.before, partyBalanceDelta: snapshot!.delta, partyBalanceAfter: snapshot!.after, updatedAt: new Date(), revision };
   await db.collection("documents").updateOne({ id: documentId, status: "posted" }, { $set: revised }, { session });
   await postFinancialMovement(db, session, { ...original, ...revised }, direction === "receive" ? "in" : "out", amount, direction === "receive" ? "party-receipt" : "party-payment");
   await preserveHistoricalPartyArchiveIfBalanced(db,session,String(original.partyId),wasArchived,archivedAt);
@@ -614,7 +621,7 @@ async function accountAdjustmentUpdate(db: Db, session: ClientSession, body: Inp
   await reverseFinancialMovement(db, session, movement, "تعديل سحب أو إيداع");
   if(sameAccount&&(account.isArchived===true||account.isActive===false))await db.collection("paymentAccounts").updateOne({id:account.id},{$set:{isArchived:false,isActive:true,archivedAt:null,updatedAt:new Date()}},{session});
   const revision = Number(storedDocument?.revision ?? movement.revision ?? 0) + 1, base = storedDocument ?? { id: documentId, number: movement.documentNumber, occurredAt: movement.occurredAt, kind: "account-adjustment", status: "posted", revision: 0, partyId: null, partyName: null, lines: [] };
-  const revised = { paymentMethod: account.id, note: text(body.note) || null, total: amount, paidTotal: amount, cashAmount: amount, accountAdjustmentDirection: direction, updatedAt: new Date(), revision };
+  const revised = { paymentMethod: account.id, note: noteForUpdate(body, storedDocument, movement), total: amount, paidTotal: amount, cashAmount: amount, accountAdjustmentDirection: direction, updatedAt: new Date(), revision };
   await postFinancialMovement(db, session, { ...base, ...revised }, direction === "deposit" ? "in" : "out", amount, direction === "deposit" ? "manual-deposit" : "manual-withdrawal");
   if (storedDocument) await db.collection("documents").updateOne({ id: documentId, status: "posted" }, { $set: revised }, { session });
   else await db.collection("documents").insertOne({ ...base, ...revised }, { session });
@@ -627,7 +634,7 @@ async function accountAdjustmentVoid(db: Db, session: ClientSession, body: Input
   await reverseFinancialMovement(db, session, movement, "إلغاء سحب أو إيداع");
   const storedDocument = await db.collection("documents").findOne({ id: documentId, kind: "account-adjustment" }, { session });
   if (storedDocument) await db.collection("documents").updateOne({ id: documentId }, { $set: { status: "voided", voidedAt: new Date(), updatedAt: new Date(), revision: Number(storedDocument.revision ?? 0) + 1 } }, { session });
-  else await db.collection("documents").insertOne({ id: documentId, number: movement.documentNumber, kind: "account-adjustment", status: "voided", occurredAt: movement.occurredAt, voidedAt: new Date(), revision: Number(movement.revision ?? 0) + 1, paymentMethod: movement.paymentMethod, total: movement.amount, lines: [] }, { session });
+  else await db.collection("documents").insertOne({ id: documentId, number: movement.documentNumber, kind: "account-adjustment", status: "voided", occurredAt: movement.occurredAt, voidedAt: new Date(), revision: Number(movement.revision ?? 0) + 1, paymentMethod: movement.paymentMethod, total: movement.amount, note: typeof movement.note === "string" ? movement.note : null, lines: [] }, { session });
   return documentId;
 }
 
@@ -655,7 +662,7 @@ async function accountTransferUpdate(db: Db, session: ClientSession, body: Input
   if (from.id === to.id) throw new LifecycleCommandError("اختر حسابين مختلفين");
   const storedDocument = await db.collection("documents").findOne({ id: String(transfer.documentId ?? transferId), kind: "account-transfer" }, { session });
   const revision = Number(transfer.revision ?? storedDocument?.revision ?? 0) + 1, doc = storedDocument ?? { id: transferId, number: transfer.number, kind: "account-transfer", status: "posted", occurredAt: transfer.occurredAt, partyId: null, partyName: null, lines: [] };
-  const revised = { transferId, paymentMethod: from.id, fromAccountId: from.id, toAccountId: to.id, note: text(body.note) || null, total: amount, paidTotal: amount, cashAmount: amount, updatedAt: new Date(), revision, status: "posted" };
+  const revised = { transferId, paymentMethod: from.id, fromAccountId: from.id, toAccountId: to.id, note: noteForUpdate(body, storedDocument, transfer), total: amount, paidTotal: amount, cashAmount: amount, updatedAt: new Date(), revision, status: "posted" };
   await postFinancialMovement(db, session, { ...doc, ...revised }, "out", amount, "transfer-out");
   await postFinancialMovement(db, session, { ...doc, ...revised, paymentMethod: to.id }, "in", amount, "transfer-in");
   await db.collection("accountTransfers").updateOne({ id: transferId }, { $set: { fromAccountId: from.id, toAccountId: to.id, amount, note: revised.note, status: "posted", revision, updatedAt: new Date(), documentId: doc.id } }, { session });

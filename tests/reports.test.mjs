@@ -167,8 +167,10 @@ test("party ledger preserves supplier cash direction and exposes saved note with
     doc("legacy-pay","payment","2026-08-12",[],{partyId:"s",total:20,title:"سداد قديم"}),
   ]);
   const report=await buildReport(db,filters("party-ledger",{partyId:"s"})),byId=new Map(report.rows.map(row=>[row.id,row]));
-  assert.equal(byId.get("supplier-pay").description,"دفع للطرف — دفعة فاتورة أغسطس");
-  assert.equal(byId.get("supplier-receive").description,"استلام من الطرف — إرجاع مبلغ زائد");
+  assert.equal(byId.get("supplier-pay").description,"دفعة فاتورة أغسطس");
+  assert.equal(byId.get("supplier-pay").note,"دفعة فاتورة أغسطس");
+  assert.equal(byId.get("supplier-receive").description,"إرجاع مبلغ زائد");
+  assert.equal(byId.get("supplier-receive").note,"إرجاع مبلغ زائد");
   assert.equal(byId.get("legacy-pay").description,"سداد قديم");
   assert.equal(byId.get("supplier-pay").movementType,"دفع للمورد");
   assert.equal(byId.get("supplier-receive").movementType,"استلام من المورد");

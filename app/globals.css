@@ -2955,3 +2955,6 @@ html[dir="rtl"] .name-cell:has(> .product-name-hover) {
 .employees-history .source-link{display:block;direction:ltr;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:start}
 .payroll-report-metrics .positive,.employees-workspace .positive{color:#15803d}
 .payroll-report-metrics .negative,.employees-workspace .negative{color:#b91c1c}
+.movement-statement-cell{min-width:140px;max-width:300px;white-space:pre-wrap!important;overflow-wrap:anywhere;word-break:break-word;text-align:start}
+.movement-statement-note{display:block;max-width:100%;margin-top:3px;font-size:.72rem;color:#617687;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;text-align:start}
+.report-table td[data-column="description"]{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;text-align:start}

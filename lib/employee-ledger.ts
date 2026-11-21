@@ -1,5 +1,6 @@
 import type { ReportRow } from "../app/report-types.ts";
 import { displayDocumentNumber } from "./document-sequences.ts";
+import { movementStatement, statementNote } from "./movement-statement.ts";
 import { employeePaymentDirection } from "./payroll.ts";
 
 type Stored = Record<string, unknown>;
@@ -68,11 +69,11 @@ export function buildEmployeeLedger(employee: Stored, documents: Stored[], perio
     else if (isAccrual) accrued += cents(document.total);
     else if (direction === "deposit") deposited += cents(document.total);
     else if (!isOpening) withdrawn += cents(document.total);
-    const note = typeof document.note === "string" ? document.note.trim() : "";
+    const note = statementNote(document);
     rows.push({
       id: String(document.id), documentId: String(document.id), partyId: employeeId, employeeId, partyType: "employee",
       occurredAt: String(document.occurredAt), movementType, movementCode,
-      documentNumber: displayDocumentNumber(document), description: movementType + (note ? ` — ${note}` : ""),
+      documentNumber: displayDocumentNumber(document), note, description: movementStatement(document, movementType),
       descriptionCode: movementCode, debit: Math.max(delta, 0) / 100, credit: Math.max(-delta, 0) / 100,
       balance: running / 100, runningBalance: running / 100, paymentMethod: String(document.paymentMethod ?? ""),
       ...(isOpening || isClosure ? { noncash: true } : {}),
