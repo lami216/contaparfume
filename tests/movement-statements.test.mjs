@@ -31,13 +31,14 @@ async function fixture(t) {
     return result.result;
   });
   const payroll = (body, day = '2026-11-03') => handlePayrollCommand(db, {}, body, clock(day));
+  const opening = body => db.transaction(session => postPartyOpening(db, session, body));
   const report = (type, extra = {}) => buildReport(db, {
     ...parseReportFilters(new URL(`http://local/api/reports?type=${type}&allTime=true&unpaged=true`)), ...extra,
   });
   const snapshot = () => rawTables.map(table => [table, db.native.prepare(`SELECT record_key,data_json FROM ${table} ORDER BY record_key`).all()]);
   const document = id => db.collection('documents').findOne({ id });
   const balances = async () => (await db.collection('paymentAccounts').find().sort({ id: 1 }).toArray()).map(row => [row.id, row.balance]);
-  return { db, command, payroll, report, snapshot, document, balances };
+  return { db, command, payroll, opening, report, snapshot, document, balances };
 }
 
 test('statement notes are trimmed literal strings, never coerced or translated, and inputs stay unchanged', () => {
@@ -132,10 +133,10 @@ test('financial statement sorting precedes paging and unpaged output preserves a
 
 test('customer and supplier opening and cash statements retain notes and independent debit/credit semantics', async t => {
   const f = await fixture(t);
-  const opening = await postPartyOpening(f.db, {}, { partyId: 'customer', direction: 'receivable', amount: 500, occurredAt: '2026-11-01', note: '  Ancien solde\nرصيد قديم  ' });
+  const opening = await f.opening({ partyId: 'customer', direction: 'receivable', amount: 500, occurredAt: '2026-11-01', note: '  Ancien solde\nرصيد قديم  ' });
   const receipt = await f.command({ type: 'party-cash.post', partyId: 'customer', direction: 'receive', amount: 120, paymentMethod: 'cash', note: 'Règlement partiel — استلام' });
   const refund = await f.command({ type: 'party-cash.post', partyId: 'customer', direction: 'pay', amount: 20, paymentMethod: 'cash', note: 'إرجاع خاص' });
-  const supplierOpening = await postPartyOpening(f.db, {}, { partyId: 'supplier', direction: 'payable', amount: 200, occurredAt: '2026-11-01', note: 'Dette fournisseur' });
+  const supplierOpening = await f.opening({ partyId: 'supplier', direction: 'payable', amount: 200, occurredAt: '2026-11-01', note: 'Dette fournisseur' });
   const supplierPayment = await f.command({ type: 'party-cash.post', partyId: 'supplier', direction: 'pay', amount: 50, paymentMethod: 'cash', note: 'Paiement fournisseur\nسداد' });
   const before = f.snapshot();
   const customer = await f.report('party-ledger', { partyId: 'customer', partyType: 'customer' });
@@ -157,7 +158,7 @@ test('customer and supplier opening and cash statements retain notes and indepen
 test('blank party notes keep legacy title fallback and semantic translation codes without rewriting source documents', async t => {
   const f = await fixture(t);
   const receipt = await f.command({ type: 'party-cash.post', partyId: 'customer', direction: 'receive', amount: 10, paymentMethod: 'cash', note: ' \n ' });
-  const opening = await postPartyOpening(f.db, {}, { partyId: 'supplier', direction: 'payable', amount: 20, occurredAt: '2026-11-01' });
+  const opening = await f.opening({ partyId: 'supplier', direction: 'payable', amount: 20, occurredAt: '2026-11-01' });
   const before = f.snapshot();
   const customer = await f.report('party-ledger', { partyId: 'customer', partyType: 'customer' });
   const supplier = await f.report('party-ledger', { partyId: 'supplier', partyType: 'supplier' });
