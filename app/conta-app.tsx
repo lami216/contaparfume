@@ -1,6 +1,7 @@
 "use client";
 import {reportCostUnknown,reportHasUnknownCost,reportCostExportValue} from "./report-cost-status";
 import { movementStatement, statementNote } from "../lib/movement-statement";
+import { appendDocumentNote } from "../lib/document-notes";
 import EmployeesPage from "./employees-page";
 import ExpenseCategorySelect from "./expense-category-select";
 import { expenseCategoryKindLabel, type ExpenseCategoryKind } from "./expense-category-kind";
@@ -2086,6 +2087,13 @@ function documentKindName(record:DocumentRecord, parties?:Party[]){
 }
 function paymentName(record:DocumentRecord,data:BootstrapData){return record.paymentMethod==="note"?tr("ملاحظة / دين"):data.paymentAccounts.find(a=>a.id===record.paymentMethod||a.code===record.paymentMethod)?.name??"—"}
 function buildDocumentPresentation(record:DocumentRecord,data:BootstrapData):OfficialPresentation{
+ const note=statementNote(record),presentation=buildDocumentBodyPresentation({...record,note},data);
+ // Ordinary counts store the user's reason in title rather than note. Opening
+ // and perfume management titles are system/source labels, not that field.
+ const ordinaryCount=record.kind==="adjustment"&&!isOpeningStockDocument(record)&&!managementKind(record)&&!record.perfumeStockOperationType&&!record.perfumeConversionType&&!record.productArchiveStockClearance;
+ return appendDocumentNote(presentation,note?{note}:ordinaryCount?{note:record.title}:record,tr(note?"ملاحظة":ordinaryCount?"البيان":"ملاحظة"),[tr("ملاحظة"),tr("البيان")]);
+}
+function buildDocumentBodyPresentation(record:DocumentRecord,data:BootstrapData):OfficialPresentation{
  const remaining=Math.max(0,record.dueTotal),reference=displayDocumentNumber(record),date=formatDateTime(record.occurredAt),payment=paymentName(record,data),family=commercialDocumentFamily(record.kind),saleLike=family==="sale",purchaseLike=family==="purchase",partySnapshot=record.partyName?.trim()||(record.partyId?data.parties.find(p=>p.id===record.partyId)?.name:null),partyName=record.partyId==null&&record.kind==="sale"?tr("بيع مباشر"):record.partyId==null&&record.kind==="decant-sale"?tr("بيع تقسيمات مباشر"):record.partyId==null&&record.kind==="purchase"?tr("شراء مباشر"):record.partyId==null&&record.kind==="decant-purchase"?tr("شراء زجاج مباشر"):partySnapshot||(saleLike?tr("بيع مباشر"):tr("شراء مباشر")),warehouseName=record.warehouseName?.trim()||(record.warehouseId?data.warehouses.find(w=>w.id===record.warehouseId)?.name:null)||"—";
  const common:Array<[string,string]>=[[tr("المرجع"),reference],[tr("التاريخ"),date],...(record.kind==="expense"&&record.recordedAt&&record.recordedAt.slice(0,10)!==record.occurredAt.slice(0,10)?[[tr("وقت التسجيل"),formatDateTime(record.recordedAt)] as [string,string]]:[]),...(Number(record.revision??0)>0&&record.updatedAt?[[tr("آخر تعديل"),formatDateTime(record.updatedAt)] as [string,string]]:[])];
  if(record.kind==="party-opening")return{title:tr("رصيد بداية الديون"),meta:[...common,[tr("الطرف"),partySnapshot||"—"],[tr("النوع"),tr(record.partyOpeningDirection==="receivable"?"مستحق لنا":"مستحق علينا")],[tr("الحالة"),tr(record.status==="posted"?"معتمد":"ملغى")],...(record.note?[[tr("ملاحظة"),record.note] as [string,string]]:[])],totals:[[tr("المبلغ"),money(record.total)]]};
