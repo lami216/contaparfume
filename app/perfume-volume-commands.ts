@@ -75,7 +75,7 @@ export async function handleVolumeCommand(db: Db, session: Session, body: Row, l
       for (const [wh,q] of Object.entries(lot.stocks)) stocks[wh] = roundMl((stocks[wh] ?? 0) + q);
     }
     for (const [wh,q] of Object.entries(product.stocks ?? {})) if (Math.abs(Number(q)*factor - Number(stocks[wh] ?? 0)) > 1e-6) throw fail("مخزون المنتج لا يطابق دفعاته؛ راجع الرصيد قبل التهيئة");
-    const document: Row = { id: id("adjustment"), number: `UNIT-${Date.now()}`, kind: "adjustment", status: "posted", occurredAt: new Date().toISOString(), title: "تهيئة رصيد التقسيمات بالمل", perfumeStockOperationType: "unit-conversion", quantityUnit: "ml", total: 0, paidTotal: 0, dueTotal: 0, legacyPortionMl: factor, unitConversionBefore: before, lines: [] };
+    const document: Row = { id: id("adjustment"), number: `UNIT-${Date.now()}`, kind: "adjustment", status: "posted", occurredAt: new Date().toISOString(), title: "تهيئة رصيد التقسيمات بالمل", note: typeof body.note === "string" ? body.note.trim() || null : null, perfumeStockOperationType: "unit-conversion", quantityUnit: "ml", total: 0, paidTotal: 0, dueTotal: 0, legacyPortionMl: factor, unitConversionBefore: before, lines: [] };
     for (const [wh,actual] of Object.entries(stocks)) {
       const warehouse = await db.collection("warehouses").findOne({ _id: wh }, { session });
       if (!warehouse) { if (actual) throw fail("مخزن الدفعة غير موجود"); continue; }

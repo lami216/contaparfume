@@ -14,6 +14,7 @@ type Delegate = (db: Db, session: Session, body: Row) => Promise<unknown>;
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const fail = (message: string, status = 409) => Object.assign(new Error(message), { status });
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value : [];
+const noteText = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const lotsOf = (product: Row): PerfumeLot[] => structuredClone(Array.isArray(product.perfumeLots) ? product.perfumeLots : []);
 const total = (product: Row) => Object.values((product.stocks ?? {}) as Record<string, number>).reduce((a,b) => a + Number(b), 0);
 const meta = (product: Row) => ({ name: product.name, piecePrice: product.piecePrice ?? null });
@@ -49,13 +50,16 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     await products.updateOne({id:p.id},{$set:{perfumeLots:lots}},{session});p.perfumeLots=lots;
   }
   async function catalogAudit(p: Row, before: Row|null, action: string) {
-    await db.collection("auditEvents").insertOne({id:id("audit"),action,entityId:p.id,before,after:snapshotBottle(p),note:String(body.note??""),status:"committed",createdAt:new Date()},{session});
+    await db.collection("auditEvents").insertOne({id:id("audit"),action,entityId:p.id,before,after:{...snapshotBottle(p),note:p.note??null},note:noteText(body.note),status:"committed",createdAt:new Date()},{session});
   }
   async function linkRevision(old:Row,newId:unknown) {
     await documents.updateOne({id:old.id},{$set:{status:"voided",voidedAt:new Date().toISOString(),replacedByDocumentId:newId,voidReason:"تعديل العملية مع الاحتفاظ بالنسخة السابقة"}},{session});
     await documents.updateOne({id:newId},{$set:{replacesDocumentId:old.id,revision:Number(old.revision??0)+1}},{session});
   }
   async function post(postKind:ManagementKind,input:Row,previous?:Row) {
+    const savedNote=previous&&Object.hasOwn(previous,"note")?previous.note:(previous?.managementInput as Row|undefined)?.note;
+    const note=Object.hasOwn(input,"note")?noteText(input.note):previous?(typeof savedNote==="string"?savedNote:""):noteText(input.reason);
+    input={...input,note:note||null};
     if(postKind==="split")await assertSourceCleared(db,session,String(input.sourceProductId));
     if(postKind==="yield-correction"||postKind==="recombine"){
       // The caller cannot request historical loss/gain treatment. Only a
@@ -96,7 +100,7 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     let d=await documents.findOne({id:String(result)},{session});
     if(postKind==="recombine"&&!d)d=await documents.findOne({perfumeConversionType:"perfume-recombine",status:"posted","lines.productId":String(result)},{session});
     if(!d)throw fail("تعذر ربط العملية بسجل الفواتير");
-    const added:Row={perfumeManagementType:postKind,managementInput:cleanInput(input),revision:0,note:String(input.note||input.reason||"")};
+    const added:Row={perfumeManagementType:postKind,managementInput:cleanInput(input),revision:0,note:note||null};
     if(postKind==="consumption")added.quantityUnit=(d.perfumeLotAfter as Row|undefined)?.quantityUnit??"portion";
     if(openingValuation)Object.assign(added,{openingBottleCost:openingValuation.bottleCost,openingOriginalVolumeMl:openingValuation.originalVolumeMl,...(openingCostSource!==undefined&&openingCostSource!==null?{openingBottleCostSource:openingCostSource}:{})});
     if(postKind==="split"){
@@ -210,8 +214,12 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
   if(kind){const made=await post(kind,body);return {handled:true,result:made.result};}
   if(["perfume-bottle.update","perfume-bottle.archive","perfume-bottle.restore"].includes(type)){
     const p=await product(body.id);if(p.perfumeForm!=="bottle")throw fail("المنتج ليس زجاجة تقسيمات",400);
-    const before=snapshotBottle(p);
-    if(body.expectedProduct&&JSON.stringify(body.expectedProduct)!==JSON.stringify(before))throw fail("تغيرت الزجاجة. حدّث الصفحة وأعد المحاولة.");
+    const before={...snapshotBottle(p),note:p.note??null};
+    if(body.expectedProduct){
+      const expected=body.expectedProduct as Row;
+      const current=Object.hasOwn(expected,"note")?before:snapshotBottle(p);
+      if(JSON.stringify(expected)!==JSON.stringify(current))throw fail("تغيرت الزجاجة. حدّث الصفحة وأعد المحاولة.");
+    }
     if(type==="perfume-bottle.archive"){
       if(total(p)!==0)throw fail("لا يمكن أرشفة زجاجة لها مخزون. صحح الرصيد أو انقل الكميات أولًا.");
       await base(db,session,{type:"product.delete",id:p.id});await catalogAudit(await product(p.id),before,type);return {handled:true,result:p.id};
@@ -224,7 +232,8 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
     const name=String(body.name??"").trim(),size=positive(body.sizeMl,"حجم الزجاجة"),cost=positive(body.cost,"التكلفة المرجعية");
     if(!name||name.length>160)throw fail("اسم الزجاجة غير صالح",400);
     if(await products.findOne({id:{$ne:p.id},perfumeForm:"bottle",name,decantSizeMl:size,isArchived:{$ne:true}},{session}))throw fail("زجاجة بنفس الاسم والحجم موجودة بالفعل");
-    await products.updateOne({id:p.id},{$set:{name,decantSizeMl:size,pieceCost:cost,updatedAt:new Date()}},{session});
+    const note=Object.hasOwn(body,"note")?noteText(body.note)||null:p.note??null;
+    await products.updateOne({id:p.id},{$set:{name,decantSizeMl:size,pieceCost:cost,note,updatedAt:new Date()}},{session});
     const fresh=await product(p.id);await catalogAudit(fresh,before,type);
     await documents.updateMany({perfumeManagementType:"bottle",managementProductId:String(p.id),status:"posted"},{$set:{status:"voided",voidedAt:new Date().toISOString(),voidReason:"تم تحديث التعريف من قائمة الزجاج",supersededByCatalog:true}},{session});
     await db.collection("appSettings").updateOne({_id:"perfume-defaults",bottleProductId:String(p.id)},{$set:{fillMl:size}},{session});
@@ -236,13 +245,14 @@ export async function handlePerfumeManagementCommand(db: Db, session: Session, b
   if(type==="perfume-management.update"){
     const d=await document(),k=managementKind(d)!;
     if(k==="bottle")return handlePerfumeManagementCommand(db,session,{...body,type:"perfume-bottle.update",id:d.managementProductId},base,core);
-    let replacement=body;
+    let replacement:Row=body;
     if(k==="yield-correction"||k==="recombine"){
       const wh=String(d.warehouseId),prior=d.managementInput as Row|undefined;
       const oldActual=d.actualQuantity??prior?.actualQuantity??(d.partialProductId?(d.perfumeLotBefore as PerfumeLot|undefined)?.stocks?.[wh]:(d.perfumeLotAfter as PerfumeLot|undefined)?.stocks?.[wh]);
       const same=String(body.decantProductId??d.decantProductId)===String(d.decantProductId)&&String(body.lotId??d.perfumeLotId)===String(d.perfumeLotId)&&String(body.warehouseId??d.warehouseId)===wh&&Number(body.actualQuantity??oldActual)===Number(oldActual);
       if(d.perfumeStockTreatment!=="quantity-correction"&&!same)throw fail("هذه تسوية قديمة لها معالجة محفوظة؛ لتغيير الكمية أو المخزن أو الدفعة ألغِها أولًا ثم أنشئ تصحيح كمية جديدًا دون أرباح أو خسائر.");
       replacement={...prior,decantProductId:d.decantProductId,lotId:d.perfumeLotId,warehouseId:d.warehouseId,actualQuantity:oldActual,...body};
+      if(!Object.hasOwn(body,"note"))delete replacement.note;
       if(same&&!d.partialProductId&&d.perfumeStockOperationType==="reconciliation"){
         // A neutral edit keeps its signed effect even when an earlier canceled
         // sale has restored extra liquid since the original absolute count.

@@ -31,7 +31,7 @@ const tabFor = managementTabForKind;
 
 const blank = (warehouseId: string): Values => ({ sourceProductId:"",decantProductId:"",lotId:"",warehouseId,divisionsCount:"10",volumeMl:"",originalVolumeMl:String(DEFAULT_ORIGINAL_VOLUME_ML),legacyPortionMl:"10",salePrice:"",name:"",sizeMl:"10",cost:"",quantity:"",remainingValue:"",actualQuantity:"",reason:"",reasonCode:"samples",bottleStockReason:"",consumeBottle:false,bottleQuantity:"1",bottleProductId:"",paymentMethod:"",partyId:"",note:"" });
 const normalize = (values: Record<string, unknown>): Values => Object.fromEntries(Object.entries(values).filter(([,v])=>v!==undefined&&v!==null).map(([k,v])=>[k,typeof v==="boolean"?v:String(v)]));
-const bottleSnapshot = (p: BootstrapData["products"][number]) => ({name:p.name,sizeMl:p.decantSizeMl,cost:p.pieceCost,isArchived:p.isArchived===true});
+const bottleSnapshot = (p: BootstrapData["products"][number]) => ({name:p.name,sizeMl:p.decantSizeMl,cost:p.pieceCost,isArchived:p.isArchived===true,note:p.note??null});
 const shortKindLabel: Record<ManagementKind, string> = {split:"pm.short.split",recombine:"pm.short.recombine",opening:"pm.short.opening",consumption:"pm.short.consumption","yield-correction":"pm.short.correction",bottle:"pm.short.bottle","bottle-stock":"pm.short.bottleStock"};
 
 function RowAction({label, icon: Icon, text, disabled, danger, onClick}: {label: string; icon: LucideIcon; text?: string; disabled?: boolean; danger?: boolean; onClick: () => void}) {
@@ -53,6 +53,8 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
   function inputFor(document:DocumentRecord){
     const input=isRemainderSale(document)?remainderSaleInput(document):managementInputFor(document,data.products);
     if(isRemainderSale(document))input.paymentMethod=data.paymentAccounts.find(account=>account.id===document.paymentMethod||account.code===document.paymentMethod)?.id??document.paymentMethod??"";
+    if(!isRemainderSale(document)&&Object.hasOwn(document,"note"))input.note=document.note??"";
+    if(managementKind(document)==="bottle"){const bottle=data.products.find(product=>product.id===document.managementProductId);if(bottle)input.note=bottle.note??"";}
     return input;
   }
   const [dirty,setDirty]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
@@ -121,8 +123,8 @@ export default function PerfumeDivisions({ data, run, openDoc, onSource, editReq
     setDependencies([]);
     const selected=batches.find(batch=>batch.product.id===seed.decantProductId&&batch.lot.id===seed.lotId);
     const wh=String(seed.warehouseId??defaultWarehouse);
-    setKind(next);setTab(tabFor(next));onSectionChange?.(tabFor(next));setValues({...blank(defaultWarehouse),...(selected?{actualQuantity:String(next==="recombine"?remainderSaleAvailable(selected.product.id,selected.lot,wh,document):selected.lot.stocks[wh]??0)}:{}),...normalize(seed)});setEditing(document);setBottleEdit(productId);setDirty(false);setError("");setSearch("");
     const selectedBottle=bottles.find(p=>p.id===productId);setBottleExpected(selectedBottle?bottleSnapshot(selectedBottle):undefined);
+    setKind(next);setTab(tabFor(next));onSectionChange?.(tabFor(next));setValues({...blank(defaultWarehouse),...(selected?{actualQuantity:String(next==="recombine"?remainderSaleAvailable(selected.product.id,selected.lot,wh,document):selected.lot.stocks[wh]??0)}:{}),...normalize(seed),...(selectedBottle?{note:selectedBottle.note??""}:{})});setEditing(document);setBottleEdit(productId);setDirty(false);setError("");setSearch("");
     editorRef.current?.scrollIntoView({block:"start",behavior:"smooth"});
   }
   async function switchTab(next:Tab){if(busy||!await mayDiscard())return false;reset();setContext(null);setLastSaved("");setTab(next);setKind(next==="bottles"?"bottle":next==="stock"?"opening":"split");setSearch("");return true}

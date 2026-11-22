@@ -6,6 +6,7 @@ import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { build } from "esbuild";
+import { inflateRawSync } from "node:zlib";
 import { assertControlBounds, captureControlLayouts } from "./ui-control-bounds.mjs";
 
 if (process.env.CI !== "true" || process.env.GITHUB_ACTIONS !== "true" || process.platform !== "win32") {
@@ -114,17 +115,19 @@ async function main() {
     import{tr}from"./app/i18n/messages";
     function Shell(){
       const[data,setData]=useState(null),[sourceId,setSourceId]=useState(${JSON.stringify(employeeId)}),[view,setView]=useState("employees");
-      const[selectedPartyId,setSelectedPartyId]=useState(null),[expenseEditId,setExpenseEditId]=useState(null),[statementPreviewId,setStatementPreviewId]=useState(null),editorGuard=useRef(null),pending=useRef(false);
+      const[selectedPartyId,setSelectedPartyId]=useState(null),[expenseEditId,setExpenseEditId]=useState(null),[statementPreviewId,setStatementPreviewId]=useState(null),[notePerfumeEditId,setNotePerfumeEditId]=useState(null),editorGuard=useRef(null),pending=useRef(false);
       const{setLocale}=useI18n(),confirmAction=useAppConfirm();
       const register=useCallback(guard=>{editorGuard.current=guard},[]);
       const prepare=()=>requestEditorReplacement({hasPendingCommands:()=>pending.current,getGuard:()=>editorGuard.current,confirmDiscard:()=>confirmAction({message:tr("لديك تعديلات غير محفوظة. هل تريد تجاهلها والانتقال؟")}),onPending:()=>{window.__smokePendingBlocked=true}});
       const refresh=async()=>{const response=await fetch("/api/bootstrap"),value=await response.json();if(!response.ok)throw new Error(value.error||"Bootstrap failed");setData(value)};
       useEffect(()=>{void refresh().catch(error=>{window.__smokeError=error.stack;console.error(error)})},[]);
       useEffect(()=>{
-        window.__smokeSetView=async next=>{if(!await prepare())return false;await refresh();setStatementPreviewId(null);setView(next);document.getElementById("root").className="app-shell section-"+(next.startsWith("bank-")?"banks":next==="perfume"?"decantInvoices":["party-ledger","expense-report","overview","stock-report","financial-report"].includes(next)?"reports":next==="party-detail"?"customers":next==="sale"?"pos":next==="purchase"?"purchases":next);return true};
+        window.__smokeSetView=async next=>{if(!await prepare())return false;await refresh();setStatementPreviewId(null);setView(next);document.getElementById("root").className="app-shell section-"+(next.startsWith("bank-")?"banks":next==="perfume"||next==="perfume-note"?"decantInvoices":["party-ledger","expense-report","overview","stock-report","financial-report"].includes(next)?"reports":next==="party-detail"?"customers":next==="sale"?"pos":next==="purchase"?"purchases":next);return true};
         window.__smokeSetLocale=setLocale;
+        window.__smokeOpenNoteDocument=async id=>{if(!await prepare())return false;await refresh();setStatementPreviewId(id);return true};
+        window.__smokeEditPerfumeNote=async id=>{if(!await prepare())return false;await refresh();setNotePerfumeEditId(id);setView("perfume-note");document.getElementById("root").className="app-shell section-decantInvoices";return true};
         window.__smokeEditExpense=async id=>{if(!await prepare())return false;await refresh();setView("expenses");setExpenseEditId(id);document.getElementById("root").className="app-shell section-expenses";return true};
-        return()=>{delete window.__smokeSetView;delete window.__smokeSetLocale;delete window.__smokeEditExpense};
+        return()=>{delete window.__smokeSetView;delete window.__smokeSetLocale;delete window.__smokeEditExpense;delete window.__smokeOpenNoteDocument;delete window.__smokeEditPerfumeNote};
       },[setLocale]);
       const run=async(body,_message,afterSuccess)=>{
         window.__smokeCommandCount=(window.__smokeCommandCount||0)+1;
@@ -137,7 +140,7 @@ async function main() {
         }finally{window.__payrollBusy=false;pending.current=false}
       };
       if(!data)return <p>Loading</p>;
-      const openDoc=id=>{window.__openedPayrollDocument=id};
+      const openDoc=id=>{window.__openedPayrollDocument=id;if(window.__smokeNotesReadMode)setStatementPreviewId(id)};
       const statementDocument=data.documents.find(row=>row.id===statementPreviewId);
       if(statementDocument)return <DocumentDetail document={statementDocument} data={data} close={()=>setStatementPreviewId(null)}/>;
       if(view==="bank-adjustment"||view==="bank-movements")return <Banks data={data} run={run} openDoc={id=>{window.__openedPayrollDocument=id;setStatementPreviewId(id)}} openSource={target=>{window.__openedReportSource=target}} tab={view==="bank-adjustment"?"adjustment":"movements"} sourceRequest={null} clearSourceRequest={()=>{}} registerEditorGuard={register} prepareEditorReplacement={prepare}/>;
@@ -152,7 +155,7 @@ async function main() {
       if(view==="expense-report"||view==="overview")return <Reports key={view} data={data} openDoc={openDoc} openSource={target=>{window.__openedReportSource=target}} type={view==="overview"?"overview":"expenses"} sourceRequest={null} clearSourceRequest={()=>{}}/>;
       if(view==="sale")return <Pos data={data} run={run} openDoc={openDoc} editRequest={null} clearEditRequest={()=>{}} requestPrint={id=>{window.__printedInvoice=id}} openStockAdjustment={()=>{throw new Error("Unexpected inventory editor in invoice smoke")}} registerEditorGuard={register} prepareEditorReplacement={prepare}/>;
       if(view==="purchase")return <Purchases data={data} run={run} openDoc={openDoc} editRequest={null} clearEditRequest={()=>{}} requestPrint={id=>{window.__printedInvoice=id}} registerEditorGuard={register} prepareEditorReplacement={prepare}/>;
-      return view==="perfume"?<DecantInvoicesPage data={data} run={run} openDoc={id=>{window.__openedPerfumeDocument=id}} requestPrint={id=>{window.__printedPerfumeDocument=id}}/>:<EmployeesPage data={data} run={run} openDoc={id=>{window.__openedPayrollDocument=id}} sourceId={sourceId} clearSource={()=>setSourceId(null)} registerEditorGuard={register}/>;
+      return view==="perfume"||view==="perfume-note"?<DecantInvoicesPage data={data} run={run} openDoc={id=>{window.__openedPerfumeDocument=id;if(window.__smokeNotesReadMode)setStatementPreviewId(id)}} requestPrint={id=>{window.__printedPerfumeDocument=id}} editRequest={view==="perfume-note"?notePerfumeEditId:null} clearEditRequest={()=>setNotePerfumeEditId(null)}/>:<EmployeesPage data={data} run={run} openDoc={id=>{window.__openedPayrollDocument=id}} sourceId={sourceId} clearSource={()=>setSourceId(null)} registerEditorGuard={register}/>;
     }
     createRoot(document.getElementById("root")).render(<LocaleProvider initialLocale="ar"><ConfirmationProvider><Shell/></ConfirmationProvider></LocaleProvider>);
   `;
@@ -387,6 +390,11 @@ async function main() {
   const {runMovementStatementScenarios}=await import("./movement-statement-ui-scenarios.mjs");
   result.movementStatements=await runMovementStatementScenarios({cdp,origin:base,command,database,screenshot});
   result.checkpoints.push(...result.movementStatements.checkpoints);
+  const remainderNote=await preparePerfumeNoteFixture({cdp,command,database,screenshot});
+  result.remainderNoteForm={sourceId:remainderNote.id,layouts:remainderNote.layouts,savedFromActualTextarea:true,businessTermsUnchanged:true};
+  result.documentNotes=await runDocumentNotesMatrix({cdp,command,database,screenshot,extras:[remainderNote]});
+  result.checkpoints.push(...result.documentNotes.checkpoints);
+  result.checkpoints.push("The actual remainder-sale textarea reloads its saved note, saves a changed multiline note through the native confirmation, and reopens it in invoice/print/Excel while cash, liquid quantities, allocations and saved costs remain fixed");
   assert.deepEqual(cdp.errors, []);
   result.status = "passed";
 }
@@ -483,6 +491,93 @@ async function perfumeScenarios({database,command,screenshot}) {
   }
   assert.deepEqual(await Promise.all(["products","documents","stockMovements","financialMovements","paymentAccounts"].map(name=>database.collection(name).find().toArray())),historyBeforeLocale,"Locale/layout changes preserve all business records");
   result.checkpoints.push("Actual opening UI saves40of100ml at cost1000/value400 without cash, then shows before0 RIGHT/left-arrow/after40 LEFT at1280 and760 in Arabic and French");
+}
+
+async function preparePerfumeNoteFixture({cdp,command,database,screenshot}) {
+  const evaluate=code=>cdp.evaluate(code),until=async(check,label)=>{const end=Date.now()+25000;while(Date.now()<end){if(await check())return;await new Promise(resolve=>setTimeout(resolve,50))}throw Error("Timed out waiting for "+label)};
+  const data=await (await fetch("http://127.0.0.1:"+server.address().port+"/api/bootstrap")).json(),warehouse=data.warehouses.find(row=>row.isSalesDefault&&!row.isArchived);assert(warehouse);
+  const accountId=await command({type:"payment-account.create",name:"حساب ملاحظة بيع المتبقي",openingBalance:0});
+  const sourceId=await command({type:"product.create",name:"عطر ملاحظة بيع المتبقي",pieceCost:1000,piecePrice:1500,openingStock:1,openingWarehouseId:warehouse.id});
+  const conversionId=await command({type:"perfume-split.post",sourceProductId:sourceId,warehouseId:warehouse.id,volumeMl:100,priceBasisMl:10,salePrice:200});
+  const conversion=await database.collection("documents").findOne({id:conversionId}),initial="ملاحظة بيع المتبقي قبل التعديل";
+  const id=await command({type:"perfume-remainder-sale.post",productId:conversion.decantProductId,lotId:conversion.perfumeLotId,warehouseId:warehouse.id,quantityMl:5,totalPrice:100,paymentMethod:accountId,cashAmount:100,note:initial});
+  const source=await database.collection("documents").findOne({id}),lineProjection=document=>document.lines.map(line=>Object.fromEntries(["productId","quantity","quantityUnit","liquidQuantityMl","unitPrice","lineTotal","costAtSale","grossProfit","perfumeAllocations"].map(key=>[key,line[key]])));
+  const business=async()=>{const product=await database.collection("products").findOne({id:conversion.decantProductId}),lot=product.perfumeLots.find(row=>row.id===conversion.perfumeLotId);return{cash:(await database.collection("paymentAccounts").findOne({id:accountId})).balance,stocks:product.stocks,lot:Object.fromEntries(["stocks","remainingQuantity","liquidUnitCost","landedUnitCost","settledAt","totalLandedCost","bookValue"].map(key=>[key,lot[key]]))}};
+  const before=await business(),lines=lineProjection(source),note="ملاحظة بيع المتبقي المحفوظة <&>\nTexte français de la vente du reliquat.\nلا تتغير كمية السائل أو التكلفة أو النقد.";
+  await evaluate('window.__smokeSetLocale("ar")');assert.equal(await evaluate('window.__smokeEditPerfumeNote('+JSON.stringify(id)+')'),true);
+  await until(()=>evaluate('document.querySelector(".pm-editor-form textarea")?.value==='+JSON.stringify(initial)),"saved remainder note in actual textarea");
+  await evaluate('(()=>{const e=document.querySelector(".pm-editor-form textarea");Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,"value").set.call(e,'+JSON.stringify(note)+');e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}))})()');
+  const layouts=await captureControlLayouts({cdp,screenshot,scope:".pm-editor-form label.pm-wide:has(textarea)",name:"notes-remainder-textarea-ar",widths:[1280,480]});
+  await evaluate('(()=>{const b=document.querySelector(".pm-form-actions button.primary");if(!b||b.disabled)throw Error("Unavailable remainder save");b.click()})()');
+  await until(()=>evaluate('Boolean(document.querySelector(".app-confirm-dialog"))'),"native remainder edit confirmation");
+  await evaluate('document.querySelector(".app-confirm-actions button:first-child").click()');
+  let saved;await until(async()=>{saved=await database.collection("documents").findOne({id});return saved?.note===note&&await evaluate("!window.__payrollBusy")},"typed remainder note committed");
+  assert.deepEqual(await business(),before,"Remainder note edit preserves liquid lots and cash");assert.deepEqual(lineProjection(saved),lines,"Remainder note edit preserves allocations and saved cost/revenue");assert.equal(saved.total,source.total);
+  return{id,label:"perfume-remainder",note,layouts};
+}
+
+async function runDocumentNotesMatrix({cdp,command,database,screenshot,extras=[]}) {
+  const evaluate=code=>cdp.evaluate(code),checkpoints=[],cases=[],exports=[],layouts=[];
+  const until=async(check,label)=>{const end=Date.now()+25000;while(Date.now()<end){if(await check())return;await new Promise(resolve=>setTimeout(resolve,50))}throw Error("Timed out waiting for "+label)};
+  const click=selector=>evaluate('(()=>{const e=document.querySelector('+JSON.stringify(selector)+');if(!e||e.disabled)throw Error("Unavailable note control");e.click()})()');
+  const fill=(selector,value)=>evaluate('(()=>{const e=document.querySelector('+JSON.stringify(selector)+');if(!e)throw Error("Missing note control");const p=e.tagName==="SELECT"?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,"value").set.call(e,'+JSON.stringify(value)+');e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}))})()');
+  const {displayDocumentNumber}=await import("../lib/document-sequences.ts");
+  const today=new Date().toISOString().slice(0,10),bootstrap=await (await fetch("http://127.0.0.1:"+server.address().port+"/api/bootstrap")).json();
+  const warehouse=bootstrap.warehouses.find(row=>row.isSalesDefault&&!row.isArchived);assert(warehouse);
+  const accountId=await command({type:"payment-account.create",name:"حساب مصفوفة ملاحظات السندات",openingBalance:2000});
+  const productId=await command({type:"product.create",name:"منتج مصفوفة الملاحظات",pieceCost:10,piecePrice:20,openingStock:20,openingWarehouseId:warehouse.id});
+  const otherWarehouseId=await command({type:"warehouse.create",name:"مخزن مصفوفة الملاحظات"});
+  const partyId=await command({type:"party.create",partyType:"customer",name:"عميل مصفوفة الملاحظات"});
+  const employeeId=await command({type:"employee.create",name:"عامل مصفوفة الملاحظات",amount:0,startDate:today,intervalMonths:1,entitlement:"end"});
+  const longNote="سند محفوظ: <&> نص عربي لا يترجم.\nTexte français conservé intégralement.\n"+("تفاصيل متعددة للملاحظة المحفوظة دون تغيير مالي. ".repeat(5)).trim();
+  const add=async(id,label,note)=>{await database.collection("documents").updateOne({id},{$set:{note}});cases.push({id,label,note})};
+  await add(await command({type:"purchase.post",warehouseId:warehouse.id,paymentMethod:accountId,lines:[{productId,quantity:10,unitPrice:10}]}),"purchase","شراء");
+  await add(await command({type:"sale.post",warehouseId:warehouse.id,paymentMethod:accountId,lines:[{productId,quantity:2,piecePrice:20}]}),"sale",longNote);
+  await add(await command({type:"expense.post",title:"مصروف له ملاحظة محفوظة",amount:5,occurredAt:today,paymentMethod:accountId}),"expense","ملاحظة المصروف <&>");
+  await add(await command({type:"transfer.post",fromWarehouseId:warehouse.id,toWarehouseId:otherWarehouseId,lines:[{productId,quantity:1}]}),"stock-transfer","ملاحظة تحويل المخزون");
+  await add(await command({type:"adjustment.post",warehouseId:warehouse.id,reason:"سبب جرد مستقل عن الملاحظة",lines:[{productId,actualQuantity:28}]}),"stock-adjustment",longNote);
+  await add(await command({type:"party-opening.post",partyId,direction:"receivable",amount:11,note:"رصيد افتتاحي محفوظ"}),"party-opening","رصيد افتتاحي محفوظ");
+  await add(await command({type:"party-cash.post",partyId,direction:"pay",amount:3,paymentMethod:accountId,note:"إرجاع مبلغ للعميل"}),"party-refund","إرجاع مبلغ للعميل");
+  await add(await command({type:"employee-payment.post",employeeId,direction:"deposit",amount:4,paymentMethod:accountId,occurredAt:today,note:"ملاحظة حركة العامل"}),"worker-payment","ملاحظة حركة العامل");
+  await add(await command({type:"account-transfer.post",fromAccountId:accountId,toAccountId:bootstrap.paymentAccounts.find(row=>row.isActive&&!row.isArchived).id,amount:6,note:"بيان تحويل الحسابات"}),"account-transfer","بيان تحويل الحسابات");
+  await add(await command({type:"sale.post",warehouseId:warehouse.id,paymentMethod:accountId,lines:[{productId,quantity:1,piecePrice:20}]}),"empty-sale","");
+  cases.push(...extras);
+  await evaluate('window.__smokeSetView("records")');
+  const snapshot=()=>Promise.all(["products","parties","employees","warehouses","documents","stockMovements","financialMovements","paymentAccounts","accountTransfers","auditEvents","commandReceipts"].map(name=>database.collection(name).find().sort({id:1,_id:1}).toArray()));
+  const before=await snapshot();
+  const texts=bytes=>{const data=Buffer.from(bytes),cells=[];let offset=0;while(offset+30<=data.length&&data.readUInt32LE(offset)===0x04034b50){const flags=data.readUInt16LE(offset+6),method=data.readUInt16LE(offset+8),size=data.readUInt32LE(offset+18),nameLength=data.readUInt16LE(offset+26),extraLength=data.readUInt16LE(offset+28),name=data.subarray(offset+30,offset+30+nameLength).toString("utf8"),start=offset+30+nameLength+extraLength;assert.equal(flags&8,0);assert(start+size<=data.length);assert([0,8].includes(method));if(/^xl\/worksheets\/.+\.xml$/.test(name)){const packed=data.subarray(start,start+size),xml=(method===8?inflateRawSync(packed):packed).toString("utf8");for(const match of xml.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g))cells.push(match[1].replaceAll("&lt;","<").replaceAll("&gt;",">").replaceAll("&quot;",'"').replaceAll("&apos;","'").replaceAll("&amp;","&"))}offset=start+size}assert(cells.length);return cells};
+  await evaluate('(()=>{window.__notesPreviousPrinting=window.alkarnaPrinting;window.__noteExports=[];window.__smokeNotesReadMode=true;window.alkarnaPrinting={getSettings:async()=>({deviceName:null,profile:"a4"}),saveExport:async request=>{window.__noteExports.push({name:request.suggestedName,bytes:Array.from(request.data)});return{ok:true}}}})()');
+  try {
+    for(const entry of cases){
+      const document=await database.collection("documents").findOne({id:entry.id});assert(document);const reference=displayDocumentNumber(document);
+      for(const locale of ["ar","fr"]){
+        await evaluate('window.__smokeSetLocale('+JSON.stringify(locale)+')');await until(()=>evaluate('document.documentElement.lang==='+JSON.stringify(locale)),"note locale");
+        await evaluate('window.__smokeSetView("records")');await until(()=>evaluate('Boolean(document.querySelector(".records-kind-filter"))'),"actual Records source list");
+        const historyStart=cdp.network.length;
+        await click(".records-filters .compact-date-range button:last-child");
+        await fill(".records-kind-filter",document.kind);await fill('.records-filters input:not([type=date])',document.number);
+        await until(()=>cdp.network.slice(historyStart).some(entry=>{if(typeof entry.url!=="string"||!entry.url.includes("/api/history?"))return false;const query=new URL(entry.url).searchParams;return entry.status===200&&query.get("kind")===document.kind&&query.get("q")===document.number}),"filtered source history response");
+        await until(()=>evaluate('(()=>{const t=document.querySelector(".records-workspace .recent-table tbody");return t&&[...t.querySelectorAll("tr")].some(r=>r.children.length>=7&&r.children[2]?.textContent.trim()==='+JSON.stringify(reference)+')})()'),"persisted note source in Records");
+        await evaluate('(()=>{const row=[...document.querySelectorAll(".records-workspace .recent-table tbody tr")].find(r=>r.children.length>=7&&r.children[2]?.textContent.trim()==='+JSON.stringify(reference)+');if(!row)throw Error("Missing note source");row.click()})()');
+        await until(()=>evaluate('Boolean(document.querySelector(".official-document-layout"))'),"actual document notes preview");
+        assert.equal(await evaluate('window.__openedPayrollDocument'),entry.id,"Records routes the selected source identity");
+        const shown=await evaluate('({screen:[...document.querySelectorAll(".official-document-scroll .official-record-meta b")].map(e=>e.textContent.trim()),print:[...document.querySelectorAll(".document-print-portal .official-record-meta b")].map(e=>e.textContent.trim()),noteLabels:[...document.querySelectorAll(".official-document-scroll .official-record-meta small")].map(e=>e.textContent.trim())})');
+        if(entry.note){assert.equal(shown.screen.filter(text=>text===entry.note).length,1,entry.label+" literal note appears once");assert.equal(shown.print.filter(text=>text===entry.note).length,1,entry.label+" print note appears once")}
+        else assert.equal(shown.noteLabels.some(text=>["ملاحظة","Note"].includes(text)),false,"An empty note does not create an empty metadata row");
+        if(["sale","stock-adjustment"].includes(entry.label)&&locale==="fr")layouts.push(...await captureControlLayouts({cdp,screenshot,scope:".official-document-layout",name:"notes-"+entry.label+"-"+locale,widths:[1280,480]}));
+        if(entry.note.includes("\n")){const geometry=await evaluate('(()=>{const e=[...document.querySelectorAll(".official-document-scroll .official-record-meta b")].find(e=>e.textContent.trim()==='+JSON.stringify(entry.note)+');const r=e.getBoundingClientRect();return{width:e.clientWidth,scrollWidth:e.scrollWidth,whiteSpace:getComputedStyle(e).whiteSpace,left:r.left,right:r.right}})()');assert(geometry.scrollWidth<=geometry.width+1,"Long saved note wraps within metadata");assert(["pre-wrap","pre-line","break-spaces"].includes(geometry.whiteSpace))}
+        if(entry.label==="sale"&&locale==="ar")await screenshot("notes-sale-ar-1280",1280);
+        const count=await evaluate("window.__noteExports.length");await click(".official-document-toolbar button.soft");await until(()=>evaluate('Boolean(document.querySelector(".output-choice-dialog"))'),"notes output choice");await click(".output-choice-grid button:last-child");await until(()=>evaluate("window.__noteExports.length>"+count),"actual note Excel bytes");
+        const workbook=await evaluate("window.__noteExports.at(-1)"),values=texts(workbook.bytes);if(entry.note)assert.equal(values.filter(text=>text===entry.note).length,1,"Actual Excel contains the literal note exactly once");
+        exports.push({kind:entry.label,locale,bytes:workbook.bytes.length,note:entry.note,sourceId:entry.id});
+        await click(".official-document-toolbar button.back");await until(()=>evaluate('!document.querySelector(".official-document-layout")'),"closed notes source");
+      }
+    }
+    assert.deepEqual(await snapshot(),before,"Source notes, amounts, stock, cash, parties, costs, audit and receipts stay unchanged during preview/print/Excel reads");
+    checkpoints.push("Persisted notes across invoices, expenses, stock movements, opening balances, refunds and worker/account cash sources reopen through actual Records and appear once in native preview, print and actual Excel in Arabic and French");
+    checkpoints.push("Literal translation-key and long multiline notes remain untranslated, empty notes omit their row, strict AR/FR layouts pass and every source/financial/stock snapshot remains unchanged on read");
+    return{checkpoints,cases:cases.map(({id,label,note})=>({id,kind:label,note})),exports,layouts,sourceSnapshotsUnchanged:true};
+  } finally {await evaluate('(()=>{window.alkarnaPrinting=window.__notesPreviousPrinting;delete window.__notesPreviousPrinting;delete window.__noteExports;delete window.__smokeNotesReadMode})()')}
 }
 
 try {

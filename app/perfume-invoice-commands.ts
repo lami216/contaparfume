@@ -268,7 +268,7 @@ async function createBottle(db: Db, session: ClientSession, body: Input) {
   const product = {
     id: id("product"), sku: await nextProductCode(db, session), name, barcode: "",
     pieceCost: cost, lastPurchaseCost: null, lastPurchaseAt: null, piecePrice: null, wholesalePrice: null,
-    expiryDate: null, note: null, perfumeForm: "bottle", parentProductId: null, decantSizeMl: sizeMl,
+    expiryDate: null, note: text(body.note) || null, perfumeForm: "bottle", parentProductId: null, decantSizeMl: sizeMl,
     stocks: {}, createdAt: new Date(),
   };
   await db.collection("products").insertOne(product, { session });
