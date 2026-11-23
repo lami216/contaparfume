@@ -94,6 +94,26 @@
   gap: 6px;
 }
 
+/* The opening control may render no DOM after posting. Keep history in the
+   expanding row rather than letting its position follow optional siblings. */
+.party-detail {
+  grid-template-areas: "summary" "opening" "history";
+  grid-template-rows: auto auto minmax(0, 1fr) !important;
+}
+
+.party-detail > .party-detail-top {
+  grid-area: summary;
+}
+
+.party-detail > :is(.party-opening-launch, .party-opening-editor) {
+  grid-area: opening;
+}
+
+.party-detail > .party-history {
+  grid-area: history;
+  min-height: 0;
+}
+
 .party-detail .party-detail-top {
   min-width: 0;
   grid-template-columns: minmax(220px, .85fr) minmax(0, 1.65fr);

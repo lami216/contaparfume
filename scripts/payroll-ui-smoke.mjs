@@ -396,6 +396,10 @@ async function main() {
   result.checkpoints.push(...result.documentNotes.checkpoints);
   result.checkpoints.push("The actual remainder-sale textarea reloads its saved note, saves a changed multiline note through the native confirmation, and reopens it in invoice/print/Excel while cash, liquid quantities, allocations and saved costs remain fixed");
   assert.deepEqual(cdp.errors, []);
+  const {runPartyOpeningNotesScenarios}=await import("./party-opening-notes-ui-scenarios.mjs");
+  result.partyOpeningNotes=await runPartyOpeningNotesScenarios({cdp,command,database,screenshot});
+  result.checkpoints.push(...result.partyOpeningNotes.checkpoints);
+  assert.deepEqual(cdp.errors, []);
   result.status = "passed";
 }
 
